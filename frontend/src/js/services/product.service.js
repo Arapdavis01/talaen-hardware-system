@@ -1,9 +1,9 @@
-﻿const ProductService = {
+const ProductService = {
     _cache: [],
 
     async _fetchFromAPI() {
         try {
-            const res = await fetch('http://localhost:8080/api/products');
+            const res = await fetch('/api/products');
             if (res.ok) {
                 const data = await res.json();
                 if (Array.isArray(data)) {
@@ -29,7 +29,7 @@
 
     async create(productData) {
         try {
-            await fetch('http://localhost:8080/api/products', {
+            await fetch('/api/products', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(productData)
@@ -40,7 +40,7 @@
 
     async update(id, updates) {
         try {
-            await fetch('http://localhost:8080/api/products/' + id, {
+            await fetch('/api/products/' + id, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)
@@ -51,14 +51,14 @@
 
     async delete(id) {
         try {
-            await fetch('http://localhost:8080/api/products/' + id, { method: 'DELETE' });
+            await fetch('/api/products/' + id, { method: 'DELETE' });
             await this._fetchFromAPI();
         } catch(e) {}
     },
 
     async updateStock(id, quantity) {
         try {
-            await fetch('http://localhost:8080/api/products/' + id + '/stock', {
+            await fetch('/api/products/' + id + '/stock', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ quantity })
