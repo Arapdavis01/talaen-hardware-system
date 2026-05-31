@@ -70,7 +70,7 @@
             var check = await fetch('http://localhost:8080/api/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user.username,password:current})});
             var cr = await check.json();
             if (!cr.success) { this.showMsg('passMsg', 'Current password incorrect!', 'danger'); return; }
-            await fetch('http://localhost:8080/api/users/'+user.id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:newPass})});
+            await fetch('/api/users/'+user.id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:newPass})});
             this.showMsg('passMsg', 'Password changed! Please login again.', 'success');
             setTimeout(function(){ AppRouter.logout(); }, 2000);
         } catch(e) { this.showMsg('passMsg', 'Error: '+e.message, 'danger'); }
@@ -83,10 +83,10 @@
         if (!password) { this.showMsg('profileMsg', 'Enter password to confirm!', 'danger'); return; }
         
         try {
-            var check = await fetch('http://localhost:8080/api/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user.username,password:password})});
+            var check = await fetch('/api/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user.username,password:password})});
             var cr = await check.json();
             if (!cr.success) { this.showMsg('profileMsg', 'Password incorrect!', 'danger'); return; }
-            await fetch('http://localhost:8080/api/users/'+user.id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullName:fullName,username:username})});
+            await fetch('/api/users/'+user.id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullName:fullName,username:username})});
             user.fullName = fullName; user.username = username;
             this.showMsg('profileMsg', 'Profile updated! Login again.', 'success');
             setTimeout(function(){ AppRouter.logout(); }, 2000);
