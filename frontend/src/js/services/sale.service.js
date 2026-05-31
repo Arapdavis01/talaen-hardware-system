@@ -9,7 +9,7 @@ const SaleService = {
     async create(saleData) {
         const subtotal = saleData.items.reduce((s, i) => s + (i.price * i.quantity), 0);
         const tax = subtotal * 0.16;
-        const total = subtotal + tax - (saleData.discount || 0);
+        const total = subtotal + tax - (saleData.discount || 0) + (saleData.transportCost || 0);
         const receiptNo = 'TIH-' + Date.now().toString(36).toUpperCase();
         const user = AuthService.getCurrentUser();
         
