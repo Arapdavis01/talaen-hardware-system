@@ -1,8 +1,8 @@
-﻿const SaleService = {
+const SaleService = {
     _cache: [],
 
     async getAll() {
-        try { const res = await fetch('http://localhost:8080/api/sales'); if (res.ok) { this._cache = await res.json(); return this._cache; } } catch(e) {}
+        try { const res = await fetch('/api/sales'); if (res.ok) { this._cache = await res.json(); return this._cache; } } catch(e) {}
         return this._cache;
     },
 
@@ -14,7 +14,7 @@
         const user = AuthService.getCurrentUser();
         
         try {
-            const res = await fetch('http://localhost:8080/api/sales', {
+            const res = await fetch('/api/sales', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     customerName: saleData.customerName || 'Walk-in Customer',
@@ -49,12 +49,12 @@
     },
 
     async getCashierSales(cashierId) {
-        try { const res = await fetch('http://localhost:8080/api/sales/cashier/' + cashierId); return await res.json(); } catch(e) {}
+        try { const res = await fetch('/api/sales/cashier/' + cashierId); return await res.json(); } catch(e) {}
         return { all: [], today: [], totalAll: 0, totalToday: 0 };
     },
 
     async getCashiersSummary() {
-        try { const res = await fetch('http://localhost:8080/api/sales/cashiers-summary'); return await res.json(); } catch(e) {}
+        try { const res = await fetch('/api/sales/cashiers-summary'); return await res.json(); } catch(e) {}
         return [];
     },
 
