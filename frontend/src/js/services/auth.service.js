@@ -1,5 +1,5 @@
 const AuthService = {
-    API_URL: 'http://localhost:8080/api',
+    API_URL: '/api',
 
     _state: {
         isLoggedIn: false,
