@@ -1,0 +1,124 @@
+{
+  "products": [
+    {
+      "id": 1,
+      "sku": "BLD-BAM-CEM-0001",
+      "name": "Cement",
+      "brand": "Bamburi",
+      "variant": "50kg",
+      "category": "Building Materials",
+      "description": "High-quality Portland cement",
+      "price": 850,
+      "cost": 720,
+      "stock": 100,
+      "unit": "bag",
+      "minStock": 20,
+      "barcode": "",
+      "supplier": "",
+      "isActive": true,
+      "createdAt": "2024-01-15T08:00:00.000Z",
+      "updatedAt": "2024-01-15T08:00:00.000Z"
+    },
+    {
+      "id": 2,
+      "sku": "BLD-BLC-CEM-0002",
+      "name": "Cement",
+      "brand": "Blue Circle",
+      "variant": "50kg",
+      "category": "Building Materials",
+      "price": 820,
+      "cost": 700,
+      "stock": 80,
+      "unit": "bag",
+      "minStock": 15,
+      "isActive": true,
+      "createdAt": "2024-01-15T08:00:00.000Z",
+      "updatedAt": "2024-01-15T08:00:00.000Z"
+    },
+    {
+      "id": 3,
+      "sku": "BLD-SIM-CEM-0003",
+      "name": "Cement",
+      "brand": "Simba",
+      "variant": "50kg",
+      "category": "Building Materials",
+      "price": 800,
+      "cost": 680,
+      "stock": 120,
+      "unit": "bag",
+      "minStock": 20,
+      "isActive": true,
+      "createdAt": "2024-01-15T08:00:00.000Z",
+      "updatedAt": "2024-01-15T08:00:00.000Z"
+    },
+    {
+      "id": 4,
+      "sku": "ROF-MRM-IRS-0004",
+      "name": "Iron Sheets",
+      "brand": "Mabati Rolling Mills",
+      "variant": "G30",
+      "category": "Roofing",
+      "price": 1850,
+      "cost": 1600,
+      "stock": 150,
+      "unit": "sheet",
+      "minStock": 30,
+      "isActive": true,
+      "createdAt": "2024-01-15T08:00:00.000Z",
+      "updatedAt": "2024-01-15T08:00:00.000Z"
+    },
+    {
+      "id": 5,
+      "sku": "ROF-MRM-IRS-0005",
+      "name": "Iron Sheets",
+      "brand": "Mabati Rolling Mills",
+      "variant": "G32",
+      "category": "Roofing",
+      "price": 2100,
+      "cost": 1850,
+      "stock": 100,
+      "unit": "sheet",
+      "minStock": 20,
+      "isActive": true,
+      "createdAt": "2024-01-15T08:00:00.000Z",
+      "updatedAt": "2024-01-15T08:00:00.000Z"
+    }
+  ],
+  "sales": [],
+  "customers": [],
+  "settings": {
+    "id": 1,
+    "storeName": "Talaen Investment Hardware",
+    "adminPassword": "admin1234",
+    "securityQuestion": "What is your favorite pet's name?",
+    "securityAnswer": "talaen2024",
+    "taxRate": 16,
+    "currency": "KES",
+    "lowStockDefault": 10
+  },
+  "users": [
+    {
+      "id": 1,
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin",
+      "fullName": "ARAPDAVIS",
+      "isActive": true
+    },
+    {
+      "id": 2,
+      "username": "cashier",
+      "password": "cashier123",
+      "role": "cashier",
+      "fullName": "Cashier User",
+      "isActive": true
+    },
+    { "id": 3,
+      "username": "Danco",
+      "password": "danco123",
+      "role": "cashier",
+      "fullname": "Dancun",
+      "isActive": true
+    }
+  ]
+}

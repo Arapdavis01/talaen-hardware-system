@@ -1,0 +1,17 @@
+{
+  "name": "talaen-hardware-system",
+  "version": "2.0.0",
+  "description": "Talaen Investment Hardware Management System",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "mysql2": "^3.22.3"
+  }
+}
