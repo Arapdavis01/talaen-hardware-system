@@ -31,7 +31,7 @@ const AdminCreditComponent = {
 
     async loadSummary() {
         try {
-            var res = await fetch('http://localhost:8080/api/credit-summary');
+            var res = await fetch('/api/credit-summary');
             var data = await res.json();
             var div = document.getElementById('creditSummary');
             if (div) {
@@ -46,7 +46,7 @@ const AdminCreditComponent = {
 
     async loadCustomers() {
         try {
-            var res = await fetch('http://localhost:8080/api/credit-customers');
+            var res = await fetch('/api/credit-customers');
             var customers = await res.json();
             var div = document.getElementById('allCustomersTable');
             if (div) {
@@ -90,11 +90,11 @@ const AdminCreditComponent = {
 
     async loadRecentSales() {
         try {
-            var res = await fetch('http://localhost:8080/api/credit-sales');
+            var res = await fetch('/api/credit-sales');
             var sales = await res.json();
             var div = document.getElementById('recentCreditSales');
             if (div) {
-                var custRes = await fetch('http://localhost:8080/api/credit-customers');
+                var custRes = await fetch('/api/credit-customers');
                 var customers = await custRes.json();
                 var debtors = customers.filter(function(c) { return Number(c.totalDebt) > 0; });
                 var debtorIds = debtors.map(function(c) { return c.id; });
@@ -133,8 +133,8 @@ const AdminCreditComponent = {
     },
 
     viewCustomerSales(customerId) {
-        fetch('http://localhost:8080/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(c){
-            fetch('http://localhost:8080/api/credit-sales').then(function(r){return r.json();}).then(function(allSales){
+        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(c){
+            fetch('/api/credit-sales').then(function(r){return r.json();}).then(function(allSales){
                 var customerSales = allSales.filter(function(s) { return s.customerId == customerId; });
                 var totalCredit = customerSales.reduce(function(s, sale) { return s + Number(sale.amount||0); }, 0);
                 var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;"><i class="fas fa-shopping-cart"></i> Credit History - ' + c.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
@@ -151,11 +151,11 @@ const AdminCreditComponent = {
     // ========== FILTERABLE PAYMENTS ==========
     async loadRecentPayments() {
         try {
-            var res = await fetch('http://localhost:8080/api/credit-customers');
+            var res = await fetch('/api/credit-customers');
             var customers = await res.json();
             var allPayments = [];
             for (var i = 0; i < customers.length; i++) {
-                var pres = await fetch('http://localhost:8080/api/debt-payments/' + customers[i].id);
+                var pres = await fetch('/api/debt-payments/' + customers[i].id);
                 var payments = await pres.json();
                 payments.forEach(function(p) { 
                     p.customerName = customers[i].name;
@@ -231,8 +231,8 @@ const AdminCreditComponent = {
 
     // ========== OTHER FUNCTIONS ==========
     viewProducts(customerId) {
-        fetch('http://localhost:8080/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(c){
-            fetch('http://localhost:8080/api/credit-sales').then(function(r){return r.json();}).then(function(allSales){
+        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(c){
+            fetch('/api/credit-sales').then(function(r){return r.json();}).then(function(allSales){
                 var customerSales = allSales.filter(function(s) { return s.customerId == customerId; });
                 var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;"><i class="fas fa-box"></i> Products Taken by ' + c.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Total Debt:</strong> KES ' + Number(c.totalDebt||0).toLocaleString() + ' | <strong>Limit:</strong> KES ' + Number(c.debtLimit||0).toLocaleString() + '</p>';
                 if (!customerSales.length) { h += '<p style="text-align:center;color:#999;">No credit purchases found.</p>'; }
@@ -245,7 +245,7 @@ const AdminCreditComponent = {
     },
 
     viewSaleProducts(saleId) {
-        fetch('http://localhost:8080/api/sales').then(function(r){return r.json();}).then(function(sales){
+        fetch('/api/sales').then(function(r){return r.json();}).then(function(sales){
             var sale = sales.find(function(s) { return s.id == saleId; });
             if (!sale) { showStyledAlert('Error', 'Sale not found', 'times-circle', '#ef4444'); return; }
             var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;"><i class="fas fa-receipt"></i> Items - '+(sale.receiptNo||'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Customer:</strong> '+(sale.customerName||'Walk-in')+' | <strong>Date:</strong> '+new Date(sale.date).toLocaleDateString('en-KE')+'</p>';
@@ -258,17 +258,17 @@ const AdminCreditComponent = {
 
     deactivateCustomer(id, name) {
         showConfirm('Deactivate', 'Deactivate <strong>'+name+'</strong>?', function(){
-            fetch('http://localhost:8080/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:0})}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Success',name+' deactivated.','check-circle','#10b981');}});
+            fetch('/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:0})}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Success',name+' deactivated.','check-circle','#10b981');}});
         },'Deactivate','danger');
     },
 
     activateCustomer(id, name) {
-        fetch('http://localhost:8080/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:1})}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Success',name+' reactivated.','check-circle','#10b981');}});
+        fetch('/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:1})}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Success',name+' reactivated.','check-circle','#10b981');}});
     },
 
     deletePayment(paymentId, customerId, customerName, amount) {
         showConfirm('Delete Payment','Delete <strong>KES '+Number(amount).toLocaleString()+'</strong> from <strong>'+customerName+'</strong>?<br><br><span style="color:#ef4444;">⚠️ Debt restored by KES '+Number(amount).toLocaleString()+'</span>',function(){
-            fetch('http://localhost:8080/api/debt-payments/'+paymentId,{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Deleted','Payment deleted.','check-circle','#10b981');}else{showStyledAlert('Error',d.message||'Failed','times-circle','#ef4444');}});
+            fetch('/api/debt-payments/'+paymentId,{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Deleted','Payment deleted.','check-circle','#10b981');}else{showStyledAlert('Error',d.message||'Failed','times-circle','#ef4444');}});
         },'Delete','danger');
     },
 
@@ -280,23 +280,23 @@ const AdminCreditComponent = {
         m.querySelector('#saveCustBtn').onclick = function(){
             var name = m.querySelector('#regCustName').value.trim();
             if(!name){ showStyledAlert('Required','Name required!','exclamation-triangle','#f59e0b'); return; }
-            fetch('http://localhost:8080/api/credit-customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,phone:m.querySelector('#regCustPhone').value,idNumber:m.querySelector('#regCustId').value,address:m.querySelector('#regCustAddress').value,debtLimit:parseFloat(m.querySelector('#regCustLimit').value)||5000,cashierName:'Admin'})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();self.loadAll();showStyledAlert('Success','Registered!','check-circle','#10b981');}});
+            fetch('/api/credit-customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,phone:m.querySelector('#regCustPhone').value,idNumber:m.querySelector('#regCustId').value,address:m.querySelector('#regCustAddress').value,debtLimit:parseFloat(m.querySelector('#regCustLimit').value)||5000,cashierName:'Admin'})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();self.loadAll();showStyledAlert('Success','Registered!','check-circle','#10b981');}});
         };
     },
 
     editCustomer(id) {
-        fetch('http://localhost:8080/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
+        fetch('/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
             var m = document.createElement('div'); m.className = 'modal-overlay';
             m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;"><i class="fas fa-edit"></i> Edit '+c.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Name</label><input type="text" id="editCustName" class="form-control" value="'+(c.name||'')+'"></div><div class="form-group"><label>Debt Limit (KES)</label><input type="number" id="editCustLimit" class="form-control" value="'+(c.debtLimit||0)+'"></div><div class="form-group"><label>Phone</label><input type="text" id="editCustPhone" class="form-control" value="'+(c.phone||'')+'"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="updateCustBtn">Update</button></div></div>';
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
             m.querySelector('#updateCustBtn').onclick = function(){
-                fetch('http://localhost:8080/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:m.querySelector('#editCustName').value,debtLimit:parseFloat(m.querySelector('#editCustLimit').value)||5000,phone:m.querySelector('#editCustPhone').value})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();AdminCreditComponent.loadAll();}});
+                fetch('/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:m.querySelector('#editCustName').value,debtLimit:parseFloat(m.querySelector('#editCustLimit').value)||5000,phone:m.querySelector('#editCustPhone').value})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();AdminCreditComponent.loadAll();}});
             };
         });
     },
 
     viewHistory(id) {
-        fetch('http://localhost:8080/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
+        fetch('/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
             var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-history"></i> '+c.name+' - History</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(c.totalDebt||0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(c.debtLimit||0).toLocaleString()+'</p>';
             if(c.recentSales&&c.recentSales.length>0){h+='<h4>Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Debt After</th><th>Cashier</th></tr></thead><tbody>';c.recentSales.forEach(function(s){h+='<tr><td>'+new Date(s.date).toLocaleDateString('en-KE')+'</td><td style="color:#ef4444;">KES '+Number(s.amount).toLocaleString()+'</td><td>KES '+Number(s.debtAfter).toLocaleString()+'</td><td>'+s.cashierName+'</td></tr>';});h+='</tbody></table>';}
             if(c.payments&&c.payments.length>0){h+='<h4>Payments</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>';c.payments.forEach(function(p){h+='<tr><td>'+new Date(p.date).toLocaleDateString('en-KE')+'</td><td style="color:#10b981;">KES '+Number(p.amount).toLocaleString()+'</td><td>'+p.paymentMethod+'</td><td>'+p.receivedBy+'</td></tr>';});h+='</tbody></table>';}
@@ -307,14 +307,14 @@ const AdminCreditComponent = {
     },
 
     showPayment(id) {
-        fetch('http://localhost:8080/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
+        fetch('/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
             var m=document.createElement('div');m.className='modal-overlay';
             m.innerHTML='<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Record Payment - '+c.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p>Current Debt: <strong style="color:#ef4444;">KES '+Number(c.totalDebt||0).toLocaleString()+'</strong></p><div class="form-group"><label>Amount (KES)</label><input type="number" id="payAmount" class="form-control" min="1" max="'+(c.totalDebt||0)+'"></div><div class="form-group"><label>Method</label><select id="payMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmPayBtn">Confirm</button></div></div>';
             document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
             m.querySelector('#confirmPayBtn').onclick=function(){
                 var amount=parseFloat(m.querySelector('#payAmount').value)||0;
                 if(amount<=0||amount>c.totalDebt){showStyledAlert('Invalid','Enter valid amount!','times-circle','#ef4444');return;}
-                fetch('http://localhost:8080/api/debt-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customerId:id,customerName:c.name,amount:amount,paymentMethod:m.querySelector('#payMethod').value,receivedBy:'Admin'})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();AdminCreditComponent.loadAll();showStyledAlert('Success','Payment recorded!','check-circle','#10b981');}});
+                fetch('/api/debt-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customerId:id,customerName:c.name,amount:amount,paymentMethod:m.querySelector('#payMethod').value,receivedBy:'Admin'})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();AdminCreditComponent.loadAll();showStyledAlert('Success','Payment recorded!','check-circle','#10b981');}});
             };
         });
     }
