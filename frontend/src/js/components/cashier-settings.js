@@ -67,7 +67,7 @@
         if (newPass.length < 4) { this.showMsg('passMsg', 'Min 4 characters!', 'danger'); return; }
         
         try {
-            var check = await fetch('http://localhost:8080/api/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user.username,password:current})});
+            var check = await fetch('/api/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user.username,password:current})});
             var cr = await check.json();
             if (!cr.success) { this.showMsg('passMsg', 'Current password incorrect!', 'danger'); return; }
             await fetch('/api/users/'+user.id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:newPass})});
