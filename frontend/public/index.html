@@ -6,11 +6,11 @@
     <title>Talaen Investment Hardware | Premium Hardware Store System</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:ital,wght@0,100..900;1,100..900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <link rel="stylesheet" href="../src/styles/talaen-theme.css?v=221600">
-    <link rel="stylesheet" href="../src/styles/components.css?v=221600">
-    <link rel="stylesheet" href="../src/styles/layout.css?v=221600">
+    <link rel="stylesheet" href="../src/styles/talaen-theme.css?v=221700">
+    <link rel="stylesheet" href="../src/styles/components.css?v=221700">
+    <link rel="stylesheet" href="../src/styles/layout.css?v=221700">
 </head>
-<body>
+<body oncontextmenu="return false;">
     <div class="particles" id="particles"></div>
     <div id="app">
         <div id="loading-screen" class="loading-screen">
@@ -23,31 +23,47 @@
         </div>
     </div>
     
-    <script src="../src/js/utils/helpers.js?v=221600"></script>
-    <script src="../src/js/services/storage.service.js?v=221600"></script>
-    <script src="../src/js/services/auth.service.js?v=221600"></script>
-    <script src="../src/js/services/api.service.js?v=221600"></script>
-    <script src="../src/js/services/product.service.js?v=221600"></script>
-    <script src="../src/js/services/sale.service.js?v=221600"></script>
-    <script src="../src/js/services/ui.service.js?v=221600"></script>
-    <script src="../src/js/components/particles.js?v=221600"></script>
-    <script src="../src/js/components/navbar.js?v=221600"></script>
-    <script src="../src/js/components/public-dashboard.js?v=221600"></script>
-    <script src="../src/js/components/public-products.js?v=221600"></script>
-    <script src="../src/js/components/pos.js?v=221600"></script>
-    <script src="../src/js/components/admin-pos.js?v=221600"></script>
-    <script src="../src/js/components/cashier-settings.js?v=221600"></script>
-    <script src="../src/js/components/cashier-dashboard.js?v=221600"></script>
-    <script src="../src/js/components/admin-dashboard.js?v=221600"></script>
-    <script src="../src/js/components/admin-sales.js?v=221600"></script>
-    <script src="../src/js/components/admin-products.js?v=221600"></script>
-    <script src="../src/js/components/admin-reports.js?v=221600"></script>
-    <script src="../src/js/components/admin-purchases.js?v=221600"></script>
-    <script src="../src/js/components/admin-credit.js?v=221600"></script>
-    <script src="../src/js/components/admin-mpesa.js?v=221600"></script>
-    <script src="../src/js/components/admin-data.js?v=221600"></script>
-    <script src="../src/js/components/admin-settings.js?v=221600"></script>
-    <script src="../src/js/router.js?v=221600"></script>
-    <script src="../src/js/app.js?v=221600"></script>
+    <script src="../src/js/utils/helpers.js?v=221700"></script>
+    <script src="../src/js/services/storage.service.js?v=221700"></script>
+    <script src="../src/js/services/auth.service.js?v=221700"></script>
+    <script src="../src/js/services/api.service.js?v=221700"></script>
+    <script src="../src/js/services/product.service.js?v=221700"></script>
+    <script src="../src/js/services/sale.service.js?v=221700"></script>
+    <script src="../src/js/services/ui.service.js?v=221700"></script>
+    <script src="../src/js/components/particles.js?v=221700"></script>
+    <script src="../src/js/components/navbar.js?v=221700"></script>
+    <script src="../src/js/components/public-dashboard.js?v=221700"></script>
+    <script src="../src/js/components/public-products.js?v=221700"></script>
+    <script src="../src/js/components/pos.js?v=221700"></script>
+    <script src="../src/js/components/admin-pos.js?v=221700"></script>
+    <script src="../src/js/components/cashier-settings.js?v=221700"></script>
+    <script src="../src/js/components/cashier-dashboard.js?v=221700"></script>
+    <script src="../src/js/components/admin-dashboard.js?v=221700"></script>
+    <script src="../src/js/components/admin-sales.js?v=221700"></script>
+    <script src="../src/js/components/admin-products.js?v=221700"></script>
+    <script src="../src/js/components/admin-reports.js?v=221700"></script>
+    <script src="../src/js/components/admin-purchases.js?v=221700"></script>
+    <script src="../src/js/components/admin-credit.js?v=221700"></script>
+    <script src="../src/js/components/admin-mpesa.js?v=221700"></script>
+    <script src="../src/js/components/admin-data.js?v=221700"></script>
+    <script src="../src/js/components/admin-settings.js?v=221700"></script>
+    <script src="../src/js/router.js?v=221700"></script>
+    <script src="../src/js/app.js?v=221700"></script>
+    
+    <!-- Disable Right Click & Developer Tools -->
+    <script>
+    document.addEventListener('contextmenu', function(e) {
+        e.preventDefault();
+        return false;
+    });
+    
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'F12' || e.keyCode === 123) { e.preventDefault(); return false; }
+        if (e.ctrlKey && e.shiftKey && e.keyCode === 73) { e.preventDefault(); return false; }
+        if (e.ctrlKey && e.shiftKey && e.keyCode === 74) { e.preventDefault(); return false; }
+        if (e.ctrlKey && e.keyCode === 85) { e.preventDefault(); return false; }
+        if (e.ctrlKey && e.shiftKey && e.keyCode === 67) { e.preventDefault(); return false; }
+    });
+    </script>
 </body>
 </html>
