@@ -137,13 +137,13 @@
             if (this._search) params += '&search=' + encodeURIComponent(this._search);
             if (this._stockFilter) params += '&stock=' + this._stockFilter;
             
-            var res = await fetch('http://localhost:8080/api/products/paginated' + params);
+            var res = await fetch('/api/products/paginated' + params);
             var data = await res.json();
             
             var totalTypesEl = document.getElementById('totalTypes');
             if (totalTypesEl) {
                 try {
-                    var catRes = await fetch('http://localhost:8080/api/products/categories');
+                    var catRes = await fetch('/api/products/categories');
                     var cats = await catRes.json();
                     totalTypesEl.textContent = (cats ? cats.length : 0) + ' product types';
                 } catch(e) { totalTypesEl.textContent = '...'; }

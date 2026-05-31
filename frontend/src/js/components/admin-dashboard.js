@@ -96,7 +96,7 @@
         } catch(e) {}
         
         try {
-            var returnsRes = await fetch('http://localhost:8080/api/returns/summary');
+            var returnsRes = await fetch('/api/returns/summary');
             var returnsData = await returnsRes.json();
             var returnsCard = document.getElementById('returnsStatCard');
             if (returnsCard) {
@@ -108,7 +108,7 @@
         } catch(e) {}
         
         try {
-            var poRes = await fetch('http://localhost:8080/api/purchase-orders');
+            var poRes = await fetch('/api/purchase-orders');
             var pos = await poRes.json();
             var today = new Date().toISOString().split('T')[0];
             var todayPOs = pos.filter(function(po) { return po.date && po.date.startsWith(today); });
@@ -132,13 +132,13 @@
 
     async loadCreditOnly() {
         try {
-            var creditRes = await fetch('http://localhost:8080/api/credit-summary');
+            var creditRes = await fetch('/api/credit-summary');
             var creditData = await creditRes.json();
             var creditCard = document.getElementById('creditStatCard');
             if (creditCard) {
                 creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">💳 Credit</div><div class="stat-value" style="color:#ef4444;">KES ' + (Number(creditData.totalDebt) || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' owing | Paid today: KES ' + (Number(creditData.todayPayments) || 0).toLocaleString() + '</div>';
             }
-            var custRes = await fetch('http://localhost:8080/api/credit-customers');
+            var custRes = await fetch('/api/credit-customers');
             var customers = await custRes.json();
             var debtors = customers.filter(function(c) { return Number(c.totalDebt) > 0; });
             var debtorCount = document.getElementById('debtorCount');
@@ -165,7 +165,7 @@
         var container = document.getElementById('mainContent');
         if (!container) return;
         container.innerHTML = '<div style="text-align:center;padding:3rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</div>';
-        fetch('http://localhost:8080/api/returns').then(function(r){return r.json();}).then(function(returns){
+        fetch('/api/returns').then(function(r){return r.json();}).then(function(returns){
             if (!returns || returns.length === 0) {
                 container.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;"><i class="fas fa-exchange-alt" style="font-size:4rem;color:#ccc;"></i><h3>No Returns/Exchanges Yet</h3><button class="btn btn-primary" onclick="AppRouter.navigate(\'admin-dashboard\')">Back</button></div></div>';
                 return;

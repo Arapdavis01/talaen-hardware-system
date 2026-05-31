@@ -215,7 +215,7 @@
 
     _viewReceipt(receiptNo) {
         var self = this;
-        fetch('http://localhost:8080/api/sales/search/' + encodeURIComponent(receiptNo)).then(function(r){return r.json();}).then(function(sale){
+        fetch('/api/sales/search/' + encodeURIComponent(receiptNo)).then(function(r){return r.json();}).then(function(sale){
             if(sale.error){self._showMessage('Receipt not found!','danger');return;}
             var h = self._buildReceiptHTML(sale);
             var rm = document.createElement('div'); rm.className = 'modal-overlay';
@@ -226,7 +226,7 @@
 
     _reprintReceipt(receiptNo) {
         var self = this;
-        fetch('http://localhost:8080/api/sales/search/' + encodeURIComponent(receiptNo)).then(function(r){return r.json();}).then(function(sale){
+        fetch('/api/sales/search/' + encodeURIComponent(receiptNo)).then(function(r){return r.json();}).then(function(sale){
             if(sale.error){self._showMessage('Receipt not found!','danger');return;}
             var h = self._buildReceiptHTML(sale);
             var rm = document.createElement('div'); rm.className = 'modal-overlay';
@@ -299,7 +299,7 @@
         var tableDiv = document.getElementById('myReturnsTable'); if (!tableDiv) return;
         tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</p>';
         try {
-            var res = await fetch('http://localhost:8080/api/returns'); var allReturns = await res.json();
+            var res = await fetch('/api/returns'); var allReturns = await res.json();
             var filteredReturns = cashierFilter === 'me' ? allReturns.filter(function(r) { return r.cashierName === (user.fullName || user.username); }) : allReturns;
             if (typeFilter !== 'all') filteredReturns = filteredReturns.filter(function(r) { return r.returnType === typeFilter; });
             filteredReturns.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
@@ -356,7 +356,7 @@
     async _loadCreditSales() {
         var user = AuthService.getCurrentUser(); if (!user) return;
         try {
-            var custRes = await fetch('http://localhost:8080/api/credit-customers'); var customers = await custRes.json();
+            var custRes = await fetch('/api/credit-customers'); var customers = await custRes.json();
             var custList = document.getElementById('creditTabCustomersList');
             if (custList) {
                 if (customers.length === 0) { custList.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No credit customers registered.</p>'; }
@@ -390,7 +390,7 @@
             }
         } catch(e) {}
         try {
-            var payRes = await fetch('http://localhost:8080/api/debt-payments'); var payments = await payRes.json();
+            var payRes = await fetch('/api/debt-payments'); var payments = await payRes.json();
             payments.sort(function(a,b){return new Date(b.date||0)-new Date(a.date||0);});
             this._allDebtPayments = payments;
             var payDiv = document.getElementById('recentDebtPaymentsList');
@@ -512,10 +512,10 @@
 
     async loadCreditOnly() {
         try {
-            var creditRes = await fetch('http://localhost:8080/api/credit-summary'); var creditData = await creditRes.json();
+            var creditRes = await fetch('/api/credit-summary'); var creditData = await creditRes.json();
             var creditCard = document.getElementById('creditStatCard');
             if (creditCard && creditData) creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Outstanding Debt</div><div class="stat-value" style="color:#ef4444;">KES ' + (creditData.totalDebt || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' customers with debt</div>';
-            var custRes = await fetch('http://localhost:8080/api/credit-customers'); var customers = await custRes.json();
+            var custRes = await fetch('/api/credit-customers'); var customers = await custRes.json();
             var debtors = customers.filter(function(c) { return c.totalDebt > 0; });
             var custList = document.getElementById('creditCustomersList');
             if (custList) {

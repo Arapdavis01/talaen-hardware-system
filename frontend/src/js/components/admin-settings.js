@@ -63,7 +63,7 @@
     // ========== M-PESA CONFIG ==========
     async loadMpesaConfig() {
         try {
-            var res = await fetch('http://localhost:8080/api/mpesa/config');
+            var res = await fetch('/api/mpesa/config');
             var config = await res.json();
             var ck = document.getElementById('mpesaConsumerKey');
             var cs = document.getElementById('mpesaConsumerSecret');
@@ -85,7 +85,7 @@
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
         try {
-            var res = await fetch('http://localhost:8080/api/mpesa/config', {
+            var res = await fetch('/api/mpesa/config', {
                 method: 'PUT',
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({
@@ -130,7 +130,7 @@
     },
 
     loadCurrentPassword() {
-        fetch('http://localhost:8080/api/settings').then(function(r){return r.json();}).then(function(s){
+        fetch('/api/settings').then(function(r){return r.json();}).then(function(s){
             if (s && s.adminPassword) { document.getElementById('currentPassDisplay').textContent = '........'; document.getElementById('currentPassDisplay').dataset.realPass = s.adminPassword; }
         });
     },
@@ -147,19 +147,19 @@
     changeAdminPass() {
         var p = document.getElementById('newAdminPass').value.trim(); if (!p || p.length < 4) { showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); return; }
         var self = this;
-        Promise.all([fetch('http://localhost:8080/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminPassword:p})}),fetch('http://localhost:8080/api/users/1',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})})]).then(function(){self.showMsg('adminPassMsg','Password updated!','success');document.getElementById('newAdminPass').value='';self.loadActivity();}).catch(function(e){self.showMsg('adminPassMsg','Error: '+e.message,'danger');});
+        Promise.all([fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminPassword:p})}),fetch('/api/users/1',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})})]).then(function(){self.showMsg('adminPassMsg','Password updated!','success');document.getElementById('newAdminPass').value='';self.loadActivity();}).catch(function(e){self.showMsg('adminPassMsg','Error: '+e.message,'danger');});
     },
 
     addUser() {
         var n=document.getElementById('cashierName').value.trim(),u=document.getElementById('cashierUser').value.trim(),p=document.getElementById('cashierPass').value.trim(),r=document.getElementById('cashierRole').value;
         if(!n||!u||!p){showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');return;}
         var btn=document.getElementById('addCashierBtn'),self=this;btn.disabled=true;btn.innerHTML='Adding...';
-        fetch('http://localhost:8080/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,role:r,fullName:n,adminName:'Admin'})}).then(function(r){return r.json();}).then(function(d){btn.disabled=false;btn.innerHTML='<i class="fas fa-plus"></i> Add';if(d.success||d.id){self.showMsg('userMsg','User added!','success');document.getElementById('cashierName').value='';document.getElementById('cashierUser').value='';document.getElementById('cashierPass').value='';self.loadUsers();self.loadActivity();}else{self.showMsg('userMsg',d.message||'Failed','danger');}}).catch(function(e){btn.disabled=false;btn.innerHTML='<i class="fas fa-plus"></i> Add';self.showMsg('userMsg','Error: '+e.message,'danger');});
+        fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,role:r,fullName:n,adminName:'Admin'})}).then(function(r){return r.json();}).then(function(d){btn.disabled=false;btn.innerHTML='<i class="fas fa-plus"></i> Add';if(d.success||d.id){self.showMsg('userMsg','User added!','success');document.getElementById('cashierName').value='';document.getElementById('cashierUser').value='';document.getElementById('cashierPass').value='';self.loadUsers();self.loadActivity();}else{self.showMsg('userMsg',d.message||'Failed','danger');}}).catch(function(e){btn.disabled=false;btn.innerHTML='<i class="fas fa-plus"></i> Add';self.showMsg('userMsg','Error: '+e.message,'danger');});
     },
 
     loadUsers() {
         var list=document.getElementById('userList');if(!list)return;
-        fetch('http://localhost:8080/api/users').then(function(r){return r.json();}).then(function(users){
+        fetch('/api/users').then(function(r){return r.json();}).then(function(users){
             var h='<table class="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
             if(!users.length){h+='<tr><td colspan="6">No users</td></tr>';}
             else{users.forEach(function(c){var pwId='pw_'+c.id;
@@ -181,7 +181,7 @@
         var m=document.createElement('div');m.className='modal-overlay';
         m.innerHTML='<div class="modal"><div class="modal-header"><h3><i class="fas fa-edit"></i> Edit: '+name+'</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Full Name</label><input type="text" id="editName" class="form-control" value="'+name+'"></div><div class="form-group"><label>Username</label><input type="text" id="editUsername" class="form-control" value="'+username+'"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="saveEditBtn"><i class="fas fa-save"></i> Save</button></div></div>';
         document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};var self=this;
-        m.querySelector('#saveEditBtn').onclick=function(){var nn=document.getElementById('editName').value.trim(),nu=document.getElementById('editUsername').value.trim();if(!nn||!nu){showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');return;}fetch('http://localhost:8080/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullName:nn,username:nu})}).then(function(){self.showMsg('userMsg','Updated!','success');m.remove();self.loadUsers();self.loadActivity();});};
+        m.querySelector('#saveEditBtn').onclick=function(){var nn=document.getElementById('editName').value.trim(),nu=document.getElementById('editUsername').value.trim();if(!nn||!nu){showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');return;}fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullName:nn,username:nu})}).then(function(){self.showMsg('userMsg','Updated!','success');m.remove();self.loadUsers();self.loadActivity();});};
     },
 
     resetPassword(id, name, currentPass) {
@@ -195,7 +195,7 @@
         m.querySelector('#cancelReset').onclick = function() { m.remove(); };
         m.querySelector('#confirmReset').onclick = function() {
             var np = document.getElementById('resetPass').value.trim(); if (!np || np.length < 4) { showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); return; }
-            fetch('http://localhost:8080/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:np})}).then(function(){ self.showMsg('userMsg', 'Password reset!', 'success'); m.remove(); self.loadActivity(); self.loadUsers(); });
+            fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:np})}).then(function(){ self.showMsg('userMsg', 'Password reset!', 'success'); m.remove(); self.loadActivity(); self.loadUsers(); });
         };
     },
 
@@ -213,7 +213,7 @@
         m.querySelector('#confirmRemove').onclick = function() {
             m.querySelector('#confirmRemove').disabled = true;
             m.querySelector('#confirmRemove').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-            fetch('http://localhost:8080/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({toggle:true})})
+            fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({toggle:true})})
             .then(function(){ m.remove(); self.loadUsers(); self.loadActivity(); self.showMsg('userMsg', 'User status toggled!', 'success'); });
         };
     },
@@ -226,12 +226,12 @@
         m.innerHTML = '<div class="modal"><div class="modal-header"><h3><i class="fas fa-trash"></i> Clear Activity</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p style="text-align:center;font-size:1.1rem;">' + msg + '</p><p style="text-align:center;color:var(--danger);">This cannot be undone!</p></div><div class="modal-footer"><button class="btn btn-outline" id="cancelClear">Cancel</button><button class="btn btn-danger" id="confirmClear"><i class="fas fa-trash"></i> Delete</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#cancelClear').onclick = function() { m.remove(); };
-        m.querySelector('#confirmClear').onclick = function() { m.remove(); fetch('http://localhost:8080/api/activity',{method:'DELETE'}).then(function() { self.loadActivity(); self.showMsg('userMsg', 'Activity cleared!', 'success'); }); };
+        m.querySelector('#confirmClear').onclick = function() { m.remove(); fetch('/api/activity',{method:'DELETE'}).then(function() { self.loadActivity(); self.showMsg('userMsg', 'Activity cleared!', 'success'); }); };
     },
 
     loadActivity() {
         var log=document.getElementById('activityLog');if(!log)return;var filter=this._activityFilter||'all';
-        fetch('http://localhost:8080/api/activity').then(function(r){return r.json();}).then(function(logs){
+        fetch('/api/activity').then(function(r){return r.json();}).then(function(logs){
             var filtered=logs;
             if(filter==='login')filtered=logs.filter(function(l){return l.action==='login';});
             else if(filter==='sale')filtered=logs.filter(function(l){return l.action==='sale';});

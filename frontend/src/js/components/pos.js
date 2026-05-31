@@ -15,7 +15,7 @@ const POSComponent = {
 
     async render() {
         try {
-            var res = await fetch('http://localhost:8080/api/products');
+            var res = await fetch('/api/products');
             if (res.ok) this._products = await res.json();
         } catch(e) { this._products = ProductService._cache || []; }
         
@@ -197,7 +197,7 @@ const POSComponent = {
         var q = document.getElementById('customerName')?.value.trim(); var div = document.getElementById('customerSuggestions');
         if (!q || q.length < 2) { if (div) div.style.display = 'none'; return; }
         var self = this;
-        fetch('http://localhost:8080/api/credit-customers/search/' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(customers){
+        fetch('/api/credit-customers/search/' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(customers){
             if (!customers.length) { div.style.display = 'block'; div.innerHTML = '<div style="padding:0.75rem;text-align:center;color:#999;">No customer found. <a href="#" onclick="POSComponent.showRegisterCustomer();return false;" style="color:var(--primary);">Register new?</a></div>'; return; }
             var h = '';
             customers.forEach(function(c){ var debtColor = c.totalDebt > 0 ? '#ef4444' : '#10b981'; var available = c.debtLimit - c.totalDebt;
@@ -211,7 +211,7 @@ const POSComponent = {
 
     selectCustomer(customerId) {
         var self = this;
-        fetch('http://localhost:8080/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
+        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
             if (!customer) return;
             var nameInput = document.getElementById('customerName'); if (nameInput) nameInput.value = customer.name;
             var div = document.getElementById('customerSuggestions'); if (div) div.style.display = 'none';
@@ -244,13 +244,13 @@ const POSComponent = {
             var name = m.querySelector('#regCustName').value.trim();
             if(!name){ self._showAlert('Required','Customer name is required!','exclamation-triangle','#f59e0b'); return; }
             var user = AuthService.getCurrentUser();
-            fetch('http://localhost:8080/api/credit-customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,phone:m.querySelector('#regCustPhone').value,idNumber:m.querySelector('#regCustId').value,address:m.querySelector('#regCustAddress').value,debtLimit:parseFloat(m.querySelector('#regCustLimit').value)||5000,cashierId:user?.id,cashierName:user?.fullName})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();self._showMessage('✅ Customer registered successfully!','success');var nameInput=document.getElementById('customerName');if(nameInput){nameInput.value=name;nameInput.dispatchEvent(new Event('input'));}}});
+            fetch('/api/credit-customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,phone:m.querySelector('#regCustPhone').value,idNumber:m.querySelector('#regCustId').value,address:m.querySelector('#regCustAddress').value,debtLimit:parseFloat(m.querySelector('#regCustLimit').value)||5000,cashierId:user?.id,cashierName:user?.fullName})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();self._showMessage('✅ Customer registered successfully!','success');var nameInput=document.getElementById('customerName');if(nameInput){nameInput.value=name;nameInput.dispatchEvent(new Event('input'));}}});
         };
     },
 
     viewCustomerDetails(customerId) {
         var self = this;
-        fetch('http://localhost:8080/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
+        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
             var m = document.createElement('div'); m.className = 'modal-overlay';
             var recentSalesHTML = '';
             if (customer.recentSales && customer.recentSales.length > 0) { recentSalesHTML = '<h4 style="margin-top:1rem;">📋 Recent Credit Purchases</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Cashier</th></tr>'; customer.recentSales.forEach(function(s){ recentSalesHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#ef4444;">KES '+s.amount.toLocaleString()+'</td><td style="color:#666;">'+(s.cashierName||'-')+'</td></tr>'; }); recentSalesHTML += '</table>'; }
@@ -263,7 +263,7 @@ const POSComponent = {
 
     showDebtPayment(customerId) {
         var self = this;
-        fetch('http://localhost:8080/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
+        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
             var m = document.createElement('div'); m.className = 'modal-overlay';
             m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Record Debt Payment</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div style="text-align:center;margin-bottom:1rem;"><h3>👤 '+customer.name+'</h3><p>Current Debt: <strong style="color:#ef4444;">KES '+(customer.totalDebt||0).toLocaleString()+'</strong></p></div><div class="form-group"><label>Amount Paid (KES) *</label><input type="number" id="debtPaymentAmount" class="form-control" placeholder="Enter amount" min="1" max="'+(customer.totalDebt||0)+'" style="font-size:1.2rem;text-align:center;"></div><div class="form-group"><label>Payment Method</label><select id="debtPaymentMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmDebtPayment"><i class="fas fa-check"></i> Confirm Payment</button></div></div>';
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
@@ -272,7 +272,7 @@ const POSComponent = {
                 if (amount <= 0) { self._showAlert('Invalid Amount','Enter a valid amount!','exclamation-triangle','#f59e0b'); return; }
                 if (amount > customer.totalDebt) { self._showAlert('Limit Exceeded','Amount cannot exceed debt of KES '+customer.totalDebt.toLocaleString(),'exclamation-triangle','#ef4444'); return; }
                 var user = AuthService.getCurrentUser();
-                fetch('http://localhost:8080/api/debt-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customerId:customerId,customerName:customer.name,amount:amount,paymentMethod:m.querySelector('#debtPaymentMethod').value,receivedBy:user?.fullName||'Admin',receivedById:user?.id||null})}).then(function(r){return r.json();}).then(function(d){
+                fetch('/api/debt-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customerId:customerId,customerName:customer.name,amount:amount,paymentMethod:m.querySelector('#debtPaymentMethod').value,receivedBy:user?.fullName||'Admin',receivedById:user?.id||null})}).then(function(r){return r.json();}).then(function(d){
                     if(d.success){ var sm = document.createElement('div'); sm.className = 'modal-overlay'; sm.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-check-circle"></i> Payment Recorded!</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="text-align:center;"><div style="font-size:3rem;color:#10b981;margin-bottom:1rem;"><i class="fas fa-money-check-alt"></i></div><h3>KES '+amount.toLocaleString()+'</h3><p style="color:#999;">From: <strong>'+customer.name+'</strong></p><div style="background:#f0fdf4;padding:1rem;border-radius:0.5rem;margin-top:1rem;"><p style="color:#10b981;">✅ Payment recorded!</p><p>Remaining Debt: <strong style="color:#ef4444;">KES '+(customer.totalDebt-amount).toLocaleString()+'</strong></p></div></div><div class="modal-footer" style="justify-content:center;"><button class="btn btn-primary" onclick="this.closest(\'.modal-overlay\').remove();AppRouter.navigate(\'cashier-dashboard\')">Dashboard</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>'; document.body.appendChild(sm); sm.onclick = function(e){if(e.target===sm)sm.remove();}; m.remove(); self._selectedCustomer=null;self._selectedCustomerId=null;var debtDiv=document.getElementById('customerDebtInfo');if(debtDiv)debtDiv.style.display='none';var nameInput=document.getElementById('customerName');if(nameInput)nameInput.value='';setTimeout(function(){if(typeof CashierDashboardComponent!=='undefined'&&CashierDashboardComponent.loadCreditOnly)CashierDashboardComponent.loadCreditOnly();if(typeof AdminDashboardComponent!=='undefined'&&AdminDashboardComponent.loadCreditOnly)AdminDashboardComponent.loadCreditOnly();},500); }
                 });
             };
@@ -322,12 +322,12 @@ const POSComponent = {
             if(!phone){ self._showAlert('Required','Enter phone number!','exclamation-triangle','#f59e0b'); return; }
             var btn = m.querySelector('#mpesaStkBtn'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
             var statusDiv = m.querySelector('#mpesaStkStatus'); statusDiv.innerHTML = '<span style="color:#3b82f6;"><i class="fas fa-spinner fa-spin"></i> Sending STK Push...</span>';
-            fetch('http://localhost:8080/api/mpesa/stk-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phoneNumber:phone,amount:Math.round(total),accountReference:'TIH-SALE'})}).then(function(r){return r.json();}).then(function(d){
+            fetch('/api/mpesa/stk-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phoneNumber:phone,amount:Math.round(total),accountReference:'TIH-SALE'})}).then(function(r){return r.json();}).then(function(d){
                 btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send STK Push';
-                if(d.success){ statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> STK Push sent! Waiting...</span>'; var attempts=0; var checkStatus=setInterval(function(){attempts++;fetch('http://localhost:8080/api/mpesa/transaction/'+d.checkoutRequestID).then(function(r){return r.json();}).then(function(t){if(t.status==='completed'){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#10b981;">✅ Payment received! Ref: '+t.mpesaReceiptNumber+'</span>';setTimeout(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,t.mpesaReceiptNumber,null,transport);},1000);}else if(t.status==='failed'){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#ef4444;">❌ Payment failed</span>';}if(attempts>30){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#f59e0b;">⚠️ Timeout</span>';}});},2000); }else{statusDiv.innerHTML='<span style="color:#ef4444;">❌ '+(d.message||'Failed')+'</span>';}
+                if(d.success){ statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> STK Push sent! Waiting...</span>'; var attempts=0; var checkStatus=setInterval(function(){attempts++;fetch('/api/mpesa/transaction/'+d.checkoutRequestID).then(function(r){return r.json();}).then(function(t){if(t.status==='completed'){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#10b981;">✅ Payment received! Ref: '+t.mpesaReceiptNumber+'</span>';setTimeout(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,t.mpesaReceiptNumber,null,transport);},1000);}else if(t.status==='failed'){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#ef4444;">❌ Payment failed</span>';}if(attempts>30){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#f59e0b;">⚠️ Timeout</span>';}});},2000); }else{statusDiv.innerHTML='<span style="color:#ef4444;">❌ '+(d.message||'Failed')+'</span>';}
             }).catch(function(){btn.disabled=false;btn.innerHTML='<i class="fas fa-paper-plane"></i> Send STK Push';statusDiv.innerHTML='<span style="color:#ef4444;">Network error</span>';});
         };
-        m.querySelector('#mpesaTillBtn').onclick = function(){ var receipt=m.querySelector('#mpesaReceipt').value.trim();if(!receipt){self._showAlert('Required','Enter M-Pesa receipt number!','exclamation-triangle','#f59e0b');return;}fetch('http://localhost:8080/api/mpesa/till-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saleId:null,mpesaReceiptNumber:receipt,phoneNumber:m.querySelector('#mpesaPhoneTill').value.trim(),amount:total})}).then(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,receipt,null,transport);}); };
+        m.querySelector('#mpesaTillBtn').onclick = function(){ var receipt=m.querySelector('#mpesaReceipt').value.trim();if(!receipt){self._showAlert('Required','Enter M-Pesa receipt number!','exclamation-triangle','#f59e0b');return;}fetch('/api/mpesa/till-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saleId:null,mpesaReceiptNumber:receipt,phoneNumber:m.querySelector('#mpesaPhoneTill').value.trim(),amount:total})}).then(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,receipt,null,transport);}); };
     },
 
     _processSale(name, pm, subtotalExclVAT, vatAmount, total, discount, tendered, change, mpesaRef, customerId, transport, phone) {
@@ -344,7 +344,7 @@ const POSComponent = {
         this._showConfirm('Complete Sale', msg, async function() {
             var saleData = { items: self._cart, customerName: name, paymentMethod: pm, subtotal: subtotalInclVAT, subtotalExclVAT: subtotalExclVAT, tax: vatAmount, discount: discount || 0, total: total, transportCost: transport || 0, cashierId: user?.id, cashierName: user?.fullName, mpesaRef: mpesaRef || null, isCredit: pm === 'credit' ? 1 : 0, customerId: customerId || null, customerPhone: phone || null };
             var sale = await SaleService.create(saleData);
-            if (pm === 'credit' && customerId && sale.saleId) { await fetch('http://localhost:8080/api/credit-sales', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({saleId: sale.saleId, customerId: customerId, customerName: name, amount: total, cashierId: user?.id, cashierName: user?.fullName}) }); }
+            if (pm === 'credit' && customerId && sale.saleId) { await fetch('/api/credit-sales', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({saleId: sale.saleId, customerId: customerId, customerName: name, amount: total, cashierId: user?.id, cashierName: user?.fullName}) }); }
             self._cart = []; self._updateCart(); self._selectedCustomerId = null; self._selectedCustomer = null;
             var at = document.getElementById('amountTendered'); if (at) at.value = '';
             var cd = document.getElementById('changeDisplay'); if (cd) cd.style.display = 'none';
@@ -365,10 +365,10 @@ const POSComponent = {
         var q = document.getElementById('returnReceiptSearch')?.value.trim();
         if (!q || q.length < 3) { document.getElementById('returnReceiptResult').innerHTML = ''; document.getElementById('returnProcessArea').style.display = 'none'; return; }
         var self = this;
-        fetch('http://localhost:8080/api/sales/search/' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(sale){
+        fetch('/api/sales/search/' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(sale){
             var resultDiv = document.getElementById('returnReceiptResult'), processDiv = document.getElementById('returnProcessArea');
             if (sale.error) { resultDiv.innerHTML = '<div style="padding:1rem;background:#fef2f2;border-radius:0.5rem;color:#ef4444;">❌ Receipt not found</div>'; processDiv.style.display = 'none'; return; }
-            fetch('http://localhost:8080/api/returns/receipt/' + encodeURIComponent(sale.receiptNo)).then(function(r){return r.json();}).then(function(existingReturns){
+            fetch('/api/returns/receipt/' + encodeURIComponent(sale.receiptNo)).then(function(r){return r.json();}).then(function(existingReturns){
                 var returnedItems = existingReturns || [], returnedMap = {};
                 returnedItems.forEach(function(ret){ var k=ret.productId; if(!returnedMap[k])returnedMap[k]={totalQty:0,returns:[]}; returnedMap[k].totalQty+=ret.quantity; returnedMap[k].returns.push({type:ret.returnType,qty:ret.quantity,date:ret.date}); });
                 var hasReturns = returnedItems.length > 0;
@@ -391,7 +391,7 @@ const POSComponent = {
     _searchExchangeProduct() {
         var q = document.getElementById('exchangeProductSearch')?.value.trim(); var resultsDiv = document.getElementById('exchangeProductResults');
         if (!q || q.length < 2) { if (resultsDiv) resultsDiv.innerHTML = ''; return; }
-        fetch('http://localhost:8080/api/products/search?q=' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(products){
+        fetch('/api/products/search?q=' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(products){
             if (!products || products.length === 0) { resultsDiv.innerHTML = '<div style="padding:0.5rem;color:#999;">No products found</div>'; return; }
             var html = '';
             products.forEach(function(p){if(p.stock<=0)return;var pn=(p.name||'').replace(/'/g,"\\'");html+='<div style="padding:0.75rem;border:1px solid #ddd;border-radius:0.5rem;margin-bottom:0.5rem;cursor:pointer;background:white;" onclick="POSComponent._selectExchangeProduct('+p.id+',\''+pn+'\','+(p.price||0)+','+(p.stock||0)+',\''+(p.unit||'pcs').replace(/'/g,"\\'")+'\')"><div style="display:flex;justify-content:space-between;"><div><strong>'+p.name+'</strong>'+(p.brand?' - '+p.brand:'')+(p.variant?'<br><small>'+p.variant+'</small>':'')+'</div><div style="text-align:right;"><strong style="color:#10b981;">KES '+(p.price||0).toLocaleString()+'</strong><br><small>Stock: '+p.stock+' '+(p.unit||'pcs')+'</small></div></div></div>';});
@@ -449,8 +449,8 @@ const POSComponent = {
         else{msg+='<p style="color:#10b981;">💵 Refund: <strong>KES '+totalReturn.toLocaleString()+'</strong></p>';}
         msg+='<div style="margin-top:0.5rem;padding:0.5rem;background:#fef3c7;border-radius:0.5rem;"><p style="color:#f59e0b;margin:0;">⚠️ Transport is <strong>NON-REFUNDABLE</strong></p><p style="color:#666;margin:5px 0 0 0;font-size:0.85rem;">Customer pays transport separately for exchanged items.</p></div></div>';
         this._showConfirm('Process Return/Exchange', msg, function(){
-            Promise.all(returnItems.map(function(item){return fetch('http://localhost:8080/api/returns',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)}).then(function(r){return r.json();});})).then(function(){
-                fetch('http://localhost:8080/api/sales/'+saleId+'/mark-returned',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isReturned:true,returnType:returnType,returnDate:new Date().toISOString()})}).catch(function(){});
+            Promise.all(returnItems.map(function(item){return fetch('/api/returns',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)}).then(function(r){return r.json();});})).then(function(){
+                fetch('/api/sales/'+saleId+'/mark-returned',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isReturned:true,returnType:returnType,returnDate:new Date().toISOString()})}).catch(function(){});
                 var now = new Date();
                 var rhtml = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;"><div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;"><strong>TALAEN INVESTMENT HARDWARE</strong><br><small>P.O BOX 345, NANDI HILLS</small><br><small style="font-size:9px;">Tel: 0717149902, 0724985188</small><br><div style="border-top:1px dashed #ccc;border-bottom:1px dashed #ccc;padding:4px 0;margin:8px 0;"><strong style="color:#ef4444;">'+(returnType==='exchange'?'EXCHANGE RECEIPT':'RETURN RECEIPT')+'</strong></div><strong>RET-'+Date.now().toString(36).toUpperCase()+'</strong></div>';
                 rhtml+='<div style="margin-bottom:10px;"><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Date:</span><span>'+now.toLocaleDateString('en-KE')+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Time:</span><span>'+now.toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Customer:</span><span>'+customerName+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Original Receipt:</span><span>'+receiptNo+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Type:</span><span style="color:#ef4444;font-weight:700;">'+returnType.toUpperCase()+'</span></div></div>';
@@ -495,7 +495,7 @@ const POSComponent = {
             btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
             var statusDiv = m.querySelector('#exchangeMpesaStkStatus');
             statusDiv.innerHTML = '<span style="color:#3b82f6;"><i class="fas fa-spinner fa-spin"></i> Sending STK Push... Check your phone.</span>';
-            fetch('http://localhost:8080/api/mpesa/stk-push', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phoneNumber: phone, amount: Math.round(grandTotal), accountReference: 'TIH-EXCH'}) })
+            fetch('/api/mpesa/stk-push', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phoneNumber: phone, amount: Math.round(grandTotal), accountReference: 'TIH-EXCH'}) })
             .then(function(r){return r.json();}).then(function(d) {
                 btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send STK Push';
                 if (d.success) {
@@ -503,7 +503,7 @@ const POSComponent = {
                     var attempts = 0;
                     var checkStatus = setInterval(function() {
                         attempts++;
-                        fetch('http://localhost:8080/api/mpesa/transaction/' + d.checkoutRequestID).then(function(r){return r.json();}).then(function(t) {
+                        fetch('/api/mpesa/transaction/' + d.checkoutRequestID).then(function(r){return r.json();}).then(function(t) {
                             if (t.status === 'completed') {
                                 clearInterval(checkStatus);
                                 statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> Payment received! Ref: ' + t.mpesaReceiptNumber + '</span>';

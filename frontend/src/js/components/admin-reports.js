@@ -9,12 +9,12 @@ const AdminReportsComponent = {
         return h;
     },
     generateReport() {
-        fetch('http://localhost:8080/api/daily-reports/generate', {method:'POST'}).then(function(r){return r.json();}).then(function(){
+        fetch('/api/daily-reports/generate', {method:'POST'}).then(function(r){return r.json();}).then(function(){
             AdminReportsComponent.loadToday(); AdminReportsComponent.loadHistory();
         });
     },
     loadToday() {
-        fetch('http://localhost:8080/api/daily-reports/today').then(function(r){return r.json();}).then(function(report){
+        fetch('/api/daily-reports/today').then(function(r){return r.json();}).then(function(report){
             var h = '<div class="stats-grid">';
             h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-label">Today Sales</div><div class="stat-value">KES ' + Number(report?.totalSales||0).toLocaleString() + '</div><div class="stat-sub">' + (report?.transactionCount||0) + ' transactions</div></div>';
             h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-shopping-cart"></i></div><div class="stat-label">Items Sold</div><div class="stat-value">' + Number(report?.totalItemsSold||0) + '</div><div class="stat-sub">Units sold today</div></div>';
@@ -25,7 +25,7 @@ const AdminReportsComponent = {
     },
     loadHistory() {
         var self = this;
-        fetch('http://localhost:8080/api/daily-reports').then(function(r){return r.json();}).then(function(reports){
+        fetch('/api/daily-reports').then(function(r){return r.json();}).then(function(reports){
             self._allReports = reports;
             self._displayReports(reports);
         });
@@ -54,7 +54,7 @@ const AdminReportsComponent = {
         this._displayReports(this._allReports || []);
     },
     showDayDetail(reportDate) {
-        fetch('http://localhost:8080/api/sales').then(function(r){return r.json();}).then(function(sales){
+        fetch('/api/sales').then(function(r){return r.json();}).then(function(sales){
             var daySales = sales.filter(function(s) { return s.date && s.date.startsWith(reportDate); });
             var totalSales = daySales.reduce(function(sum, s) { return Number(sum) + Number(s.total||0); }, 0);
             var totalItems = 0;

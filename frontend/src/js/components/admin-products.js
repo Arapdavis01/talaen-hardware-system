@@ -115,7 +115,7 @@
         m.querySelector('#saveBtn').onclick = async function() {
             var n = document.getElementById('prodName').value.trim(), b = document.getElementById('prodBrand').value.trim(), p = parseFloat(document.getElementById('prodPrice').value);
             if (!n || !b || !p) { showStyledAlert('Required', 'Name, Brand, and Price required!', 'exclamation-triangle', '#f59e0b'); return; }
-            await fetch('http://localhost:8080/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n, brand: b, variant: document.getElementById('prodVariant').value.trim(), category: document.getElementById('prodCategory').value.trim(), price: p, cost: parseFloat(document.getElementById('prodCost').value) || 0, stock: parseInt(document.getElementById('prodStock').value) || 0, unit: document.getElementById('prodUnit').value }) });
+            await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n, brand: b, variant: document.getElementById('prodVariant').value.trim(), category: document.getElementById('prodCategory').value.trim(), price: p, cost: parseFloat(document.getElementById('prodCost').value) || 0, stock: parseInt(document.getElementById('prodStock').value) || 0, unit: document.getElementById('prodUnit').value }) });
             await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
         };
     },
@@ -131,7 +131,7 @@
         m.querySelector('#addBtn').onclick = async function() {
             var b = document.getElementById('varBrand').value.trim(), p = parseFloat(document.getElementById('varPrice').value);
             if (!b || !p) { showStyledAlert('Required', 'Brand and Price required!', 'exclamation-triangle', '#f59e0b'); return; }
-            await fetch('http://localhost:8080/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: productName, brand: b, variant: document.getElementById('varVariant').value.trim(), category: category, price: p, cost: parseFloat(document.getElementById('varCost').value) || 0, stock: parseInt(document.getElementById('varStock').value) || 0, unit: document.getElementById('varUnit').value }) });
+            await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: productName, brand: b, variant: document.getElementById('varVariant').value.trim(), category: category, price: p, cost: parseFloat(document.getElementById('varCost').value) || 0, stock: parseInt(document.getElementById('varStock').value) || 0, unit: document.getElementById('varUnit').value }) });
             await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
         };
     },
@@ -146,19 +146,19 @@
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="updateBtn"><i class="fas fa-save"></i> Update</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#updateBtn').onclick = async function() {
-            await fetch('http://localhost:8080/api/products/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name, brand: document.getElementById('editBrand').value.trim(), variant: document.getElementById('editVariant').value.trim(), price: parseFloat(document.getElementById('editPrice').value), cost: parseFloat(document.getElementById('editCost').value) || 0, stock: parseInt(document.getElementById('editStock').value), unit: p.unit }) });
+            await fetch('/api/products/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name, brand: document.getElementById('editBrand').value.trim(), variant: document.getElementById('editVariant').value.trim(), price: parseFloat(document.getElementById('editPrice').value), cost: parseFloat(document.getElementById('editCost').value) || 0, stock: parseInt(document.getElementById('editStock').value), unit: p.unit }) });
             await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
         };
     },
 
     restockProduct: function(id) {
         var q = prompt('Quantity to add:'); if (!q || parseInt(q) <= 0) return;
-        fetch('http://localhost:8080/api/products/' + id + '/stock', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: parseInt(q) }) }).then(async function() { await ProductService._fetchFromAPI(); AppRouter.render(); });
+        fetch('/api/products/' + id + '/stock', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: parseInt(q) }) }).then(async function() { await ProductService._fetchFromAPI(); AppRouter.render(); });
     },
 
     deleteProduct: function(id) {
         showConfirm('Delete Product', 'Are you sure you want to delete this product?', function() {
-            fetch('http://localhost:8080/api/products/' + id, { method: 'DELETE' }).then(async function() { await ProductService._fetchFromAPI(); AppRouter.render(); });
+            fetch('/api/products/' + id, { method: 'DELETE' }).then(async function() { await ProductService._fetchFromAPI(); AppRouter.render(); });
         }, 'Delete', 'danger');
     }
 };

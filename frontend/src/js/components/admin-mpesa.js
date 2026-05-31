@@ -42,7 +42,7 @@ const AdminMpesaComponent = {
     },
 
     loadConfig() {
-        fetch('http://localhost:8080/api/mpesa/config')
+        fetch('/api/mpesa/config')
             .then(function(r){return r.json();})
             .then(function(config){
                 document.getElementById('mpesaEnv').value = config.environment || 'sandbox';
@@ -66,7 +66,7 @@ const AdminMpesaComponent = {
             consumerSecret: document.getElementById('mpesaConsumerSecret').value
         };
         
-        fetch('http://localhost:8080/api/mpesa/config', {
+        fetch('/api/mpesa/config', {
             method: 'PUT',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(data)
@@ -95,7 +95,7 @@ const AdminMpesaComponent = {
         var phoneNumber = prompt('Enter test phone number (e.g., 254708374149):', '254708374149');
         if (!phoneNumber) return;
         
-        fetch('http://localhost:8080/api/mpesa/stk-push', {
+        fetch('/api/mpesa/stk-push', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -118,7 +118,7 @@ const AdminMpesaComponent = {
     },
 
     loadTransactions() {
-        fetch('http://localhost:8080/api/mpesa/transactions')
+        fetch('/api/mpesa/transactions')
             .then(function(r){return r.json();})
             .then(function(transactions){
                 var h = '<table class="table"><thead><tr><th>Date</th><th>Type</th><th>Phone</th><th>Amount</th><th>Reference</th><th>M-Pesa Ref</th><th>Status</th></tr></thead><tbody>';

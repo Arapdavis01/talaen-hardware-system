@@ -12,7 +12,7 @@ function showMpesaPayment(total, customerPhone, onComplete) {
         var statusDiv = m.querySelector('#mpesaStkStatus');
         statusDiv.innerHTML = '<span style="color:#3b82f6;">Sending STK Push... Please check your phone.</span>';
         
-        fetch('http://localhost:8080/api/mpesa/stk-push',{
+        fetch('/api/mpesa/stk-push',{
             method:'POST',
             headers:{'Content-Type':'application/json'},
             body:JSON.stringify({
@@ -30,7 +30,7 @@ function showMpesaPayment(total, customerPhone, onComplete) {
                 var attempts = 0;
                 var checkStatus = setInterval(function(){
                     attempts++;
-                    fetch('http://localhost:8080/api/mpesa/transaction/' + d.checkoutRequestID)
+                    fetch('/api/mpesa/transaction/' + d.checkoutRequestID)
                     .then(function(r){return r.json();})
                     .then(function(t){
                         if(t.status === 'completed'){
