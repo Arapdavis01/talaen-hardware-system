@@ -1,5 +1,5 @@
-﻿const ApiService = {
-    BASE: 'http://localhost:8080/api',
+const ApiService = {
+    BASE: '/api',
 
     async getProducts() {
         const res = await fetch(this.BASE + '/products');
