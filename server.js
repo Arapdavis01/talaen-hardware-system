@@ -24,7 +24,7 @@ async function initDB() {
         `CREATE TABLE IF NOT EXISTS sales (id INT AUTO_INCREMENT PRIMARY KEY, receiptNo VARCHAR(50), customerName VARCHAR(255), paymentMethod VARCHAR(50), subtotal DECIMAL(10,2), tax DECIMAL(10,2), discount DECIMAL(10,2) DEFAULT 0, total DECIMAL(10,2), transportCost DECIMAL(10,2) DEFAULT 0, cashierId INT, cashierName VARCHAR(255), mpesaRef VARCHAR(100), isCredit INT DEFAULT 0, customerId INT, debtPaid DECIMAL(10,2) DEFAULT 0, date TEXT, isVoid INT DEFAULT 0, is_returned TINYINT DEFAULT 0, return_type VARCHAR(20) NULL, return_date DATETIME NULL)`,
         `CREATE TABLE IF NOT EXISTS sale_items (id INT AUTO_INCREMENT PRIMARY KEY, saleId INT, productId INT, productName VARCHAR(255), quantity INT, price DECIMAL(10,2), total DECIMAL(10,2))`,
         `CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255) UNIQUE, password VARCHAR(255), role VARCHAR(50) DEFAULT 'cashier', fullName VARCHAR(255) DEFAULT '', isActive INT DEFAULT 1)`,
-        `CREATE TABLE IF NOT EXISTS settings (id INT PRIMARY KEY DEFAULT 1, adminPassword VARCHAR(255) DEFAULT 'admin123', taxRate DECIMAL(10,2) DEFAULT 16)`,
+        `CREATE TABLE IF NOT EXISTS settings (id INT PRIMARY KEY DEFAULT 1, adminPassword VARCHAR(255) DEFAULT 'admin123', taxRate DECIMAL(10,2) DEFAULT 16, announcement TEXT DEFAULT '')`,
         `CREATE TABLE IF NOT EXISTS activity_log (id INT AUTO_INCREMENT PRIMARY KEY, userId INT, userName VARCHAR(255), action VARCHAR(100), details TEXT, date TEXT)`,
         `CREATE TABLE IF NOT EXISTS purchase_orders (id INT AUTO_INCREMENT PRIMARY KEY, poNumber VARCHAR(50), supplierName VARCHAR(255), supplierId INT, status VARCHAR(50) DEFAULT 'pending', notes TEXT, total DECIMAL(10,2) DEFAULT 0, createdBy VARCHAR(255), date TEXT, receivedDate TEXT)`,
         `CREATE TABLE IF NOT EXISTS po_items (id INT AUTO_INCREMENT PRIMARY KEY, poId INT, productName VARCHAR(255), brand VARCHAR(255), variant VARCHAR(255), quantity INT, unitPrice DECIMAL(10,2), sellingPrice DECIMAL(10,2) DEFAULT 0, lastPrice DECIMAL(10,2) DEFAULT 0, currentStock INT DEFAULT 0, discount DECIMAL(10,2) DEFAULT 0, total DECIMAL(10,2))`,
@@ -42,12 +42,13 @@ async function initDB() {
     try { await pool.query("ALTER TABLE sales ADD COLUMN is_returned TINYINT DEFAULT 0"); } catch(e) {}
     try { await pool.query("ALTER TABLE sales ADD COLUMN return_type VARCHAR(20) NULL"); } catch(e) {}
     try { await pool.query("ALTER TABLE sales ADD COLUMN return_date DATETIME NULL"); } catch(e) {}
+    try { await pool.query("ALTER TABLE settings ADD COLUMN announcement TEXT DEFAULT ''"); } catch(e) {}
 
     const [users] = await pool.query("SELECT COUNT(*) as c FROM users");
     if (users[0].c === 0) {
         await pool.query("INSERT INTO users VALUES (1,'admin','admin123','admin','Administrator',1)");
         await pool.query("INSERT INTO users VALUES (2,'cashier','cashier123','cashier','Cashier User',1)");
-        await pool.query("INSERT IGNORE INTO settings VALUES (1,'admin123',16)");
+        await pool.query("INSERT IGNORE INTO settings VALUES (1,'admin123',16,'')");
     }
     const [mpesa] = await pool.query("SELECT COUNT(*) as c FROM mpesa_config");
     if (mpesa[0].c === 0) { await pool.query("INSERT INTO mpesa_config (id, environment) VALUES (1, 'sandbox')"); }
@@ -66,9 +67,13 @@ app.get('/api/users', async (req, res) => { const [r] = await pool.query("SELECT
 app.post('/api/users', async (req, res) => { const { username, password, role, fullName } = req.body; try { const [r] = await pool.query("INSERT INTO users (username, password, role, fullName) VALUES (?,?,?,?)", [username, password, role||'cashier', fullName]); logActivity(null, 'Admin', 'add_user', 'Added: ' + fullName); res.json({ success: true, id: r.insertId }); } catch(e) { res.json({ success: false, message: 'Username exists' }); } });
 app.put('/api/users/:id', async (req, res) => { const { password, isActive, fullName, username, toggle } = req.body; const [user] = await pool.query("SELECT * FROM users WHERE id=?", [req.params.id]); if (!user.length) return res.json({ success: false }); if (password) { await pool.query("UPDATE users SET password=? WHERE id=?", [password, req.params.id]); } if (isActive !== undefined) await pool.query("UPDATE users SET isActive=? WHERE id=?", [isActive, req.params.id]); if (toggle) { if (user[0].role === 'admin') return res.json({ success: false, message: 'Cannot deactivate admin' }); await pool.query("UPDATE users SET isActive=? WHERE id=?", [user[0].isActive ? 0 : 1, req.params.id]); } if (fullName) await pool.query("UPDATE users SET fullName=? WHERE id=?", [fullName, req.params.id]); if (username) await pool.query("UPDATE users SET username=? WHERE id=?", [username, req.params.id]); res.json({ success: true }); });
 
-// SETTINGS
+// SETTINGS (Updated with announcement)
 app.get('/api/settings', async (req, res) => { const [r] = await pool.query("SELECT * FROM settings WHERE id=1"); res.json(r[0] || { adminPassword: 'admin123' }); });
-app.put('/api/settings', async (req, res) => { if (req.body.adminPassword) { await pool.query("UPDATE settings SET adminPassword=? WHERE id=1", [req.body.adminPassword]); } res.json({ success: true }); });
+app.put('/api/settings', async (req, res) => { 
+    if (req.body.adminPassword) { await pool.query("UPDATE settings SET adminPassword=? WHERE id=1", [req.body.adminPassword]); }
+    if (req.body.announcement !== undefined) { await pool.query("UPDATE settings SET announcement=? WHERE id=1", [req.body.announcement]); }
+    res.json({ success: true }); 
+});
 
 // ACTIVITY
 app.get('/api/activity', async (req, res) => { const [r] = await pool.query("SELECT * FROM activity_log ORDER BY date DESC LIMIT 100"); res.json(r); });
