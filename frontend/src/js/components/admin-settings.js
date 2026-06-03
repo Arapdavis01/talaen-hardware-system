@@ -1,4 +1,4 @@
-﻿const AdminSettingsComponent = {
+const AdminSettingsComponent = {
     _activityFilter: 'all',
 
     render() {
@@ -21,6 +21,15 @@
         h += '<div><label>Role</label><select id="cashierRole" class="form-control"><option value="cashier">Cashier</option><option value="admin">Admin</option></select></div>';
         h += '<button class="btn btn-success" id="addCashierBtn" onclick="AdminSettingsComponent.addUser()" style="height:42px;"><i class="fas fa-plus"></i> Add</button></div>';
         h += '<div id="userMsg" style="margin-bottom:0.5rem;"></div><div id="userList">Loading users...</div></div></div>';
+        
+        // Announcement Banner
+        h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 class="card-title" style="color:white;"><i class="fas fa-bullhorn"></i> Announcement Banner</h3></div><div class="card-body">';
+        h += '<div class="form-group"><label>Message (leave empty to hide from cashiers)</label>';
+        h += '<input type="text" id="announcementText" class="form-control" placeholder="e.g., Merry Christmas! 🎄 Happy New Year! 🎆" style="font-size:1.1rem;">';
+        h += '</div>';
+        h += '<button class="btn btn-primary" onclick="AdminSettingsComponent.saveAnnouncement()"><i class="fas fa-save"></i> Save Announcement</button>';
+        h += '<div id="announcementMsg" style="margin-top:0.5rem;"></div>';
+        h += '</div></div>';
         
         // M-Pesa API Configuration
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 class="card-title" style="color:white;"><i class="fas fa-mobile-alt"></i> M-Pesa API Configuration</h3></div><div class="card-body">';
@@ -55,9 +64,31 @@
             AdminSettingsComponent.loadActivity(); 
             AdminSettingsComponent.loadCurrentPassword(); 
             AdminSettingsComponent.loadMpesaConfig();
+            AdminSettingsComponent.loadAnnouncement();
         }, 300);
         
         return h;
+    },
+
+    // ========== ANNOUNCEMENT ==========
+    loadAnnouncement() {
+        fetch('/api/settings').then(function(r){return r.json();}).then(function(s) {
+            var input = document.getElementById('announcementText');
+            if (input) input.value = s.announcement || '';
+        });
+    },
+
+    saveAnnouncement() {
+        var text = document.getElementById('announcementText').value.trim();
+        fetch('/api/settings', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ announcement: text })
+        }).then(function(r){return r.json();}).then(function(d) {
+            if (d.success) {
+                AdminSettingsComponent.showMsg('announcementMsg', '✅ Announcement saved!', 'success');
+            }
+        });
     },
 
     // ========== M-PESA CONFIG ==========
