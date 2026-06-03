@@ -1,4 +1,4 @@
-﻿const CashierDashboardComponent = {
+const CashierDashboardComponent = {
     _creditLoaded: false,
     _currentView: 'overview',
     _allFilteredSales: [],
@@ -15,6 +15,9 @@
         h += '<h2>Welcome, ' + (user?.fullName || 'Cashier') + '!</h2>';
         h += '<button class="btn btn-lg" style="background:white;color:var(--primary);padding:0.75rem 2rem;font-size:1.1rem;" onclick="AppRouter.navigate(\'pos\')">';
         h += '<i class="fas fa-shopping-cart"></i> START NEW SALE (POS)</button></div>';
+        
+        // Announcement Banner
+        h += '<div id="announcementBanner" style="display:none;text-align:center;padding:1rem;margin-bottom:1.5rem;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:1rem;font-size:1.2rem;font-weight:700;color:#92400e;border:2px solid #f59e0b;"></div>';
         
         h += '<div id="cashierContent">';
         if (this._currentView === 'sales') {
@@ -49,7 +52,6 @@
         }
     },
 
-    // ============ CALENDAR ============
     _showCalendar() {
         var now = new Date();
         var currentMonth = now.getMonth();
@@ -104,11 +106,9 @@
         renderCalendar(currentMonth, currentYear);
     },
 
-    // ============ OVERVIEW ============
     _renderOverview() {
         var h = '';
         
-        // Calendar Card - below START NEW SALE button
         h += '<div class="card" style="margin-bottom:1.5rem;cursor:pointer;" onclick="CashierDashboardComponent._showCalendar()">';
         h += '<div class="card-body" style="text-align:center;padding:1.5rem;">';
         h += '<div style="display:flex;align-items:center;justify-content:center;gap:1rem;">';
@@ -119,7 +119,6 @@
         h += '<div style="font-size:0.85rem;color:var(--gray-400);"><i class="fas fa-calendar-alt"></i> Click to view calendar</div>';
         h += '</div></div></div></div>';
         
-        // Stats Grid
         h += '<div class="stats-grid" id="cashierStats">';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-label">My Today Sales</div><div class="stat-value">KES 0</div><div class="stat-sub">0 transactions</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-bar"></i></div><div class="stat-label">My Total Sales</div><div class="stat-value">KES 0</div><div class="stat-sub">0 transactions</div></div>';
@@ -137,7 +136,6 @@
         return h;
     },
 
-    // ============ SALES TAB ============
     _renderSalesTab() {
         var h = '';
         h += '<div id="todayPaymentSummary" style="margin-bottom:1.5rem;"></div>';
@@ -278,7 +276,6 @@
         document.body.appendChild(d); setTimeout(function() { d.remove(); }, 3000);
     },
 
-    // ============ RETURNS TAB ============
     _renderReturnsTab() {
         var h = '';
         h += '<div id="returnsSummaryCards" style="margin-bottom:1.5rem;"></div>';
@@ -344,7 +341,6 @@
         document.querySelectorAll('.returns-row').forEach(function(r) { r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; });
     },
 
-    // ============ CREDIT TAB ============
     _renderCreditTab() {
         var h = '';
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;"><h3 class="card-title"><i class="fas fa-users"></i> All Credit Customers</h3><button class="btn btn-success btn-sm" onclick="POSComponent.showRegisterCustomer()"><i class="fas fa-user-plus"></i> Register New</button></div><div class="card-body"><div id="creditTabCustomersList">Loading...</div></div></div>';
@@ -418,7 +414,6 @@
         document.querySelectorAll('.payment-row').forEach(function(r) { r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; });
     },
 
-    // ============ REPORTS TAB ============
     _renderReportsTab() {
         var h = '';
         h += '<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">';
@@ -493,7 +488,6 @@
         w.document.close();
     },
 
-    // ============ STATS LOADING ============
     async loadStats() {
         var user = AuthService.getCurrentUser(); if (!user) return;
         await SaleService.getAll(); await ProductService._fetchFromAPI();
@@ -507,6 +501,14 @@
                 '<div class="stat-card"><div class="stat-icon"><i class="fas fa-box"></i></div><div class="stat-label">Available Products</div><div class="stat-value">' + products.length + '</div><div class="stat-sub">' + products.reduce(function(s,p){return s+(p.stock||0);},0) + ' units in stock</div></div>' +
                 creditHTML;
         }
+        // Load announcement
+        fetch('/api/settings').then(function(r){return r.json();}).then(function(s) {
+            var banner = document.getElementById('announcementBanner');
+            if (banner && s.announcement) {
+                banner.innerHTML = '🎉 ' + s.announcement + ' 🎉';
+                banner.style.display = 'block';
+            }
+        }).catch(function(){});
         await this.loadCreditOnly();
     },
 
