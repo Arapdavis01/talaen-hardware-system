@@ -1,4 +1,4 @@
-﻿const AdminProductsComponent = {
+const AdminProductsComponent = {
     render: function() {
         var products = ProductService._cache || [];
         var grouped = {};
@@ -24,18 +24,25 @@
                 h += '<strong style="color:var(--primary);"><i class="fas fa-box"></i> ' + group.displayName + ' <span class="badge badge-info">' + variants.length + ' variants</span></strong>';
                 h += '<button class="btn btn-sm btn-success" onclick="AdminProductsComponent.addVariant(\'' + group.displayName.replace(/'/g, "\\'") + '\', \'' + (variants[0]?.category || 'General').replace(/'/g, "\\'") + '\')"><i class="fas fa-plus"></i> Add Variant</button>';
                 h += '</div>';
-                h += '<table class="table" style="margin:0;"><thead><tr><th>Brand</th><th>Variant</th><th>Category</th><th>Buy Price</th><th>Sell Price</th><th>Stock</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+                h += '<table class="table" style="margin:0;"><thead><tr><th>Brand</th><th>Variant</th><th>Category</th><th>Buy Price</th><th>Sell Price</th><th>Stock</th><th>Unit</th><th>Sales Unit</th><th>Conv.</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
                 
                 variants.forEach(function(p) {
                     var threshold = ProductService.getStockAlertThreshold ? ProductService.getStockAlertThreshold(p.id) : 10;
                     var status = p.stock === 0 ? '<span class="badge badge-danger">Out</span>' : p.stock <= threshold ? '<span class="badge badge-warning">Low</span>' : '<span class="badge badge-success">OK</span>';
+                    // Show sales unit and conversion factor if set
+                    var salesUnitDisplay = p.salesUnit ? p.salesUnit : '-';
+                    var conversionDisplay = p.conversionFactor ? p.conversionFactor : '-';
                     // Add data-search with ALL searchable fields + group name
                     var searchData = (p.name || '').toLowerCase() + ' ' + (p.brand || '').toLowerCase() + ' ' + (p.variant || '').toLowerCase() + ' ' + (p.category || '').toLowerCase();
                     h += '<tr class="product-row" data-search="' + searchData + '">';
                     h += '<td><strong>' + (p.brand || '-') + '</strong></td><td>' + (p.variant || '-') + '</td><td>' + (p.category || '-') + '</td>';
                     h += '<td>KES ' + (p.cost || 0).toLocaleString() + '</td>';
                     h += '<td style="color:var(--secondary);font-weight:600;">KES ' + (p.price || 0).toLocaleString() + '</td>';
-                    h += '<td>' + (p.stock || 0) + ' ' + (p.unit || 'pcs') + '</td><td>' + status + '</td>';
+                    h += '<td>' + (p.stock || 0) + '</td>';
+                    h += '<td>' + (p.unit || 'pcs') + '</td>';
+                    h += '<td>' + salesUnitDisplay + '</td>';
+                    h += '<td>' + conversionDisplay + '</td>';
+                    h += '<td>' + status + '</td>';
                     h += '<td><div style="display:flex;gap:0.25rem;">';
                     h += '<button class="btn btn-sm btn-primary" onclick="AdminProductsComponent.editProduct(' + p.id + ')"><i class="fas fa-edit"></i></button>';
                     h += '<button class="btn btn-sm btn-warning" onclick="AdminProductsComponent.restockProduct(' + p.id + ')"><i class="fas fa-plus"></i></button>';
@@ -61,13 +68,11 @@
             
             rows.forEach(function(row) {
                 var rowSearch = (row.dataset.search || '').toLowerCase();
-                // Search in row data AND group name
                 var match = !q || rowSearch.indexOf(q) > -1 || groupName.indexOf(q) > -1;
                 row.style.display = match ? '' : 'none';
                 if (match) anyVisible = true;
             });
             
-            // Hide/show group header
             var header = group.querySelector('.group-header');
             var table = group.querySelector('table');
             
@@ -80,12 +85,10 @@
             }
         });
         
-        // Show "no results" message if nothing visible
         var allGroups = document.querySelectorAll('.product-group-container');
         var allHidden = true;
         allGroups.forEach(function(g) { if (g.style.display !== 'none') allHidden = false; });
         
-        // Remove existing no-results message
         var existingMsg = document.getElementById('noSearchResults');
         if (existingMsg) existingMsg.remove();
         
@@ -109,13 +112,37 @@
             '<div class="form-group"><label>Variant/Size</label><input type="text" id="prodVariant" class="form-control" placeholder="e.g., 50kg"></div>' +
             '<div class="form-group"><label>Category</label><input type="text" id="prodCategory" class="form-control" placeholder="e.g., Building Materials"></div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Buying Price/Cost (KES)</label><input type="number" id="prodCost" class="form-control" placeholder="0.00"></div><div class="form-group"><label>Selling Price (KES) *</label><input type="number" id="prodPrice" class="form-control" placeholder="0.00"></div></div>' +
-            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Stock</label><input type="number" id="prodStock" class="form-control" value="0"></div><div class="form-group"><label>Unit</label><select id="prodUnit" class="form-control"><option value="pcs">Pieces</option><option value="kg">Kg</option><option value="bag">Bag</option><option value="sheet">Sheet</option><option value="box">Box</option><option value="bucket">Bucket</option><option value="ton">Ton</option><option value="length">Length</option><option value="pair">Pair</option><option value="roll">Roll</option><option value="litre">Litre</option></select></div></div></div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Stock</label><input type="number" id="prodStock" class="form-control" value="0"></div><div class="form-group"><label>Main Unit</label><select id="prodUnit" class="form-control"><option value="pcs">Pieces</option><option value="kg">Kg</option><option value="bag">Bag</option><option value="sheet">Sheet</option><option value="box">Box</option><option value="bucket">Bucket</option><option value="tonne">Tonne</option><option value="length">Length</option><option value="pair">Pair</option><option value="roll">Roll</option><option value="litre">Litre</option></select></div></div>' +
+            '<hr><p style="color:#f59e0b;font-weight:600;"><i class="fas fa-sync-alt"></i> Alternative Sales Unit (optional)</p>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' +
+            '<div class="form-group"><label>Sales Unit</label><input type="text" id="prodSalesUnit" class="form-control" placeholder="e.g., wheelbarrow, kg"></div>' +
+            '<div class="form-group"><label>Conversion Factor</label><input type="number" id="prodConvFactor" class="form-control" placeholder="e.g., 20 (1 main = 20 sales)" step="0.01" min="1"></div>' +
+            '</div>' +
+            '<small style="color:#999;">If set, 1 main unit = this many sales units. Price per sales unit = price / factor.</small>' +
+            '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="saveBtn"><i class="fas fa-save"></i> Add Product</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#saveBtn').onclick = async function() {
             var n = document.getElementById('prodName').value.trim(), b = document.getElementById('prodBrand').value.trim(), p = parseFloat(document.getElementById('prodPrice').value);
             if (!n || !b || !p) { showStyledAlert('Required', 'Name, Brand, and Price required!', 'exclamation-triangle', '#f59e0b'); return; }
-            await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: n, brand: b, variant: document.getElementById('prodVariant').value.trim(), category: document.getElementById('prodCategory').value.trim(), price: p, cost: parseFloat(document.getElementById('prodCost').value) || 0, stock: parseInt(document.getElementById('prodStock').value) || 0, unit: document.getElementById('prodUnit').value }) });
+            var salesUnit = document.getElementById('prodSalesUnit').value.trim();
+            var convFactor = parseFloat(document.getElementById('prodConvFactor').value) || 1;
+            await fetch('/api/products', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: n,
+                    brand: b,
+                    variant: document.getElementById('prodVariant').value.trim(),
+                    category: document.getElementById('prodCategory').value.trim(),
+                    price: p,
+                    cost: parseFloat(document.getElementById('prodCost').value) || 0,
+                    stock: parseInt(document.getElementById('prodStock').value) || 0,
+                    unit: document.getElementById('prodUnit').value,
+                    salesUnit: salesUnit,
+                    conversionFactor: convFactor
+                })
+            });
             await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
         };
     },
@@ -125,13 +152,37 @@
         m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-plus-circle"></i> Add Variant: ' + productName + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div>' +
             '<div class="modal-body"><div class="form-group"><label>Brand *</label><input type="text" id="varBrand" class="form-control"></div><div class="form-group"><label>Variant</label><input type="text" id="varVariant" class="form-control"></div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Buying Price/Cost (KES)</label><input type="number" id="varCost" class="form-control" step="0.01" value="0"></div><div class="form-group"><label>Selling Price (KES) *</label><input type="number" id="varPrice" class="form-control" step="0.01"></div></div>' +
-            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Stock</label><input type="number" id="varStock" class="form-control" value="0"></div><div class="form-group"><label>Unit</label><select id="varUnit" class="form-control"><option value="pcs">Pieces</option><option value="kg">Kg</option><option value="bag">Bag</option><option value="sheet">Sheet</option><option value="box">Box</option><option value="bucket">Bucket</option><option value="ton">Ton</option><option value="length">Length</option><option value="pair">Pair</option><option value="roll">Roll</option><option value="litre">Litre</option></select></div></div></div>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Stock</label><input type="number" id="varStock" class="form-control" value="0"></div><div class="form-group"><label>Main Unit</label><select id="varUnit" class="form-control"><option value="pcs">Pieces</option><option value="kg">Kg</option><option value="bag">Bag</option><option value="sheet">Sheet</option><option value="box">Box</option><option value="bucket">Bucket</option><option value="tonne">Tonne</option><option value="length">Length</option><option value="pair">Pair</option><option value="roll">Roll</option><option value="litre">Litre</option></select></div></div>' +
+            '<hr><p style="color:#f59e0b;font-weight:600;"><i class="fas fa-sync-alt"></i> Alternative Sales Unit (optional)</p>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' +
+            '<div class="form-group"><label>Sales Unit</label><input type="text" id="varSalesUnit" class="form-control" placeholder="e.g., wheelbarrow"></div>' +
+            '<div class="form-group"><label>Conversion Factor</label><input type="number" id="varConvFactor" class="form-control" placeholder="e.g., 20" step="0.01" min="1"></div>' +
+            '</div>' +
+            '<small style="color:#999;">If set, 1 main unit = this many sales units.</small>' +
+            '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="addBtn"><i class="fas fa-save"></i> Add Variant</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#addBtn').onclick = async function() {
             var b = document.getElementById('varBrand').value.trim(), p = parseFloat(document.getElementById('varPrice').value);
             if (!b || !p) { showStyledAlert('Required', 'Brand and Price required!', 'exclamation-triangle', '#f59e0b'); return; }
-            await fetch('/api/products', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: productName, brand: b, variant: document.getElementById('varVariant').value.trim(), category: category, price: p, cost: parseFloat(document.getElementById('varCost').value) || 0, stock: parseInt(document.getElementById('varStock').value) || 0, unit: document.getElementById('varUnit').value }) });
+            var salesUnit = document.getElementById('varSalesUnit').value.trim();
+            var convFactor = parseFloat(document.getElementById('varConvFactor').value) || 1;
+            await fetch('/api/products', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: productName,
+                    brand: b,
+                    variant: document.getElementById('varVariant').value.trim(),
+                    category: category,
+                    price: p,
+                    cost: parseFloat(document.getElementById('varCost').value) || 0,
+                    stock: parseInt(document.getElementById('varStock').value) || 0,
+                    unit: document.getElementById('varUnit').value,
+                    salesUnit: salesUnit,
+                    conversionFactor: convFactor
+                })
+            });
             await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
         };
     },
@@ -142,11 +193,34 @@
         m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-edit"></i> Edit: ' + (p.brand||'') + ' ' + p.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div>' +
             '<div class="modal-body"><div class="form-group"><label>Brand</label><input type="text" id="editBrand" class="form-control" value="' + (p.brand||'') + '"></div><div class="form-group"><label>Variant</label><input type="text" id="editVariant" class="form-control" value="' + (p.variant||'') + '"></div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Buying Price/Cost (KES)</label><input type="number" id="editCost" class="form-control" value="' + (p.cost||0) + '" step="0.01"></div><div class="form-group"><label>Selling Price (KES)</label><input type="number" id="editPrice" class="form-control" value="' + p.price + '" step="0.01"></div></div>' +
-            '<div class="form-group"><label>Stock</label><input type="number" id="editStock" class="form-control" value="' + p.stock + '"></div></div>' +
+            '<div class="form-group"><label>Stock</label><input type="number" id="editStock" class="form-control" value="' + p.stock + '"></div>' +
+            // Edit: add sales unit and conversion factor fields
+            '<hr><p style="color:#f59e0b;font-weight:600;"><i class="fas fa-sync-alt"></i> Alternative Sales Unit (optional)</p>' +
+            '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' +
+            '<div class="form-group"><label>Sales Unit</label><input type="text" id="editSalesUnit" class="form-control" value="' + (p.salesUnit || '') + '" placeholder="e.g., wheelbarrow"></div>' +
+            '<div class="form-group"><label>Conversion Factor</label><input type="number" id="editConvFactor" class="form-control" value="' + (p.conversionFactor || '') + '" placeholder="e.g., 20" step="0.01" min="1"></div>' +
+            '</div>' +
+            '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="updateBtn"><i class="fas fa-save"></i> Update</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#updateBtn').onclick = async function() {
-            await fetch('/api/products/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: p.name, brand: document.getElementById('editBrand').value.trim(), variant: document.getElementById('editVariant').value.trim(), price: parseFloat(document.getElementById('editPrice').value), cost: parseFloat(document.getElementById('editCost').value) || 0, stock: parseInt(document.getElementById('editStock').value), unit: p.unit }) });
+            var salesUnit = document.getElementById('editSalesUnit').value.trim();
+            var convFactor = parseFloat(document.getElementById('editConvFactor').value) || 1;
+            await fetch('/api/products/' + id, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: p.name,
+                    brand: document.getElementById('editBrand').value.trim(),
+                    variant: document.getElementById('editVariant').value.trim(),
+                    price: parseFloat(document.getElementById('editPrice').value),
+                    cost: parseFloat(document.getElementById('editCost').value) || 0,
+                    stock: parseInt(document.getElementById('editStock').value),
+                    unit: p.unit,   // main unit unchanged from original
+                    salesUnit: salesUnit,
+                    conversionFactor: convFactor
+                })
+            });
             await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
         };
     },
