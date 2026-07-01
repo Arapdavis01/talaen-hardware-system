@@ -13,12 +13,26 @@ const SaleService = {
         const receiptNo = 'TIH-' + Date.now().toString(36).toUpperCase();
         const user = AuthService.getCurrentUser();
         
+        // Map items to include conversion fields
+        const mappedItems = saleData.items.map(function(item) {
+            return {
+                productId: item.productId,
+                productName: item.productName,
+                quantity: item.quantity,
+                price: item.price,
+                unit: item.unit || 'pcs',
+                conversionFactor: item.conversionFactor || 1,
+                mainUnit: item.mainUnit || item.unit || 'pcs',
+                mainPrice: item.mainPrice || item.price
+            };
+        });
+
         try {
             const res = await fetch('/api/sales', {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     customerName: saleData.customerName || 'Walk-in Customer',
-                    items: saleData.items,
+                    items: mappedItems,
                     paymentMethod: saleData.paymentMethod || 'cash',
                     subtotal, tax, discount: saleData.discount || 0, total,
                     cashierId: user?.id, cashierName: user?.fullName,
@@ -34,7 +48,7 @@ const SaleService = {
                 saleId: data.saleId, 
                 receiptNo: data.receiptNo || receiptNo, 
                 customerName: saleData.customerName, 
-                items: saleData.items, 
+                items: mappedItems,   // use mapped items so unit shows on receipt
                 subtotal, tax, total, 
                 transportCost: saleData.transportCost || 0,
                 paymentMethod: saleData.paymentMethod, 
@@ -45,7 +59,7 @@ const SaleService = {
             };
         } catch(e) { console.error('SaleService.create error:', e); }
         
-        return { receiptNo, customerName: saleData.customerName, items: saleData.items, subtotal, tax, total, transportCost: saleData.transportCost || 0, paymentMethod: saleData.paymentMethod, date: new Date().toISOString() };
+        return { receiptNo, customerName: saleData.customerName, items: mappedItems, subtotal, tax, total, transportCost: saleData.transportCost || 0, paymentMethod: saleData.paymentMethod, date: new Date().toISOString() };
     },
 
     async getCashierSales(cashierId) {
@@ -101,7 +115,9 @@ const SaleService = {
     h += '<tr style="border-bottom:2px solid #333;"><th style="text-align:left;">Item</th><th>Qty</th><th style="text-align:right;">Price</th><th style="text-align:right;">Total</th></tr>';
     if (sale.items && sale.items.length > 0) {
         sale.items.forEach(function(i) {
-            h += '<tr><td>' + (i.productName || '') + '</td><td style="text-align:center;">' + (i.quantity || 0) + '</td><td style="text-align:right;">' + Number(i.price || 0).toLocaleString() + '</td><td style="text-align:right;">' + (Number(i.price||0)*Number(i.quantity||0)).toLocaleString() + '</td></tr>';
+            // Optionally show unit on receipt
+            var unitLabel = i.unit ? '/' + i.unit : '';
+            h += '<tr><td>' + (i.productName || '') + '</td><td style="text-align:center;">' + (i.quantity || 0) + '</td><td style="text-align:right;">' + Number(i.price || 0).toLocaleString() + unitLabel + '</td><td style="text-align:right;">' + (Number(i.price||0)*Number(i.quantity||0)).toLocaleString() + '</td></tr>';
         });
     }
     h += '</table>';
