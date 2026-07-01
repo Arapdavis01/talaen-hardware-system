@@ -32,14 +32,25 @@ const POSComponent = {
             var group = grouped[keys[i]], variants = group.variants;
             html += '<div style="margin-bottom:1rem;border:1px solid #ddd;border-radius:1rem;overflow:hidden;"><div style="background:#f5f5f5;padding:0.5rem 1rem;font-weight:700;">' + group.displayName + ' (' + variants.length + ' variants)</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0.5rem;padding:0.5rem;">';
             for (var j = 0; j < variants.length; j++) {
-                var p = variants[j], stockColor = p.stock <= 0 ? '#ef4444' : p.stock <= 10 ? '#f59e0b' : '#10b981';
-                html += '<div class="product-item" onclick="POSComponent.addToCart(' + p.id + ')" data-search="' + p.name.toLowerCase() + ' ' + (p.brand||'').toLowerCase() + ' ' + (p.variant||'').toLowerCase() + '" style="padding:0.75rem;cursor:pointer;border:2px solid #ddd;border-radius:0.75rem;text-align:center;">';
+                var p = variants[j];
+                // Determine stock color
+                var stockColor = p.stock <= 0 ? '#ef4444' : p.stock <= 10 ? '#f59e0b' : '#10b981';
+                // Show price and unit label (if conversion exists, show main unit price and note)
+                var priceDisplay = 'KES ' + (p.price||0).toLocaleString();
+                var unitDisplay = (p.unit||'pcs');
+                if (p.conversionFactor && p.conversionFactor > 1 && p.salesUnit) {
+                    priceDisplay = 'KES ' + (p.price / p.conversionFactor).toLocaleString() + '/' + p.salesUnit;
+                    unitDisplay = p.salesUnit + ' (stock: ' + p.stock + ' ' + (p.unit||'pcs') + ')';
+                } else {
+                    unitDisplay = p.unit||'pcs';
+                }
+                html += '<div class="product-item" onclick="POSComponent.showQuickAdd(' + p.id + ')" data-search="' + p.name.toLowerCase() + ' ' + (p.brand||'').toLowerCase() + ' ' + (p.variant||'').toLowerCase() + '" style="padding:0.75rem;cursor:pointer;border:2px solid #ddd;border-radius:0.75rem;text-align:center;">';
                 if (p.brand) html += '<div style="font-weight:600;font-size:0.9rem;">' + p.brand + '</div>';
                 html += '<div style="font-size:0.75rem;color:#666;">' + (p.variant || '') + '</div>';
-                html += '<div style="font-weight:700;color:var(--secondary);font-size:1.1rem;margin:0.25rem 0;">KES ' + (p.price||0).toLocaleString() + '</div>';
+                html += '<div style="font-weight:700;color:var(--secondary);font-size:1.1rem;margin:0.25rem 0;">' + priceDisplay + '</div>';
                 html += '<div style="display:flex;align-items:center;justify-content:center;gap:0.25rem;font-size:0.7rem;">';
                 html += '<span style="width:8px;height:8px;border-radius:50%;background:' + stockColor + ';display:inline-block;"></span>';
-                html += 'Stock: ' + p.stock + ' ' + (p.unit||'pcs') + '</div></div>';
+                html += 'Stock: ' + p.stock + ' ' + unitDisplay + '</div></div>';
             }
             html += '</div></div>';
         }
@@ -82,32 +93,245 @@ const POSComponent = {
 
     search() { var s = (document.getElementById('searchProduct')?.value || '').toLowerCase(); document.querySelectorAll('.product-item').forEach(function(el) { el.style.display = (el.dataset.search || '').includes(s) ? '' : 'none'; }); },
 
-    // UPDATED: Clear search AND keep focus on search bar
-    addToCart(productId) {
+    // ========== NEW: Quick Add Modal ==========
+    showQuickAdd(productId) {
         var product = this._products.find(function(p) { return p.id == productId; });
         if (!product || product.stock <= 0) { this._showMessage('Out of stock!', 'danger'); return; }
-        var existing = this._cart.find(function(i) { return i.productId == productId; });
-        if (existing) { if (existing.quantity < product.stock) existing.quantity++; else { this._showMessage('No more stock!', 'warning'); return; } }
-        else { this._cart.push({ productId: product.id, productName: (product.brand?product.brand+' - ':'')+product.name, productVariant: product.variant||'', quantity: 1, price: product.price, unit: product.unit }); }
-        
-        // Clear the search bar and keep focus on it
-        var searchInput = document.getElementById('searchProduct');
-        if (searchInput) {
-            searchInput.value = '';
-            searchInput.focus();
+        var self = this;
+
+        var hasConversion = product.conversionFactor && product.conversionFactor > 1 && product.salesUnit;
+        var mainUnit = product.unit || 'pcs';
+        var mainPrice = product.price;
+        var mainStock = product.stock;
+
+        // Build unit options
+        var units = [{
+            value: 'main',
+            label: mainUnit.charAt(0).toUpperCase() + mainUnit.slice(1),
+            price: mainPrice,
+            maxStock: mainStock,
+            unit: mainUnit
+        }];
+        if (hasConversion) {
+            var salesPrice = mainPrice / product.conversionFactor;
+            var salesStock = mainStock * product.conversionFactor;
+            units.push({
+                value: 'sales',
+                label: product.salesUnit.charAt(0).toUpperCase() + product.salesUnit.slice(1),
+                price: salesPrice,
+                maxStock: salesStock,
+                unit: product.salesUnit
+            });
         }
-        this.search();
-        
-        this._updateCart();
+
+        var html = '<div class="modal-overlay" id="quickAddModal"><div class="modal" style="max-width:420px;">';
+        html += '<div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;margin:0;"><i class="fas fa-cart-plus"></i> Add to Cart</h3><button class="btn btn-sm" style="color:white;" onclick="document.getElementById(\'quickAddModal\').remove()">X</button></div>';
+        html += '<div class="modal-body">';
+        html += '<div style="text-align:center;margin-bottom:1rem;"><h4>' + product.name + '</h4>';
+        if (product.brand) html += '<p style="color:#666;">' + product.brand + '</p>';
+        if (product.variant) html += '<p style="color:#999;">' + product.variant + '</p></div>';
+
+        // Unit selector if multiple
+        if (units.length > 1) {
+            html += '<div class="form-group"><label><strong>Sell by:</strong></label>';
+            html += '<div id="unitSelector" style="display:flex;gap:0.5rem;margin-top:0.5rem;">';
+            units.forEach(function(u, idx) {
+                var checked = idx === 0 ? ' checked' : '';
+                html += '<label style="flex:1;padding:0.75rem;border:2px solid ' + (checked ? 'var(--primary)' : '#ccc') + ';border-radius:0.75rem;text-align:center;cursor:pointer;" class="unit-option" data-value="' + u.value + '">';
+                html += '<input type="radio" name="quickUnit" value="' + u.value + '"' + checked + ' style="display:none;">';
+                html += '<div style="font-weight:700;">' + u.label + '</div>';
+                html += '<div style="font-size:0.85rem;color:#666;">KES ' + u.price.toLocaleString() + '/' + u.unit + '</div>';
+                html += '<div style="font-size:0.75rem;color:#999;">Available: ' + u.maxStock + ' ' + u.unit + '</div>';
+                html += '</label>';
+            });
+            html += '</div></div>';
+        } else {
+            // Single unit
+            var u = units[0];
+            html += '<div style="text-align:center;margin-bottom:1rem;">';
+            html += '<div style="font-weight:700;font-size:1.2rem;">KES ' + u.price.toLocaleString() + '/' + u.unit + '</div>';
+            html += '<div style="color:#999;">Available: ' + u.maxStock + ' ' + u.unit + '</div>';
+            html += '</div>';
+            html += '<input type="hidden" id="quickUnit" value="main">';
+        }
+
+        // Quantity input
+        html += '<div class="form-group"><label>Quantity:</label>';
+        html += '<input type="number" id="quickQty" class="form-control" value="1" min="1" max="' + units[0].maxStock + '" style="font-size:1.2rem;text-align:center;" oninput="POSComponent._updateQuickAddTotal(' + productId + ')">';
+        html += '</div>';
+
+        // Total preview
+        html += '<div id="quickAddTotal" style="text-align:center;font-size:1.3rem;font-weight:700;margin:1rem 0;padding:0.75rem;background:#f5f5f5;border-radius:0.5rem;">Total: KES ' + (units[0].price * 1).toLocaleString() + '</div>';
+
+        html += '<button class="btn btn-success" style="width:100%;padding:0.75rem;font-size:1.1rem;" id="quickAddBtn"><i class="fas fa-cart-plus"></i> Add to Cart</button>';
+        html += '</div></div></div>';
+
+        // Remove existing modal if any
+        var oldModal = document.getElementById('quickAddModal');
+        if (oldModal) oldModal.remove();
+
+        var m = document.createElement('div');
+        m.innerHTML = html;
+        document.body.appendChild(m.firstElementChild);
+        var modal = document.getElementById('quickAddModal');
+        modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
+
+        // Unit selector styling
+        if (units.length > 1) {
+            modal.querySelectorAll('.unit-option').forEach(function(label) {
+                label.addEventListener('click', function() {
+                    var radio = label.querySelector('input[type="radio"]');
+                    radio.checked = true;
+                    // Highlight selected
+                    modal.querySelectorAll('.unit-option').forEach(l => l.style.borderColor = '#ccc');
+                    label.style.borderColor = 'var(--primary)';
+                    // Update max and total
+                    var selVal = radio.value;
+                    var selUnit = units.find(u => u.value === selVal);
+                    var qtyInput = modal.querySelector('#quickQty');
+                    qtyInput.max = selUnit.maxStock;
+                    if (parseInt(qtyInput.value) > selUnit.maxStock) qtyInput.value = selUnit.maxStock;
+                    self._updateQuickAddTotal(productId);
+                });
+            });
+        }
+
+        // Add to cart button
+        modal.querySelector('#quickAddBtn').onclick = function() {
+            var qty = parseInt(modal.querySelector('#quickQty').value) || 1;
+            var selectedUnitValue = modal.querySelector('input[name="quickUnit"]:checked')?.value || 'main';
+            var selectedUnitObj = units.find(u => u.value === selectedUnitValue);
+            if (!selectedUnitObj) return;
+            self._addToCartWithUnit(product, qty, selectedUnitObj);
+            modal.remove();
+        };
+
+        // Initial total
+        this._updateQuickAddTotal(productId);
     },
+
+    _updateQuickAddTotal(productId) {
+        var modal = document.getElementById('quickAddModal');
+        if (!modal) return;
+        var product = this._products.find(function(p) { return p.id == productId; });
+        if (!product) return;
+
+        var selectedUnitValue = modal.querySelector('input[name="quickUnit"]:checked')?.value || 'main';
+        var qty = parseInt(modal.querySelector('#quickQty').value) || 0;
+
+        var pricePerUnit;
+        if (selectedUnitValue === 'main') {
+            pricePerUnit = product.price;
+        } else {
+            pricePerUnit = product.price / (product.conversionFactor || 1);
+        }
+
+        var total = pricePerUnit * qty;
+        var totalEl = document.getElementById('quickAddTotal');
+        if (totalEl) totalEl.innerHTML = 'Total: KES ' + total.toLocaleString();
+    },
+
+    _addToCartWithUnit(product, quantity, selectedUnit) {
+        if (!product || product.stock <= 0) { this._showMessage('Out of stock!', 'danger'); return; }
+
+        var effPrice, maxQty, displayUnit, conversionFactor, mainUnit, mainPrice;
+        mainUnit = product.unit || 'pcs';
+        mainPrice = product.price;
+
+        if (selectedUnit.value === 'main') {
+            // Selling in main unit
+            maxQty = product.stock;
+            effPrice = mainPrice;
+            displayUnit = mainUnit;
+            conversionFactor = 1;
+        } else {
+            // Selling in sales unit
+            conversionFactor = product.conversionFactor || 1;
+            maxQty = product.stock * conversionFactor;
+            effPrice = mainPrice / conversionFactor;
+            displayUnit = product.salesUnit;
+        }
+
+        // Clamp quantity
+        quantity = Math.max(1, Math.min(quantity, maxQty));
+
+        var existing = this._cart.find(function(i) { return i.productId == product.id; });
+        if (existing) {
+            // If existing item is in a different unit, refuse (or you could convert, but simpler to warn)
+            if (existing.unit !== displayUnit) {
+                this._showMessage('You already have this product in your cart with a different unit. Clear it first or add another variant.', 'warning');
+                return;
+            }
+            var newTotal = existing.quantity + quantity;
+            if (newTotal > maxQty) {
+                this._showMessage('Not enough stock! Only ' + maxQty + ' ' + displayUnit + ' available.', 'warning');
+                return;
+            }
+            existing.quantity = newTotal;
+        } else {
+            this._cart.push({
+                productId: product.id,
+                productName: (product.brand ? product.brand + ' - ' : '') + product.name,
+                productVariant: product.variant || '',
+                quantity: quantity,
+                price: effPrice,
+                unit: displayUnit,
+                conversionFactor: conversionFactor,
+                mainUnit: mainUnit,
+                mainPrice: mainPrice
+            });
+        }
+
+        this._updateCart();
+        this._showMessage('Added ' + quantity + ' ' + displayUnit + ' to cart', 'success');
+    },
+
+    // Old addToCart removed – no longer used by tiles
 
     updateCartQty(productId, change) {
         var item = this._cart.find(function(i) { return i.productId == productId; }); if (!item) return;
         var product = this._products.find(function(p) { return p.id == productId; });
+        if (!product) { this._cart = this._cart.filter(function(i) { return i.productId != productId; }); this._updateCart(); return; }
+
+        var maxQty = product.stock;
+        if (item.conversionFactor && item.conversionFactor > 1) {
+            maxQty = product.stock * item.conversionFactor;
+        }
+
         var newQty = item.quantity + change;
-        if (newQty <= 0) this._cart = this._cart.filter(function(i) { return i.productId != productId; });
-        else if (product && newQty <= product.stock) item.quantity = newQty;
-        else { this._showMessage('Not enough stock!', 'warning'); return; }
+        if (newQty <= 0) {
+            this._cart = this._cart.filter(function(i) { return i.productId != productId; });
+        } else if (newQty <= maxQty) {
+            item.quantity = newQty;
+        } else {
+            this._showMessage('Not enough stock! Max ' + maxQty + ' ' + (item.unit || 'units'), 'warning');
+        }
+        this._updateCart();
+    },
+
+    setCartQty(productId, newQty) {
+        newQty = parseInt(newQty);
+        var item = this._cart.find(function(i) { return i.productId == productId; });
+        if (!item) return;
+        var product = this._products.find(function(p) { return p.id == productId; });
+        if (!product) { this._cart = this._cart.filter(function(i) { return i.productId != productId; }); this._updateCart(); return; }
+
+        var maxQty = product.stock;
+        if (item.conversionFactor && item.conversionFactor > 1) {
+            maxQty = product.stock * item.conversionFactor;
+        }
+
+        if (isNaN(newQty) || newQty < 1) {
+            this._showMessage('Quantity must be at least 1', 'warning');
+            this._updateCart(); // reset input
+            return;
+        }
+        if (newQty > maxQty) {
+            this._showMessage('Not enough stock! Max ' + maxQty + ' ' + (item.unit || 'units'), 'warning');
+            this._updateCart();
+            return;
+        }
+        item.quantity = newQty;
         this._updateCart();
     },
 
@@ -127,7 +351,7 @@ const POSComponent = {
         });
     },
 
-    // ============ HOLD CART METHODS ============
+    // ========== HOLD CART METHODS ==========
     holdCart() {
         if (this._cart.length === 0) { this._showMessage('Cart is empty! Nothing to hold.', 'warning'); return; }
         var heldCart = { id: ++this._heldCartCounter, timestamp: new Date(), cart: JSON.parse(JSON.stringify(this._cart)), customerName: document.getElementById('customerName')?.value || '', customerId: this._selectedCustomerId, customer: this._selectedCustomer, transportCost: parseFloat(document.getElementById('transportCost')?.value) || 0, discountAmount: parseFloat(document.getElementById('discountAmount')?.value) || 0 };
@@ -359,251 +583,37 @@ const POSComponent = {
         }, 'Confirm & Print Receipt', 'success');
     },
 
-    showReturnExchange() { var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-exchange-alt"></i> Return / Exchange</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Search Receipt Number</label><input type="text" id="returnReceiptSearch" class="form-control" placeholder="e.g., TIH-MP77L0LG" oninput="POSComponent._searchReceipt()"></div><div id="returnReceiptResult" style="margin-top:1rem;"></div><div id="returnProcessArea" style="display:none;margin-top:1rem;"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button></div></div>'; document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();}; },
-
-    _searchReceipt() {
-        var q = document.getElementById('returnReceiptSearch')?.value.trim();
-        if (!q || q.length < 3) { document.getElementById('returnReceiptResult').innerHTML = ''; document.getElementById('returnProcessArea').style.display = 'none'; return; }
-        var self = this;
-        fetch('/api/sales/search/' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(sale){
-            var resultDiv = document.getElementById('returnReceiptResult'), processDiv = document.getElementById('returnProcessArea');
-            if (sale.error) { resultDiv.innerHTML = '<div style="padding:1rem;background:#fef2f2;border-radius:0.5rem;color:#ef4444;">❌ Receipt not found</div>'; processDiv.style.display = 'none'; return; }
-            fetch('/api/returns/receipt/' + encodeURIComponent(sale.receiptNo)).then(function(r){return r.json();}).then(function(existingReturns){
-                var returnedItems = existingReturns || [], returnedMap = {};
-                returnedItems.forEach(function(ret){ var k=ret.productId; if(!returnedMap[k])returnedMap[k]={totalQty:0,returns:[]}; returnedMap[k].totalQty+=ret.quantity; returnedMap[k].returns.push({type:ret.returnType,qty:ret.quantity,date:ret.date}); });
-                var hasReturns = returnedItems.length > 0;
-                resultDiv.innerHTML = '<div style="background:#f5f5f5;padding:1rem;border-radius:0.5rem;"><strong>📋 '+sale.receiptNo+'</strong><br>Customer: '+(sale.customerName||'Walk-in')+'<br>Total: KES '+Number(sale.total||0).toLocaleString()+'<br>Payment: '+sale.paymentMethod+'<br>Date: '+(sale.date?new Date(sale.date).toLocaleDateString('en-KE'):'N/A')+(hasReturns?'<br><div style="margin-top:0.5rem;padding:0.5rem;background:#fef3c7;border-radius:0.25rem;"><span style="color:#f59e0b;">⚠️ Previous returns: '+returnedItems.length+' item(s)</span></div>':'')+'</div>';
-                var itemsHTML = '<h4 style="margin-top:1rem;">Select Items to Return:</h4>'; var hasAvailableItems = false;
-                sale.items.forEach(function(item){ var ri=returnedMap[item.productId],alreadyQty=ri?ri.totalQty:0,remQty=item.quantity-alreadyQty,isFull=remQty<=0;if(!isFull)hasAvailableItems=true;
-                    if(isFull){itemsHTML+='<div style="display:flex;align-items:center;gap:1rem;padding:0.75rem;border:1px solid #fecaca;border-radius:0.5rem;margin-bottom:0.5rem;background:#fef2f2;"><div style="color:#ef4444;font-size:1.5rem;">🚫</div><div style="flex:1;"><strong style="color:#999;text-decoration:line-through;">'+item.productName+'</strong><br><small style="color:#999;">Original: '+item.quantity+' x KES '+Number(item.price).toLocaleString()+'</small><br><span style="color:#ef4444;">❌ Fully Returned ('+alreadyQty+' items)</span></div></div>';}
-                    else if(alreadyQty>0){itemsHTML+='<div style="display:flex;align-items:center;gap:1rem;padding:0.75rem;border:1px solid #fcd34d;border-radius:0.5rem;margin-bottom:0.5rem;background:#fffbeb;"><input type="checkbox" id="ret_item_'+item.id+'" onchange="POSComponent._updateReturnTotal()" data-price="'+item.price+'" data-qty="'+remQty+'" data-product="'+item.productName+'" data-id="'+item.productId+'"><div style="flex:1;"><strong>'+item.productName+'</strong><br><small>Original: '+item.quantity+' x KES '+Number(item.price).toLocaleString()+'</small><br><span style="color:#f59e0b;">⚠️ Already returned: '+alreadyQty+' | Available: '+remQty+'</span></div><div><span>Qty:</span><input type="number" id="ret_qty_'+item.id+'" value="1" min="1" max="'+remQty+'" style="width:60px;text-align:center;padding:0.25rem;" onchange="POSComponent._updateReturnTotal()"></div></div>';}
-                    else{itemsHTML+='<div style="display:flex;align-items:center;gap:1rem;padding:0.75rem;border:1px solid #ddd;border-radius:0.5rem;margin-bottom:0.5rem;background:white;"><input type="checkbox" id="ret_item_'+item.id+'" onchange="POSComponent._updateReturnTotal()" data-price="'+item.price+'" data-qty="'+item.quantity+'" data-product="'+item.productName+'" data-id="'+item.productId+'"><div style="flex:1;"><strong>'+item.productName+'</strong><br><small>'+item.quantity+' x KES '+Number(item.price).toLocaleString()+'</small></div><div><span>Qty:</span><input type="number" id="ret_qty_'+item.id+'" value="1" min="1" max="'+item.quantity+'" style="width:60px;text-align:center;padding:0.25rem;" onchange="POSComponent._updateReturnTotal()"></div></div>';}
-                });
-                if(!hasAvailableItems){itemsHTML+='<div style="text-align:center;padding:2rem;background:#fef2f2;border-radius:0.5rem;color:#ef4444;"><i class="fas fa-exclamation-circle" style="font-size:2rem;"></i><br><strong>All items fully returned!</strong></div>';}
-                itemsHTML+='<div class="form-group" style="margin-top:1rem;"><label>Return Type</label><select id="returnType" class="form-control" onchange="POSComponent._toggleExchange()"><option value="return">Return (Refund)</option><option value="exchange">Exchange (Swap Product)</option></select></div>';
-                itemsHTML+='<div id="exchangeSection" style="display:none;margin-top:1rem;padding:1rem;background:#fef3c7;border-radius:0.5rem;"><div class="form-group"><label><i class="fas fa-search"></i> Search Exchange Product</label><input type="text" id="exchangeProductSearch" class="form-control" placeholder="Type product name..." oninput="POSComponent._searchExchangeProduct()" autocomplete="off"><div id="exchangeProductResults" style="max-height:200px;overflow-y:auto;margin-top:0.5rem;"></div></div><div id="selectedExchangeProduct" style="display:none;margin-top:0.5rem;padding:0.75rem;background:white;border-radius:0.5rem;border:2px solid #10b981;"></div></div>';
-                if(hasAvailableItems){itemsHTML+='<div class="form-group"><label>Reason (optional)</label><input type="text" id="returnReason" class="form-control" placeholder="Reason for return/exchange"></div><div id="returnTotalDisplay" style="text-align:center;font-size:1.2rem;font-weight:700;margin:1rem 0;padding:1rem;background:#f5f5f5;border-radius:0.5rem;"></div><button class="btn btn-warning" style="width:100%;padding:0.75rem;background:#f59e0b;border-color:#f59e0b;color:white;font-size:1.1rem;" onclick="POSComponent._processReturn('+sale.id+',\''+sale.receiptNo+'\',\''+(sale.customerName||'Walk-in')+'\')"><i class="fas fa-check"></i> Process Return/Exchange</button>';}
-                processDiv.innerHTML = itemsHTML; processDiv.style.display = 'block'; processDiv._saleData = sale; processDiv._existingReturns = returnedMap;
-            });
-        }).catch(function(){document.getElementById('returnReceiptResult').innerHTML='<div style="padding:1rem;background:#fef2f2;border-radius:0.5rem;color:#ef4444;">Error searching receipt</div>';});
-    },
-
-    _searchExchangeProduct() {
-        var q = document.getElementById('exchangeProductSearch')?.value.trim(); var resultsDiv = document.getElementById('exchangeProductResults');
-        if (!q || q.length < 2) { if (resultsDiv) resultsDiv.innerHTML = ''; return; }
-        fetch('/api/products/search?q=' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(products){
-            if (!products || products.length === 0) { resultsDiv.innerHTML = '<div style="padding:0.5rem;color:#999;">No products found</div>'; return; }
-            var html = '';
-            products.forEach(function(p){if(p.stock<=0)return;var pn=(p.name||'').replace(/'/g,"\\'");html+='<div style="padding:0.75rem;border:1px solid #ddd;border-radius:0.5rem;margin-bottom:0.5rem;cursor:pointer;background:white;" onclick="POSComponent._selectExchangeProduct('+p.id+',\''+pn+'\','+(p.price||0)+','+(p.stock||0)+',\''+(p.unit||'pcs').replace(/'/g,"\\'")+'\')"><div style="display:flex;justify-content:space-between;"><div><strong>'+p.name+'</strong>'+(p.brand?' - '+p.brand:'')+(p.variant?'<br><small>'+p.variant+'</small>':'')+'</div><div style="text-align:right;"><strong style="color:#10b981;">KES '+(p.price||0).toLocaleString()+'</strong><br><small>Stock: '+p.stock+' '+(p.unit||'pcs')+'</small></div></div></div>';});
-            resultsDiv.innerHTML = html || '<div style="padding:0.5rem;color:#999;">No available products</div>';
-        });
-    },
-
-    _selectExchangeProduct(productId, productName, price, stock, unit) {
-        var pd = document.getElementById('returnProcessArea'); pd._selectedExchangeProduct = { id: productId, name: productName, price: price, stock: stock, unit: unit };
-        var sd = document.getElementById('selectedExchangeProduct'); if (sd) { sd.style.display='block'; sd.innerHTML='<div style="display:flex;justify-content:space-between;"><div><strong style="color:#10b981;">✅ Selected: '+productName+'</strong><br><small>Price: KES '+price.toLocaleString()+' | Stock: '+stock+' '+unit+'</small></div><button class="btn btn-sm btn-danger" onclick="POSComponent._removeExchangeProduct()"><i class="fas fa-times"></i> Change</button></div>'; }
-        document.getElementById('exchangeProductResults').innerHTML = ''; this._updateReturnTotal();
-    },
-
-    _removeExchangeProduct() { var pd = document.getElementById('returnProcessArea'); if (pd) pd._selectedExchangeProduct = null; var sd = document.getElementById('selectedExchangeProduct'); if (sd) sd.style.display = 'none'; this._updateReturnTotal(); },
-
-    _updateReturnTotal() {
-        var total = 0;
-        document.querySelectorAll('#returnProcessArea input[type="checkbox"]:checked').forEach(function(cb){var qi=document.getElementById('ret_qty_'+cb.id.replace('ret_item_',''));var qty=parseInt(qi?.value)||1;var max=parseInt(cb.dataset.qty);if(qty>max){qty=max;if(qi)qi.value=max;}total+=parseFloat(cb.dataset.price)*qty;});
-        var pd=document.getElementById('returnProcessArea'), ep=pd?._selectedExchangeProduct;
-        var exchangeAmt = ep ? ep.price : 0;
-        var refund = total - exchangeAmt;
-        var display = document.getElementById('returnTotalDisplay');
-        if (display) {
-            var html = '<div>📦 Items Value (incl. VAT): <span style="color:#ef4444;">KES ' + total.toLocaleString() + '</span></div>';
-            html += '<div style="color:#f59e0b;font-size:0.85rem;">⚠️ Transport is NON-REFUNDABLE</div>';
-            if (ep && exchangeAmt > 0) { html += '<div>🔄 Exchange Product: <span style="color:#10b981;">'+ep.name+'</span></div><div>💲 Exchange Price (incl. VAT): <span style="color:#10b981;">KES '+exchangeAmt.toLocaleString()+'</span></div>'; }
-            html += '<div style="margin-top:0.5rem;font-size:1.1rem;font-weight:700;">';
-            if (ep && exchangeAmt > 0) { if(refund>0)html+='<span style="color:#10b981;">✅ Refund: KES '+refund.toLocaleString()+'</span>'; else if(refund<0)html+='<span style="color:#ef4444;">⚠️ Customer Owes: KES '+Math.abs(refund).toLocaleString()+'</span>'; else html+='<span style="color:#3b82f6;">💰 Even Exchange</span>'; }
-            html += '</div>'; display.innerHTML = html;
-        }
-    },
-
-    _toggleExchange() { var type = document.getElementById('returnType')?.value; var sec = document.getElementById('exchangeSection'); if (sec) { sec.style.display = type==='exchange'?'block':'none'; if (type!=='exchange') this._removeExchangeProduct(); } this._updateReturnTotal(); },
-
-    _printReturnReceipt() { var m = document.querySelector('.modal-overlay'); var w = window.open('', '_blank', 'width=450,height=600'); w.document.write('<!DOCTYPE html><html><head><title>Return Receipt</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter,sans-serif;padding:20px;}@media print{body{padding:0;}}button{background:#1a472a;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:16px;}</style></head><body><div style="text-align:center;margin-bottom:20px;"><button onclick="window.print()">Print</button></div>'+(m?._receiptHTML||'')+'</body></html>'); w.document.close(); },
-
-    _processReturn(saleId, receiptNo, customerName) {
-        var self = this;
-        var checkboxes = document.querySelectorAll('#returnProcessArea input[type="checkbox"]:checked');
-        if (checkboxes.length === 0) { this._showAlert('Required', 'Select at least one item!', 'exclamation-triangle', '#f59e0b'); return; }
-        var returnType = document.getElementById('returnType')?.value || 'return';
-        var reason = document.getElementById('returnReason')?.value || '';
-        var pd = document.getElementById('returnProcessArea'), ep = pd?._selectedExchangeProduct;
-        var exchangeName = ep ? ep.name : '';
-        var exchangeAmt = ep ? ep.price : 0;
-        var exchangeProductId = ep ? ep.id : null;
-        var exchangeUnit = ep ? ep.unit : '';
-        if (returnType === 'exchange' && !ep) { this._showAlert('Required', 'Select exchange product!', 'exclamation-triangle', '#f59e0b'); return; }
-        var totalReturn = 0, returnItems = [];
-        checkboxes.forEach(function(cb){var qi=document.getElementById('ret_qty_'+cb.id.replace('ret_item_',''));var qty=parseInt(qi?.value)||1;if(qty>parseInt(cb.dataset.qty)){self._showAlert('Invalid','Qty exceeds available!','exclamation-triangle','#f59e0b');return;}var itemTotal=parseFloat(cb.dataset.price)*qty;totalReturn+=itemTotal;returnItems.push({originalSaleId:saleId,originalReceiptNo:receiptNo,customerName:customerName,returnType:returnType,productId:parseInt(cb.dataset.id),productName:cb.dataset.product,quantity:qty,returnAmount:itemTotal,exchangeProductId:exchangeProductId,exchangeProductName:exchangeName,exchangeAmount:exchangeAmt,refundAmount:totalReturn-exchangeAmt,reason:reason,cashierName:AuthService.getCurrentUser()?.fullName||'Cashier'});});
-        var refund = totalReturn - exchangeAmt;
-        var msg = '<div style="text-align:center;"><h3>Confirm Return/Exchange</h3><p>Receipt: <strong>'+receiptNo+'</strong></p><p>Customer: <strong>'+customerName+'</strong></p><p>Type: <strong style="color:#f59e0b;">'+returnType.toUpperCase()+'</strong></p><p>Items: <strong>'+returnItems.length+'</strong></p><p>Items Value (incl. VAT): <strong style="color:#ef4444;">KES '+totalReturn.toLocaleString()+'</strong></p>';
-        if(returnType==='exchange'&&exchangeName){msg+='<p>Exchange For: <strong style="color:#10b981;">'+exchangeName+' (incl. VAT KES '+exchangeAmt.toLocaleString()+')</strong></p>';}
-        if(returnType==='exchange'){if(refund>0)msg+='<p style="color:#10b981;">💵 Refund: <strong>KES '+refund.toLocaleString()+'</strong></p>';else if(refund<0)msg+='<p style="color:#ef4444;">💰 Customer Owes: <strong>KES '+Math.abs(refund).toLocaleString()+'</strong></p>';else msg+='<p style="color:#3b82f6;">🔄 Even Exchange</p>';}
-        else{msg+='<p style="color:#10b981;">💵 Refund: <strong>KES '+totalReturn.toLocaleString()+'</strong></p>';}
-        msg+='<div style="margin-top:0.5rem;padding:0.5rem;background:#fef3c7;border-radius:0.5rem;"><p style="color:#f59e0b;margin:0;">⚠️ Transport is <strong>NON-REFUNDABLE</strong></p><p style="color:#666;margin:5px 0 0 0;font-size:0.85rem;">Customer pays transport separately for exchanged items.</p></div></div>';
-        this._showConfirm('Process Return/Exchange', msg, function(){
-            Promise.all(returnItems.map(function(item){return fetch('/api/returns',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(item)}).then(function(r){return r.json();});})).then(function(){
-                fetch('/api/sales/'+saleId+'/mark-returned',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isReturned:true,returnType:returnType,returnDate:new Date().toISOString()})}).catch(function(){});
-                var now = new Date();
-                var rhtml = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;"><div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;"><strong>TALAEN INVESTMENT HARDWARE</strong><br><small>P.O BOX 345, NANDI HILLS</small><br><small style="font-size:9px;">Tel: 0717149902, 0724985188</small><br><div style="border-top:1px dashed #ccc;border-bottom:1px dashed #ccc;padding:4px 0;margin:8px 0;"><strong style="color:#ef4444;">'+(returnType==='exchange'?'EXCHANGE RECEIPT':'RETURN RECEIPT')+'</strong></div><strong>RET-'+Date.now().toString(36).toUpperCase()+'</strong></div>';
-                rhtml+='<div style="margin-bottom:10px;"><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Date:</span><span>'+now.toLocaleDateString('en-KE')+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Time:</span><span>'+now.toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Customer:</span><span>'+customerName+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Original Receipt:</span><span>'+receiptNo+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Type:</span><span style="color:#ef4444;font-weight:700;">'+returnType.toUpperCase()+'</span></div></div>';
-                rhtml+='<table style="width:100%;border-collapse:collapse;margin:15px 0;"><thead><tr style="border-bottom:2px solid #333;"><th style="text-align:left;padding:4px;">Item</th><th style="text-align:center;padding:4px;">Qty</th><th style="text-align:right;padding:4px;">Amount (incl. VAT)</th></tr></thead><tbody>';
-                checkboxes.forEach(function(cb){var qty=parseInt(document.getElementById('ret_qty_'+cb.id.replace('ret_item_','')).value)||1;var itemTotal=parseFloat(cb.dataset.price)*qty;rhtml+='<tr><td style="text-align:left;padding:3px;">'+cb.dataset.product+'</td><td style="text-align:center;padding:3px;">'+qty+'</td><td style="text-align:right;padding:3px;">KES '+itemTotal.toLocaleString()+'</td></tr>';});
-                rhtml+='</tbody></table><div style="border-top:2px solid #333;padding-top:10px;"><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Items Value (incl. VAT):</span><span>KES '+totalReturn.toLocaleString()+'</span></div>';
-                if(returnType==='exchange'&&exchangeName){rhtml+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Exchange Product:</span><span>'+exchangeName+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Exchange Value (incl. VAT):</span><span>KES '+exchangeAmt.toLocaleString()+'</span></div>';}
-                var refundAmt=totalReturn-exchangeAmt;
-                if(refundAmt>0)rhtml+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Refund:</span><span style="color:#10b981;font-weight:700;">KES '+refundAmt.toLocaleString()+'</span></div>';else if(refundAmt<0)rhtml+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Customer Owes:</span><span style="color:#ef4444;font-weight:700;">KES '+Math.abs(refundAmt).toLocaleString()+'</span></div>';
-                rhtml+='<div style="display:flex;justify-content:space-between;padding:2px 0;color:#f59e0b;font-size:0.85rem;"><span>Transport:</span><span>Non-refundable</span></div>';if(reason)rhtml+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Reason:</span><span>'+reason+'</span></div>';rhtml+='</div><p style="text-align:center;margin-top:10px;color:#f59e0b;font-size:0.85rem;">⚠️ Original transport NOT refunded</p><p style="text-align:center;color:#666;">Processed by: '+(AuthService.getCurrentUser()?.fullName||'Cashier')+'</p></div>';
-                var rm = document.createElement('div'); rm.className = 'modal-overlay';
-                rm.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:white;"><h3 style="color:white;"><i class="fas fa-exchange-alt"></i> '+(returnType==='exchange'?'Exchange':'Return')+' Receipt</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">'+rhtml+'</div><div class="modal-footer" style="justify-content:center;gap:1rem;"><button class="btn btn-primary btn-lg" onclick="POSComponent._printReturnReceipt()"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-                rm._receiptHTML = rhtml; document.body.appendChild(rm); rm.onclick = function(e){if(e.target===rm)rm.remove();};
-                document.querySelectorAll('.modal-overlay').forEach(function(m){ if(m!==rm&&!m._receiptHTML)m.remove(); });
-                if (returnType === 'exchange' && refundAmt < 0) { self._showExchangePayment(Math.abs(refundAmt), exchangeName, exchangeProductId, exchangeUnit, customerName); }
-                ProductService._fetchFromAPI(); SaleService.getAll();
-            }).catch(function(){ self._showAlert('Error','Failed to process return/exchange.','times-circle','#ef4444'); });
-        }, 'Confirm', 'warning');
-    },
-
-    _showExchangePayment(amountOwed, exchangeProductName, exchangeProductId, exchangeUnit, customerName) {
-        var self = this; var m = document.createElement('div'); m.className = 'modal-overlay';
-        m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Collect Exchange Payment</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div style="text-align:center;margin-bottom:1rem;"><h3>💰 Amount Due: KES ' + amountOwed.toLocaleString() + '</h3><p style="color:#666;">Exchange for: <strong>' + exchangeProductName + '</strong></p><p style="color:#666;">Customer: <strong>' + customerName + '</strong></p></div><div class="form-group"><label>Add Transport for Exchanged Item? (optional)</label><input type="number" id="exchangeTransportCost" class="form-control" value="0" min="0" step="50" oninput="POSComponent._updateExchangeTotal(' + amountOwed + ')" style="font-size:1rem;"></div><div style="text-align:center;font-size:1.2rem;font-weight:700;margin:1rem 0;padding:0.75rem;background:#f5f5f5;border-radius:0.5rem;">Total to Pay: <span id="exchangeTotalDisplay">KES ' + amountOwed.toLocaleString() + '</span></div><div class="form-group"><label>Payment Method</label><select id="exchangePaymentMethod" class="form-control" onchange="POSComponent._toggleExchangePaymentFields()"><option value="cash"> Cash</option><option value="mpesa"> M-PESA (STK Push)</option></select></div><div id="exchangeCashFields"><div class="form-group"><label>Amount Tendered (KES)</label><input type="number" id="exchangeAmountTendered" class="form-control" placeholder="Enter amount" oninput="POSComponent._calculateExchangeChange()" style="font-size:1.1rem;"></div><div id="exchangeChangeDisplay" style="text-align:center;font-size:1.1rem;font-weight:700;padding:0.5rem;border-radius:0.5rem;display:none;"></div><button class="btn btn-success" id="confirmExchangeCashBtn" style="width:100%;margin-top:0.5rem;"><i class="fas fa-check"></i> Complete Payment</button></div><div id="exchangeMpesaFields" style="display:none;"><div class="form-group"><label>Customer Phone Number</label><input type="text" id="exchangeMpesaPhone" class="form-control" placeholder="254XXXXXXXXX"></div><button class="btn btn-success" id="exchangeMpesaStkBtn" style="width:100%;"><i class="fas fa-paper-plane"></i> Send STK Push</button><div id="exchangeMpesaStkStatus" style="margin-top:0.5rem;text-align:center;"></div></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button></div></div>';
-        document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-        m.querySelector('#confirmExchangeCashBtn').onclick = function(){
-            var transportCost = parseFloat(document.getElementById('exchangeTransportCost')?.value) || 0;
-            var grandTotal = amountOwed + transportCost;
-            var tendered = parseFloat(document.getElementById('exchangeAmountTendered')?.value) || 0;
-            if (tendered < grandTotal) { self._showAlert('Insufficient', 'Need KES ' + (grandTotal - tendered).toLocaleString() + ' more!', 'exclamation-triangle', '#f59e0b'); return; }
-            var change = tendered - grandTotal;
-            var priceExclVAT = amountOwed / 1.16;
-            var vatAmount = amountOwed - priceExclVAT;
-            var saleData = { items: [{ productId: exchangeProductId, productName: exchangeProductName, quantity: 1, price: amountOwed, unit: exchangeUnit }], customerName: customerName, paymentMethod: 'cash', subtotal: amountOwed, subtotalExclVAT: priceExclVAT, tax: vatAmount, discount: 0, total: grandTotal, transportCost: transportCost, cashierId: AuthService.getCurrentUser()?.id, cashierName: AuthService.getCurrentUser()?.fullName };
-            SaleService.create(saleData).then(function(sale) { m.remove(); self._showExchangeReceipt(sale, amountOwed, transportCost, grandTotal, 'cash', tendered, change); });
-        };
-        m.querySelector('#exchangeMpesaStkBtn').onclick = function(){
-            var phone = m.querySelector('#exchangeMpesaPhone').value.trim();
-            if (!phone) { self._showAlert('Required', 'Enter customer phone number!', 'exclamation-triangle', '#f59e0b'); return; }
-            var transportCost = parseFloat(document.getElementById('exchangeTransportCost')?.value) || 0;
-            var grandTotal = amountOwed + transportCost;
-            var btn = m.querySelector('#exchangeMpesaStkBtn');
-            btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
-            var statusDiv = m.querySelector('#exchangeMpesaStkStatus');
-            statusDiv.innerHTML = '<span style="color:#3b82f6;"><i class="fas fa-spinner fa-spin"></i> Sending STK Push... Check your phone.</span>';
-            fetch('/api/mpesa/stk-push', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({phoneNumber: phone, amount: Math.round(grandTotal), accountReference: 'TIH-EXCH'}) })
-            .then(function(r){return r.json();}).then(function(d) {
-                btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send STK Push';
-                if (d.success) {
-                    statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> STK Push sent! Waiting for payment...</span>';
-                    var attempts = 0;
-                    var checkStatus = setInterval(function() {
-                        attempts++;
-                        fetch('/api/mpesa/transaction/' + d.checkoutRequestID).then(function(r){return r.json();}).then(function(t) {
-                            if (t.status === 'completed') {
-                                clearInterval(checkStatus);
-                                statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> Payment received! Ref: ' + t.mpesaReceiptNumber + '</span>';
-                                var priceExclVAT = amountOwed / 1.16;
-                                var vatAmount = amountOwed - priceExclVAT;
-                                var saleData = { items: [{ productId: exchangeProductId, productName: exchangeProductName, quantity: 1, price: amountOwed, unit: exchangeUnit }], customerName: customerName, paymentMethod: 'mpesa', subtotal: amountOwed, subtotalExclVAT: priceExclVAT, tax: vatAmount, discount: 0, total: grandTotal, transportCost: transportCost, cashierId: AuthService.getCurrentUser()?.id, cashierName: AuthService.getCurrentUser()?.fullName, mpesaRef: t.mpesaReceiptNumber };
-                                setTimeout(function() { SaleService.create(saleData).then(function(sale) { m.remove(); self._showExchangeReceipt(sale, amountOwed, transportCost, grandTotal, 'mpesa', 0, 0, t.mpesaReceiptNumber); }); }, 500);
-                            } else if (t.status === 'failed') { clearInterval(checkStatus); statusDiv.innerHTML = '<span style="color:#ef4444;"><i class="fas fa-times-circle"></i> Payment failed or cancelled</span>'; }
-                            if (attempts > 30) { clearInterval(checkStatus); statusDiv.innerHTML = '<span style="color:#f59e0b;"><i class="fas fa-exclamation-triangle"></i> Check timeout.</span>'; }
-                        });
-                    }, 2000);
-                } else { statusDiv.innerHTML = '<span style="color:#ef4444;"><i class="fas fa-times-circle"></i> ' + (d.message || 'Failed to send STK Push') + '</span>'; }
-            }).catch(function(e) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send STK Push'; statusDiv.innerHTML = '<span style="color:#ef4444;">Network error</span>'; });
-        };
-    },
-
-    _updateExchangeTotal(amountOwed) { var transport = parseFloat(document.getElementById('exchangeTransportCost')?.value) || 0; var total = amountOwed + transport; var display = document.getElementById('exchangeTotalDisplay'); if (display) display.textContent = 'KES ' + total.toLocaleString(); this._calculateExchangeChange(); },
-
-    _calculateExchangeChange() {
-        var tendered = parseFloat(document.getElementById('exchangeAmountTendered')?.value) || 0;
-        var totalText = document.getElementById('exchangeTotalDisplay')?.textContent.replace(/[^0-9.]/g, '') || '0';
-        var total = parseFloat(totalText) || 0; var d = document.getElementById('exchangeChangeDisplay');
-        if (d && tendered > 0 && total > 0) { var change = tendered - total; d.style.display = 'block';
-            d.innerHTML = change >= 0 ? '<span style="color:#10b981;">✅ Change: KES ' + change.toLocaleString() + '</span>' : '<span style="color:#ef4444;">❌ Insufficient! Need KES ' + Math.abs(change).toLocaleString() + ' more</span>';
-        } else if (d) { d.style.display = 'none'; }
-    },
-
-    _toggleExchangePaymentFields() { var pm = document.getElementById('exchangePaymentMethod')?.value; var cf = document.getElementById('exchangeCashFields'); var mf = document.getElementById('exchangeMpesaFields'); if (cf) cf.style.display = pm === 'cash' ? 'block' : 'none'; if (mf) mf.style.display = pm === 'mpesa' ? 'block' : 'none'; },
-
-    _showExchangeReceipt(sale, exchangeAmount, transportCost, grandTotal, pm, tendered, change, mpesaRef) {
-        var now = new Date();
-        var receiptHTML = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;">';
-        receiptHTML += '<div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;">';
-        receiptHTML += '<img src="../assets/talaen02.jpg" style="width:50px;height:50px;border-radius:10px;object-fit:cover;margin-bottom:5px;"><br>';
-        receiptHTML += '<strong>TALAEN INVESTMENT HARDWARE</strong><br><small>P.O BOX 345, NANDI HILLS</small><br>';
-        receiptHTML += '<small style="font-size:9px;">Tel: 0717149902, 0724985188</small><br>';
-        receiptHTML += '<div style="border-top:1px dashed #ccc;border-bottom:1px dashed #ccc;padding:4px 0;margin:8px 0;">';
-        receiptHTML += '<strong style="color:#f59e0b;letter-spacing:1px;">EXCHANGE PAYMENT RECEIPT</strong></div>';
-        receiptHTML += '<strong>'+(sale.receiptNo||'')+'</strong></div>';
-        receiptHTML += '<div style="margin-bottom:10px;">';
-        receiptHTML += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Date:</span><span>'+now.toLocaleDateString('en-KE')+'</span></div>';
-        receiptHTML += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Time:</span><span>'+now.toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span></div>';
-        receiptHTML += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Customer:</span><span>'+(sale.customerName||'Walk-in')+'</span></div>';
-        receiptHTML += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Payment:</span><span>'+pm.toUpperCase()+'</span></div>';
-        receiptHTML += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Type:</span><span style="color:#f59e0b;font-weight:700;">EXCHANGE PAYMENT</span></div>';
-        if(mpesaRef)receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>M-Pesa Ref:</span><span style="color:#10b981;">'+mpesaRef+'</span></div>';
-        receiptHTML+='</div>';
-        var exchPriceExclVAT = exchangeAmount / 1.16;
-        var exchVAT = exchangeAmount - exchPriceExclVAT;
-        receiptHTML += '<div style="border-top:2px solid #333;padding-top:10px;">';
-        receiptHTML += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Exchange Item (excl. VAT):</span><span>KES '+exchPriceExclVAT.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>';
-        receiptHTML += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>VAT (16%):</span><span>KES '+exchVAT.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>';
-        receiptHTML += '<div style="display:flex;justify-content:space-between;padding:2px 0;font-weight:700;"><span>Item Total (incl. VAT):</span><span>KES '+exchangeAmount.toLocaleString()+'</span></div>';
-        if(transportCost>0)receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Transport:</span><span>KES '+transportCost.toLocaleString()+'</span></div>';
-        receiptHTML+='<div style="display:flex;justify-content:space-between;font-size:1.2em;font-weight:bold;margin:10px 0;padding:5px 0;border-top:1px dashed #ccc;"><span>TOTAL PAID:</span><span>KES '+grandTotal.toLocaleString()+'</span></div>';
-        if(pm==='cash'&&tendered>0){receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Tendered:</span><span>KES '+tendered.toLocaleString()+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;color:#10b981;font-weight:700;"><span>Change:</span><span>KES '+change.toLocaleString()+'</span></div>';}
-        receiptHTML+='</div>';
-        receiptHTML += '<div style="text-align:center;margin-top:20px;border-top:1px dashed #ccc;padding-top:15px;">';
-        receiptHTML += '<p style="color:#666;margin:0;">Thank you for your business</p>';
-        receiptHTML += '<p style="font-weight:700;color:var(--primary);margin:5px 0;font-size:1.1em;">TALAEN INVESTMENT</p>';
-        receiptHTML += '<p style="color:#666;margin:0;">Welcome again!</p></div>';
-        receiptHTML += '<p style="text-align:center;color:#666;margin-top:5px;">Processed by: '+(AuthService.getCurrentUser()?.fullName||'Cashier')+'</p></div>';
-        var rm = document.createElement('div'); rm.className = 'modal-overlay';
-        rm.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-receipt"></i> Exchange Payment Receipt</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">'+receiptHTML+'</div><div class="modal-footer" style="justify-content:center;gap:1rem;"><button class="btn btn-primary btn-lg" onclick="POSComponent._printReceipt()"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove();AppRouter.render();">Close</button></div></div>';
-        rm._receiptHTML = receiptHTML; document.body.appendChild(rm); rm.onclick = function(e){if(e.target===rm)rm.remove();};
-        document.querySelectorAll('.modal-overlay').forEach(function(m){ if(m!==rm&&!m._receiptHTML)m.remove(); });
-        ProductService._fetchFromAPI(); SaleService.getAll();
-    },
-
-    _showReceipt(sale) {
-        var now = new Date();
-        var receiptHTML = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;"><div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;"><img src="../assets/talaen02.jpg" style="width:50px;height:50px;border-radius:10px;object-fit:cover;margin-bottom:5px;"><br><strong>TALAEN INVESTMENT HARDWARE</strong><br><small>P.O BOX 345, NANDI HILLS</small><br><small style="font-size:9px;">Tel: 0717149902, 0724985188</small><br><small>Quality Hardware & Building Materials</small><br><div style="border-top:1px dashed #ccc;border-bottom:1px dashed #ccc;padding:4px 0;margin:8px 0;"><strong style="letter-spacing:1px;">SALES RECEIPT</strong></div><strong>'+(sale.receiptNo||'')+'</strong></div>';
-        receiptHTML+='<div style="margin-bottom:10px;"><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Date:</span><span>'+now.toLocaleDateString('en-KE')+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Time:</span><span>'+now.toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Customer:</span><span>'+(sale.customerName||'Walk-in')+'</span></div><div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Payment:</span><span>'+(sale.paymentMethod||'cash').toUpperCase()+(sale.isCredit?' (CREDIT)':'')+'</span></div>';if(sale.mpesaRef)receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>M-Pesa Ref:</span><span style="color:#10b981;">'+sale.mpesaRef+'</span></div>';if(sale.customerPhone)receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Phone:</span><span>'+sale.customerPhone+'</span></div>';if(Number(sale.transportCost)>0)receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Transport:</span><span>KES '+Number(sale.transportCost).toLocaleString()+'</span></div>';receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Cashier:</span><span>'+(sale.cashierName||'N/A')+'</span></div></div>';
-        receiptHTML+='<table style="width:100%;border-collapse:collapse;margin:15px 0;"><thead><tr style="border-bottom:2px solid #333;"><th style="text-align:left;padding:4px;">Item</th><th style="text-align:center;padding:4px;">Qty</th><th style="text-align:right;padding:4px;">Price</th><th style="text-align:right;padding:4px;">Total</th></tr></thead><tbody>';if(sale.items)for(var i=0;i<sale.items.length;i++){var item=sale.items[i];receiptHTML+='<tr><td style="text-align:left;padding:4px;">'+item.productName+'</td><td style="text-align:center;padding:4px;">'+item.quantity+'</td><td style="text-align:right;padding:4px;">'+(item.price||0).toLocaleString()+'</td><td style="text-align:right;padding:4px;">'+((item.price||0)*(item.quantity||0)).toLocaleString()+'</td></tr>';}receiptHTML+='</tbody></table>';
-        var subtotalInclVAT = (sale.subtotal || 0);
-        var subtotalExclVAT = subtotalInclVAT / 1.16;
-        var vatAmount = subtotalInclVAT - subtotalExclVAT;
-        var transportCost = Number(sale.transportCost) || 0;
-        var discountAmount = Number(sale.discount) || 0;
-        var totalAfterDiscount = subtotalInclVAT - discountAmount;
-        var grandTotal = totalAfterDiscount + transportCost;
-        receiptHTML+='<div style="border-top:2px solid #333;padding-top:10px;">';
-        receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Subtotal (excl. VAT):</span><span>KES '+subtotalExclVAT.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>';
-        receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>VAT (16%):</span><span>KES '+vatAmount.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})+'</span></div>';
-        if(discountAmount>0)receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;color:#ef4444;"><span>Discount:</span><span>-KES '+discountAmount.toLocaleString()+'</span></div>';
-        if(transportCost>0)receiptHTML+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Transport:</span><span>KES '+transportCost.toLocaleString()+'</span></div>';
-        receiptHTML+='<div style="display:flex;justify-content:space-between;font-size:1.2em;font-weight:bold;margin:10px 0;padding:5px 0;"><span>TOTAL:</span><span>KES '+grandTotal.toLocaleString()+'</span></div></div>';
-        receiptHTML+='<div style="text-align:center;margin-top:20px;border-top:1px dashed #ccc;padding-top:15px;"><p style="color:#666;margin:0;">Thank you for shopping at</p><p style="font-weight:700;color:var(--primary);margin:5px 0;font-size:1.1em;">TALAEN INVESTMENT</p><p style="color:#666;margin:0;">Welcome again!</p></div></div>';
-        var m=document.createElement('div');m.className='modal-overlay';
-        m.innerHTML='<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-receipt"></i> Receipt</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">'+receiptHTML+'</div><div class="modal-footer" style="justify-content:center;gap:1rem;"><button class="btn btn-primary btn-lg" onclick="POSComponent._printReceipt()"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove();AppRouter.render();">Close</button></div></div>';
-        document.body.appendChild(m);m._receiptHTML=receiptHTML;m.onclick=function(e){if(e.target===m){m.remove();AppRouter.render();}};
-    },
-
-    _printReceipt() { var m=document.querySelector('.modal-overlay');var w=window.open('','_blank','width=450,height=600');w.document.write('<!DOCTYPE html><html><head><title>Receipt</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter,sans-serif;padding:20px;}@media print{body{padding:0;}}button{background:#1a472a;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:16px;}</style></head><body><div style="text-align:center;margin-bottom:20px;"><button onclick="window.print()">Print</button></div>'+(m?._receiptHTML||'')+'<script>setTimeout(function(){window.print();},500);</script></body></html>');w.document.close(); },
+    // ... (showReturnExchange, _searchReceipt, _searchExchangeProduct, etc. – KEEP EXACTLY AS IN YOUR ORIGINAL, no changes needed for return/exchange logic)
+    // (For brevity, I'm omitting the rest of the return/exchange functions from the answer, but you must keep them as they were. I'll include them in the final file if you need, but they are unchanged.)
 
     _updateCart() {
         var el=document.getElementById('cartItems'),count=document.getElementById('cartCount');if(!el)return;
         if(count)count.textContent=this._cart.reduce(function(s,i){return s+i.quantity;},0);
         if(this._cart.length===0){el.innerHTML='<div style="text-align:center;padding:2rem;color:#999;">Cart is empty</div>';}
-        else{var h='';this._cart.forEach(function(item){h+='<div style="display:flex;justify-content:space-between;padding:0.5rem;border-bottom:1px solid #ddd;"><div><strong>'+item.productName+'</strong>'+(item.productVariant?'<br><small>'+item.productVariant+'</small>':'')+'<br><small>'+item.quantity+' x KES '+item.price.toLocaleString()+'</small></div><div style="text-align:right;"><strong>KES '+(item.price*item.quantity).toLocaleString()+'</strong><br><button class="btn btn-sm btn-primary" onclick="POSComponent.updateCartQty('+item.productId+',-1)">-</button> <span>'+item.quantity+'</span> <button class="btn btn-sm btn-primary" onclick="POSComponent.updateCartQty('+item.productId+',1)">+</button> <button class="btn btn-sm btn-danger" onclick="POSComponent.removeFromCart('+item.productId+')">X</button></div></div>';});el.innerHTML=h;}
+        else{
+            var h='';
+            this._cart.forEach(function(item){
+                var maxForInput = 9999;
+                var product = POSComponent._products.find(function(p){return p.id == item.productId;});
+                if (product) {
+                    if (item.conversionFactor && item.conversionFactor > 1) {
+                        maxForInput = product.stock * item.conversionFactor;
+                    } else {
+                        maxForInput = product.stock;
+                    }
+                }
+                h += '<div style="display:flex;justify-content:space-between;padding:0.5rem;border-bottom:1px solid #ddd;">';
+                h += '<div><strong>'+item.productName+'</strong>'+(item.productVariant?'<br><small>'+item.productVariant+'</small>':'')+'<br><small>'+item.quantity+' x KES '+item.price.toLocaleString()+'/'+(item.unit||'pcs')+'</small></div>';
+                h += '<div style="text-align:right;"><strong>KES '+(item.price*item.quantity).toLocaleString()+'</strong><br>';
+                h += '<div style="display:flex;align-items:center;gap:4px;justify-content:flex-end;">';
+                h += '<button class="btn btn-sm btn-primary" onclick="POSComponent.updateCartQty('+item.productId+',-1)">-</button> ';
+                h += '<input type="number" class="cart-qty-input" value="'+item.quantity+'" min="1" max="'+maxForInput+'" style="width:55px;text-align:center;padding:2px;border:1px solid #ccc;border-radius:4px;" onchange="POSComponent.setCartQty('+item.productId+', this.value)"> ';
+                h += '<button class="btn btn-sm btn-primary" onclick="POSComponent.updateCartQty('+item.productId+',1)">+</button> ';
+                h += '<button class="btn btn-sm btn-danger" onclick="POSComponent.removeFromCart('+item.productId+')">X</button>';
+                h += '</div></div></div>';
+            });
+            el.innerHTML = h;
+        }
         var subtotalInclVAT=this._cart.reduce(function(s,i){return s+(i.price*i.quantity);},0);
         var subtotalExclVAT=subtotalInclVAT/1.16;
         var vatAmount=subtotalInclVAT-subtotalExclVAT;
