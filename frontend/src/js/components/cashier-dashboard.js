@@ -1,3 +1,7 @@
+// ============================================
+// CASHIER DASHBOARD - With JWT Authentication
+// ============================================
+
 const CashierDashboardComponent = {
     _creditLoaded: false,
     _currentView: 'overview',
@@ -6,8 +10,18 @@ const CashierDashboardComponent = {
     _allDailyReports: [],
     _allDebtPayments: [],
 
+    // ✅ Helper to get current user from JWT
+    _getCurrentUser() {
+        const userJson = localStorage.getItem('user');
+        try {
+            return userJson ? JSON.parse(userJson) : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     render() {
-        var user = AuthService.getCurrentUser();
+        var user = this._getCurrentUser();
         
         var h = '';
         h += '<div class="welcome-banner" style="text-align:center;padding:1.5rem;">';
@@ -151,20 +165,25 @@ const CashierDashboardComponent = {
     },
 
     async _loadMySales() {
-        var user = AuthService.getCurrentUser(); if (!user) return;
+        var user = this._getCurrentUser(); 
+        if (!user) return;
         var cashierFilter = document.getElementById('salesCashierFilter')?.value || 'all';
         var paymentFilter = document.getElementById('salesPaymentFilter')?.value || 'all';
         var tableDiv = document.getElementById('mySalesTable'); if (!tableDiv) return;
         tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Loading sales...</p>';
         try {
-            await SaleService.getAll(); var allSales = SaleService._cache || [];
+            await SaleService.getAll(); 
+            var allSales = SaleService._cache || [];
             var filteredSales = cashierFilter === 'me' ? allSales.filter(function(s) { return s.cashierId == user.id; }) : allSales;
             if (paymentFilter !== 'all') filteredSales = filteredSales.filter(function(s) { return s.paymentMethod === paymentFilter; });
             filteredSales.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
             this._allFilteredSales = filteredSales;
             this._renderTodaySummary(allSales);
             this._renderSalesTable(filteredSales, tableDiv);
-        } catch(e) { tableDiv.innerHTML = '<p style="text-align:center;color:#ef4444;">Error loading sales.</p>'; }
+        } catch(e) { 
+            console.error('Error loading sales:', e);
+            tableDiv.innerHTML = '<p style="text-align:center;color:#ef4444;">Error loading sales.</p>'; 
+        }
     },
 
     _renderTodaySummary(allSales) {
@@ -179,11 +198,15 @@ const CashierDashboardComponent = {
         if (cashSales.length > 0) html += '<div style="flex:1;min-width:140px;background:#eff6ff;padding:1rem;border-radius:0.75rem;text-align:center;border:2px solid #3b82f6;"><div style="font-size:1.5rem;color:#3b82f6;">💵 CASH</div><div style="font-size:1.3rem;font-weight:700;color:#3b82f6;">KES ' + cashSales.reduce(function(s,x){return s+Number(x.total||0);},0).toLocaleString() + '</div><div style="font-size:0.85rem;color:#666;">' + cashSales.length + ' sales</div></div>';
         if (creditSales.length > 0) html += '<div style="flex:1;min-width:140px;background:#fef3c7;padding:1rem;border-radius:0.75rem;text-align:center;border:2px solid #f59e0b;"><div style="font-size:1.5rem;color:#f59e0b;">💳 CREDIT</div><div style="font-size:1.3rem;font-weight:700;color:#f59e0b;">KES ' + creditSales.reduce(function(s,x){return s+Number(x.total||0);},0).toLocaleString() + '</div><div style="font-size:0.85rem;color:#666;">' + creditSales.length + ' sales</div></div>';
         if (todaySales.length === 0) html += '<p style="text-align:center;color:#999;width:100%;">No sales recorded today yet.</p>';
-        html += '</div></div></div>'; summaryDiv.innerHTML = html;
+        html += '</div></div></div>'; 
+        summaryDiv.innerHTML = html;
     },
 
     _renderSalesTable(sales, tableDiv) {
-        if (!sales || sales.length === 0) { tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;color:#999;">No sales found.</p>'; return; }
+        if (!sales || sales.length === 0) { 
+            tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;color:#999;">No sales found.</p>'; 
+            return; 
+        }
         var html = '<div style="max-height:500px;overflow-y:auto;"><table class="table"><thead><tr><th>Receipt No</th><th>Date</th><th>Customer</th><th>Items</th><th style="text-align:right;">Total</th><th>Payment</th><th>Cashier</th><th>Actions</th></tr></thead><tbody>';
         sales.forEach(function(sale) {
             var itemCount = sale.items ? sale.items.length : 0;
@@ -195,41 +218,61 @@ const CashierDashboardComponent = {
             html += '<td style="text-align:right;font-weight:700;">KES ' + Number(sale.total||0).toLocaleString() + '</td><td><span style="color:' + pColor + ';font-weight:600;">' + pLabel + '</span></td><td>' + (sale.cashierName||'N/A') + '</td>';
             html += '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="CashierDashboardComponent._viewReceipt(\'' + (sale.receiptNo||'') + '\')" title="View"><i class="fas fa-eye"></i></button> <button class="btn btn-sm btn-primary" onclick="CashierDashboardComponent._reprintReceipt(\'' + (sale.receiptNo||'') + '\')" title="Print"><i class="fas fa-print"></i></button></td></tr>';
         });
-        html += '</tbody></table></div>'; tableDiv.innerHTML = html;
+        html += '</tbody></table></div>'; 
+        tableDiv.innerHTML = html;
     },
 
     _filterSalesTable() {
         var s = (document.getElementById('salesSearchInput')?.value || '').toLowerCase();
-        document.querySelectorAll('.sales-row').forEach(function(r) { r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; });
+        document.querySelectorAll('.sales-row').forEach(function(r) { 
+            r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; 
+        });
     },
 
     _exportSalesCSV() {
-        var sales = this._allFilteredSales; if (!sales || sales.length === 0) { this._showMessage('No data!', 'warning'); return; }
+        var sales = this._allFilteredSales; 
+        if (!sales || sales.length === 0) { 
+            this._showMessage('No data!', 'warning'); 
+            return; 
+        }
         var csv = 'Receipt No,Date,Customer,Items,Total,Payment,Cashier\n';
-        sales.forEach(function(s) { csv += '"' + (s.receiptNo||'') + '","' + (s.date?new Date(s.date).toLocaleDateString('en-KE'):'') + '","' + ((s.customerName||'Walk-in').replace(/,/g,' ')) + '","' + (s.items?s.items.length:0) + '","' + Number(s.total||0).toFixed(2) + '","' + (s.paymentMethod||'cash') + '","' + (s.cashierName||'N/A') + '"\n'; });
-        var b = new Blob([csv],{type:'text/csv'}); var a = document.createElement('a'); a.href = window.URL.createObjectURL(b);
-        a.download = 'sales_export_' + new Date().toISOString().split('T')[0] + '.csv'; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+        sales.forEach(function(s) { 
+            csv += '"' + (s.receiptNo||'') + '","' + (s.date?new Date(s.date).toLocaleDateString('en-KE'):'') + '","' + ((s.customerName||'Walk-in').replace(/,/g,' ')) + '","' + (s.items?s.items.length:0) + '","' + Number(s.total||0).toFixed(2) + '","' + (s.paymentMethod||'cash') + '","' + (s.cashierName||'N/A') + '"\n'; 
+        });
+        var b = new Blob([csv],{type:'text/csv'}); 
+        var a = document.createElement('a'); 
+        a.href = window.URL.createObjectURL(b);
+        a.download = 'sales_export_' + new Date().toISOString().split('T')[0] + '.csv'; 
+        document.body.appendChild(a); 
+        a.click(); 
+        document.body.removeChild(a);
     },
 
     _viewReceipt(receiptNo) {
         var self = this;
-        fetch('/api/sales/search/' + encodeURIComponent(receiptNo)).then(function(r){return r.json();}).then(function(sale){
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/sales/search/' + encodeURIComponent(receiptNo)).then(function(sale){
             if(sale.error){self._showMessage('Receipt not found!','danger');return;}
             var h = self._buildReceiptHTML(sale);
             var rm = document.createElement('div'); rm.className = 'modal-overlay';
             rm.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-eye"></i> View Receipt - ' + sale.receiptNo + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">' + h + '</div><div class="modal-footer" style="justify-content:center;gap:1rem;"><button class="btn btn-primary btn-lg" onclick="CashierDashboardComponent._printReprintReceipt()"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-            rm._receiptHTML = h; document.body.appendChild(rm); rm.onclick = function(e){if(e.target===rm)rm.remove();};
+            rm._receiptHTML = h; 
+            document.body.appendChild(rm); 
+            rm.onclick = function(e){if(e.target===rm)rm.remove();};
         });
     },
 
     _reprintReceipt(receiptNo) {
         var self = this;
-        fetch('/api/sales/search/' + encodeURIComponent(receiptNo)).then(function(r){return r.json();}).then(function(sale){
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/sales/search/' + encodeURIComponent(receiptNo)).then(function(sale){
             if(sale.error){self._showMessage('Receipt not found!','danger');return;}
             var h = self._buildReceiptHTML(sale);
             var rm = document.createElement('div'); rm.className = 'modal-overlay';
             rm.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-print"></i> Print Receipt - ' + sale.receiptNo + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">' + h + '</div><div class="modal-footer" style="justify-content:center;gap:1rem;"><button class="btn btn-primary btn-lg" onclick="CashierDashboardComponent._printReprintReceipt()"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-            rm._receiptHTML = h; document.body.appendChild(rm); rm.onclick = function(e){if(e.target===rm)rm.remove();};
+            rm._receiptHTML = h; 
+            document.body.appendChild(rm); 
+            rm.onclick = function(e){if(e.target===rm)rm.remove();};
         });
     },
 
@@ -273,7 +316,8 @@ const CashierDashboardComponent = {
         d.style.cssText = 'position:fixed;top:20px;right:20px;z-index:9999;padding:1rem 1.5rem;border-radius:1rem;color:white;font-weight:600;';
         d.style.background = type === 'danger' ? '#ef4444' : type === 'warning' ? '#f59e0b' : '#10b981';
         d.textContent = (type === 'danger' ? '❌ ' : '✅ ') + msg;
-        document.body.appendChild(d); setTimeout(function() { d.remove(); }, 3000);
+        document.body.appendChild(d); 
+        setTimeout(function() { d.remove(); }, 3000);
     },
 
     _renderReturnsTab() {
@@ -290,20 +334,25 @@ const CashierDashboardComponent = {
     },
 
     async _loadMyReturns() {
-        var user = AuthService.getCurrentUser(); if (!user) return;
+        var user = this._getCurrentUser(); 
+        if (!user) return;
         var cashierFilter = document.getElementById('returnsCashierFilter')?.value || 'all';
         var typeFilter = document.getElementById('returnsTypeFilter')?.value || 'all';
         var tableDiv = document.getElementById('myReturnsTable'); if (!tableDiv) return;
         tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</p>';
         try {
-            var res = await fetch('/api/returns'); var allReturns = await res.json();
+            // ✅ REPLACED: fetch with ApiService
+            var allReturns = await ApiService.get('/returns');
             var filteredReturns = cashierFilter === 'me' ? allReturns.filter(function(r) { return r.cashierName === (user.fullName || user.username); }) : allReturns;
             if (typeFilter !== 'all') filteredReturns = filteredReturns.filter(function(r) { return r.returnType === typeFilter; });
             filteredReturns.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
             this._allFilteredReturns = filteredReturns;
             this._renderReturnsSummary(allReturns);
             this._renderReturnsTable(filteredReturns, tableDiv);
-        } catch(e) { tableDiv.innerHTML = '<p style="text-align:center;color:#ef4444;">Error loading returns.</p>'; }
+        } catch(e) { 
+            console.error('Error loading returns:', e);
+            tableDiv.innerHTML = '<p style="text-align:center;color:#ef4444;">Error loading returns.</p>'; 
+        }
     },
 
     _renderReturnsSummary(allReturns) {
@@ -320,7 +369,10 @@ const CashierDashboardComponent = {
     },
 
     _renderReturnsTable(returns, tableDiv) {
-        if (!returns || returns.length === 0) { tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;color:#999;">No returns found.</p>'; return; }
+        if (!returns || returns.length === 0) { 
+            tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;color:#999;">No returns found.</p>'; 
+            return; 
+        }
         var html = '<div style="max-height:500px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Type</th><th>Product</th><th>Qty</th><th>Exchange</th><th style="text-align:right;">Refund</th><th>Cashier</th></tr></thead><tbody>';
         returns.forEach(function(ret) {
             var isExchange = ret.returnType === 'exchange';
@@ -333,12 +385,15 @@ const CashierDashboardComponent = {
             html += '<tr class="returns-row" data-search="' + (ret.originalReceiptNo||'').toLowerCase() + ' ' + (ret.customerName||'').toLowerCase() + ' ' + (ret.productName||'').toLowerCase() + ' ' + (ret.cashierName||'').toLowerCase() + '">';
             html += '<td>' + (ret.date ? new Date(ret.date).toLocaleDateString('en-KE') : '-') + '</td><td><strong>' + (ret.originalReceiptNo || '-') + '</strong></td><td>' + (ret.customerName || 'Walk-in') + '</td><td style="color:' + typeColor + ';font-weight:600;">' + typeIcon + '</td><td>' + (ret.productName || '-') + '</td><td>' + (ret.quantity || 1) + '</td><td>' + exchangeProduct + '</td><td style="text-align:right;font-weight:700;color:' + refundColor + ';">' + refundDisplay + '</td><td>' + (ret.cashierName || 'N/A') + '</td></tr>';
         });
-        html += '</tbody></table></div>'; tableDiv.innerHTML = html;
+        html += '</tbody></table></div>'; 
+        tableDiv.innerHTML = html;
     },
 
     _filterReturnsTable() {
         var s = (document.getElementById('returnsSearchInput')?.value || '').toLowerCase();
-        document.querySelectorAll('.returns-row').forEach(function(r) { r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; });
+        document.querySelectorAll('.returns-row').forEach(function(r) { 
+            r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; 
+        });
     },
 
     _renderCreditTab() {
@@ -350,13 +405,16 @@ const CashierDashboardComponent = {
     },
 
     async _loadCreditSales() {
-        var user = AuthService.getCurrentUser(); if (!user) return;
+        var user = this._getCurrentUser(); 
+        if (!user) return;
         try {
-            var custRes = await fetch('/api/credit-customers'); var customers = await custRes.json();
+            // ✅ REPLACED: fetch with ApiService
+            var customers = await ApiService.get('/credit-customers');
             var custList = document.getElementById('creditTabCustomersList');
             if (custList) {
-                if (customers.length === 0) { custList.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No credit customers registered.</p>'; }
-                else {
+                if (customers.length === 0) { 
+                    custList.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No credit customers registered.</p>'; 
+                } else {
                     var tHTML = '<div style="max-height:400px;overflow-y:auto;"><table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>ID Number</th><th>Debt Limit</th><th>Total Debt</th><th>Available</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
                     customers.sort(function(a,b){return (b.totalDebt||0)-(a.totalDebt||0);});
                     customers.forEach(function(c){
@@ -366,12 +424,17 @@ const CashierDashboardComponent = {
                         var sText = pct>80?'Critical':pct>50?'Warning':c.totalDebt>0?'Active':'Clear';
                         tHTML += '<tr><td><strong>'+c.name+'</strong></td><td>'+(c.phone||'-')+'</td><td>'+(c.idNumber||'-')+'</td><td>KES '+(c.debtLimit||0).toLocaleString()+'</td><td style="color:#ef4444;font-weight:700;">KES '+(c.totalDebt||0).toLocaleString()+'</td><td style="color:'+sColor+';">KES '+available.toLocaleString()+'</td><td><div style="background:#eee;border-radius:10px;height:8px;width:100px;margin-bottom:2px;"><div style="background:'+sColor+';height:8px;border-radius:10px;width:'+pct+'%;"></div></div><small style="color:'+sColor+';">'+pct+'%</small></td><td><span style="background:'+sColor+'20;color:'+sColor+';padding:0.2rem 0.5rem;border-radius:1rem;font-size:0.8rem;font-weight:600;">'+sText+'</span></td><td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails('+c.id+')"><i class="fas fa-eye"></i></button> <button class="btn btn-sm btn-success" onclick="POSComponent.showDebtPayment('+c.id+')"><i class="fas fa-money-bill"></i></button></td></tr>';
                     });
-                    tHTML += '</tbody></table></div>'; custList.innerHTML = tHTML;
+                    tHTML += '</tbody></table></div>'; 
+                    custList.innerHTML = tHTML;
                 }
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading credit customers:', e);
+        }
+        
         try {
-            await SaleService.getAll(); var allSales = SaleService._cache || [];
+            await SaleService.getAll(); 
+            var allSales = SaleService._cache || [];
             var creditSales = allSales.filter(function(s){return s.paymentMethod==='credit'&&s.total>0;});
             creditSales.sort(function(a,b){return new Date(b.date||0)-new Date(a.date||0);});
             var recentDiv = document.getElementById('recentCreditSalesList');
@@ -381,37 +444,60 @@ const CashierDashboardComponent = {
                     var r = creditSales.slice(0,10);
                     var csHTML = '<div style="max-height:300px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Receipt</th><th style="text-align:right;">Amount</th><th>Cashier</th></tr></thead><tbody>';
                     r.forEach(function(s){csHTML+='<tr><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td><strong>'+(s.customerName||'Walk-in')+'</strong></td><td>'+(s.receiptNo||'-')+'</td><td style="text-align:right;font-weight:700;color:#ef4444;">KES '+Number(s.total||0).toLocaleString()+'</td><td>'+(s.cashierName||'N/A')+'</td></tr>';});
-                    csHTML += '</tbody></table></div>'; recentDiv.innerHTML = csHTML;
+                    csHTML += '</tbody></table></div>'; 
+                    recentDiv.innerHTML = csHTML;
                 }
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading credit sales:', e);
+        }
+        
         try {
-            var payRes = await fetch('/api/debt-payments'); var payments = await payRes.json();
-            payments.sort(function(a,b){return new Date(b.date||0)-new Date(a.date||0);});
-            this._allDebtPayments = payments;
+            // ✅ REPLACED: fetch with ApiService - need to get all payments from all customers
+            var customers = await ApiService.get('/credit-customers');
+            var allPayments = [];
+            for (var i = 0; i < customers.length; i++) {
+                var payments = await ApiService.get('/debt-payments/' + customers[i].id);
+                if (payments && payments.length) {
+                    payments.forEach(function(p) { 
+                        p.customerName = customers[i].name;
+                        p.customerId = customers[i].id;
+                        allPayments.push(p); 
+                    });
+                }
+            }
+            allPayments.sort(function(a,b){return new Date(b.date||0)-new Date(a.date||0);});
+            this._allDebtPayments = allPayments;
             var payDiv = document.getElementById('recentDebtPaymentsList');
             if(payDiv){
-                if(payments.length===0){payDiv.innerHTML='<p style="text-align:center;color:#999;padding:2rem;">No debt payments recorded.</p>';}
+                if(allPayments.length===0){payDiv.innerHTML='<p style="text-align:center;color:#999;padding:2rem;">No debt payments recorded.</p>';}
                 else{
-                    var rp = payments.slice(0,10);
-                    var totalP = payments.reduce(function(s,p){return s+Number(p.amount||0);},0);
-                    var totalEl = document.getElementById('debtPaymentTotal'); if(totalEl) totalEl.innerHTML = '💰 Total: KES ' + totalP.toLocaleString();
+                    var rp = allPayments.slice(0,10);
+                    var totalP = allPayments.reduce(function(s,p){return s+Number(p.amount||0);},0);
+                    var totalEl = document.getElementById('debtPaymentTotal'); 
+                    if(totalEl) totalEl.innerHTML = '💰 Total: KES ' + totalP.toLocaleString();
                     var payHTML = '<div style="max-height:300px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Method</th><th>Received By</th><th>Action</th></tr></thead><tbody>';
                     rp.forEach(function(p){
                         var dStr = p.date?new Date(p.date).toLocaleDateString('en-KE')+', '+new Date(p.date).toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'-';
                         var mColor = p.paymentMethod==='mpesa'?'#10b981':'#3b82f6';
                         payHTML += '<tr class="payment-row" data-search="'+(p.customerName||'').toLowerCase()+'"><td>'+dStr+'</td><td><strong>'+(p.customerName||'N/A')+'</strong></td><td style="font-weight:700;color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td style="color:'+mColor+';font-weight:600;">'+(p.paymentMethod||'CASH').toUpperCase()+'</td><td>'+(p.receivedBy||'N/A')+'</td><td><button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails('+(p.customerId||0)+')"><i class="fas fa-eye"></i></button></td></tr>';
                     });
-                    payHTML += '</tbody></table></div>'; payDiv.innerHTML = payHTML;
-                    var pagDiv = document.getElementById('debtPaymentsPagination'); if(pagDiv) pagDiv.innerHTML = 'Showing ' + Math.min(10,payments.length) + ' of ' + payments.length + ' payments';
+                    payHTML += '</tbody></table></div>'; 
+                    payDiv.innerHTML = payHTML;
+                    var pagDiv = document.getElementById('debtPaymentsPagination'); 
+                    if(pagDiv) pagDiv.innerHTML = 'Showing ' + Math.min(10,allPayments.length) + ' of ' + allPayments.length + ' payments';
                 }
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading debt payments:', e);
+        }
     },
 
     _filterDebtPayments() {
         var s = (document.getElementById('debtPaymentSearch')?.value || '').toLowerCase();
-        document.querySelectorAll('.payment-row').forEach(function(r) { r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; });
+        document.querySelectorAll('.payment-row').forEach(function(r) { 
+            r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; 
+        });
     },
 
     _renderReportsTab() {
@@ -428,17 +514,22 @@ const CashierDashboardComponent = {
     },
 
     async _loadReports() {
-        var reportDiv = document.getElementById('dailyReportsContent'); if (!reportDiv) return;
+        var reportDiv = document.getElementById('dailyReportsContent'); 
+        if (!reportDiv) return;
         reportDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Generating reports...</p>';
         try {
-            await SaleService.getAll(); var allSales = SaleService._cache || [];
-            await ProductService._fetchFromAPI(); var products = ProductService._cache || [];
+            await SaleService.getAll(); 
+            var allSales = SaleService._cache || [];
+            await ProductService.refresh(); 
+            var products = ProductService._cache || [];
             var currentTotalStock = products.reduce(function(s,p){return s+(p.stock||0);},0);
             var dailyMap = {};
             allSales.forEach(function(sale){
-                if(!sale.date)return; var dk = sale.date.split('T')[0];
+                if(!sale.date)return; 
+                var dk = sale.date.split('T')[0];
                 if(!dailyMap[dk]) dailyMap[dk] = {date:dk,totalSales:0,transactions:0,itemsSold:0,stockAdded:0,closingStock:0};
-                dailyMap[dk].totalSales += Number(sale.total||0); dailyMap[dk].transactions += 1;
+                dailyMap[dk].totalSales += Number(sale.total||0); 
+                dailyMap[dk].transactions += 1;
                 if(sale.items) sale.items.forEach(function(item){ dailyMap[dk].itemsSold += (item.quantity||0); });
             });
             var dailyReports = Object.values(dailyMap).sort(function(a,b){return new Date(b.date)-new Date(a.date);});
@@ -446,7 +537,10 @@ const CashierDashboardComponent = {
             for(var i=dailyReports.length-1;i>=0;i--){ stock += dailyReports[i].itemsSold; stock -= dailyReports[i].stockAdded; dailyReports[i].closingStock = stock; }
             this._allDailyReports = dailyReports;
             this._renderDailyReportsTable(dailyReports, reportDiv);
-        } catch(e) { reportDiv.innerHTML = '<p style="text-align:center;color:#ef4444;">Error generating reports.</p>'; }
+        } catch(e) { 
+            console.error('Error loading reports:', e);
+            reportDiv.innerHTML = '<p style="text-align:center;color:#ef4444;">Error generating reports.</p>'; 
+        }
     },
 
     _renderDailyReportsTable(reports, reportDiv) {
@@ -460,38 +554,46 @@ const CashierDashboardComponent = {
             var dObj=new Date(r.date+'T00:00:00');
             html+='<tr class="report-row" data-date="'+r.date+'"><td><strong>'+dObj.toLocaleDateString('en-KE',{weekday:'short',year:'numeric',month:'short',day:'numeric'})+'</strong><br><small style="color:#999;">'+r.date+'</small></td><td style="text-align:right;font-weight:700;color:var(--primary);">KES '+r.totalSales.toLocaleString()+'</td><td style="text-align:center;">'+r.transactions+'</td><td style="text-align:center;">'+r.itemsSold+'</td><td style="text-align:center;">'+r.stockAdded+'</td><td style="text-align:right;font-weight:600;">'+r.closingStock+'</td></tr>';
         });
-        html+='</tbody></table></div>'; reportDiv.innerHTML=html;
+        html+='</tbody></table></div>'; 
+        reportDiv.innerHTML=html;
     },
 
     _filterDailyReports() {
         var sd = document.getElementById('reportSearchDate')?.value || '';
         var st = (document.getElementById('reportSearchText')?.value || '').toLowerCase();
         document.querySelectorAll('.report-row').forEach(function(r){
-            var rd = r.getAttribute('data-date')||''; var rt = (r.textContent||'').toLowerCase();
+            var rd = r.getAttribute('data-date')||''; 
+            var rt = (r.textContent||'').toLowerCase();
             r.style.display = ((!sd||rd===sd)&&(!st||rt.includes(st))) ? '' : 'none';
         });
     },
 
     _clearReportFilter() {
-        var di = document.getElementById('reportSearchDate'); if(di) di.value = '';
-        var ti = document.getElementById('reportSearchText'); if(ti) ti.value = '';
+        var di = document.getElementById('reportSearchDate'); 
+        if(di) di.value = '';
+        var ti = document.getElementById('reportSearchText'); 
+        if(ti) ti.value = '';
         this._filterDailyReports();
     },
 
     _printAllReports() {
-        var reports = this._allDailyReports; if(!reports||reports.length===0){this._showMessage('No reports!','warning');return;}
+        var reports = this._allDailyReports; 
+        if(!reports||reports.length===0){this._showMessage('No reports!','warning');return;}
         var ph = '<div style="max-width:800px;margin:0 auto;font-family:Inter;"><div style="text-align:center;margin-bottom:20px;"><h2>TALAEN INVESTMENT HARDWARE</h2><p>P.O BOX 345, NANDI HILLS</p><h3>Daily Reports History</h3><p>Generated: '+new Date().toLocaleString('en-KE')+'</p></div><table style="width:100%;border-collapse:collapse;border:1px solid #ddd;"><tr style="background:#f5f5f5;"><th style="padding:8px;border:1px solid #ddd;">Date</th><th style="text-align:right;">Sales</th><th style="text-align:center;">Transactions</th><th style="text-align:center;">Items Sold</th><th style="text-align:center;">Stock Added</th><th style="text-align:right;">Closing Stock</th></tr>';
         reports.forEach(function(r){ph+='<tr><td style="padding:8px;border:1px solid #ddd;">'+r.date+'</td><td style="text-align:right;">KES '+r.totalSales.toLocaleString()+'</td><td style="text-align:center;">'+r.transactions+'</td><td style="text-align:center;">'+r.itemsSold+'</td><td style="text-align:center;">'+r.stockAdded+'</td><td style="text-align:right;">'+r.closingStock+'</td></tr>';});
-        ph+='</table><p style="text-align:center;margin-top:20px;">Printed by: '+(AuthService.getCurrentUser()?.fullName||'Cashier')+'</p></div>';
+        ph+='</table><p style="text-align:center;margin-top:20px;">Printed by: '+(this._getCurrentUser()?.fullName||'Cashier')+'</p></div>';
         var w=window.open('','_blank','width=900,height=600');
         w.document.write('<!DOCTYPE html><html><head><title>Daily Reports</title><style>body{font-family:Inter,sans-serif;padding:20px;}@media print{body{padding:0;}}button{background:#1a472a;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:16px;}</style></head><body><div style="text-align:center;margin-bottom:20px;"><button onclick="window.print()">Print</button></div>'+ph+'<script>setTimeout(function(){window.print();},500);</script></body></html>');
         w.document.close();
     },
 
     async loadStats() {
-        var user = AuthService.getCurrentUser(); if (!user) return;
-        await SaleService.getAll(); await ProductService._fetchFromAPI();
-        var data = await SaleService.getCashierSales(user.id); var products = ProductService._cache || [];
+        var user = this._getCurrentUser(); 
+        if (!user) return;
+        await SaleService.getAll(); 
+        await ProductService.refresh();
+        var data = await SaleService.getCashierSales(user.id); 
+        var products = ProductService._cache || [];
         var statsDiv = document.getElementById('cashierStats');
         if (statsDiv) {
             var creditHTML = document.getElementById('creditStatCard') ? document.getElementById('creditStatCard').outerHTML : '';
@@ -501,8 +603,8 @@ const CashierDashboardComponent = {
                 '<div class="stat-card"><div class="stat-icon"><i class="fas fa-box"></i></div><div class="stat-label">Available Products</div><div class="stat-value">' + products.length + '</div><div class="stat-sub">' + products.reduce(function(s,p){return s+(p.stock||0);},0) + ' units in stock</div></div>' +
                 creditHTML;
         }
-        // Load announcement
-        fetch('/api/settings').then(function(r){return r.json();}).then(function(s) {
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/settings').then(function(s) {
             var banner = document.getElementById('announcementBanner');
             if (banner && s.announcement) {
                 banner.innerHTML = '🎉 ' + s.announcement + ' 🎉';
@@ -514,19 +616,35 @@ const CashierDashboardComponent = {
 
     async loadCreditOnly() {
         try {
-            var creditRes = await fetch('/api/credit-summary'); var creditData = await creditRes.json();
+            // ✅ REPLACED: fetch with ApiService
+            var creditData = await ApiService.get('/credit-summary');
             var creditCard = document.getElementById('creditStatCard');
-            if (creditCard && creditData) creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Outstanding Debt</div><div class="stat-value" style="color:#ef4444;">KES ' + (creditData.totalDebt || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' customers with debt</div>';
-            var custRes = await fetch('/api/credit-customers'); var customers = await custRes.json();
+            if (creditCard && creditData) {
+                creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Outstanding Debt</div><div class="stat-value" style="color:#ef4444;">KES ' + (creditData.totalDebt || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' customers with debt</div>';
+            }
+            // ✅ REPLACED: fetch with ApiService
+            var customers = await ApiService.get('/credit-customers');
             var debtors = customers.filter(function(c) { return c.totalDebt > 0; });
             var custList = document.getElementById('creditCustomersList');
             if (custList) {
-                if (debtors.length === 0) custList.innerHTML = '<p style="text-align:center;color:#10b981;padding:2rem;"><i class="fas fa-check-circle" style="font-size:2rem;"></i><br>No customers with outstanding debt. Great job!</p>';
-                else { var tHTML = '<table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>Debt</th><th>Limit</th><th>Available</th></tr></thead><tbody>';
-                    debtors.forEach(function(c) { var pct = Math.round((c.totalDebt / c.debtLimit) * 100); var color = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#10b981';
-                        tHTML += '<tr><td><strong>' + c.name + '</strong></td><td>' + (c.phone || '-') + '</td><td style="color:#ef4444;font-weight:700;">KES ' + c.totalDebt.toLocaleString() + '</td><td>KES ' + c.debtLimit.toLocaleString() + '</td><td style="color:' + color + ';">KES ' + (c.debtLimit - c.totalDebt).toLocaleString() + ' (' + pct + '% used)</td></tr>'; });
-                    tHTML += '</tbody></table>'; custList.innerHTML = tHTML; }
+                if (debtors.length === 0) {
+                    custList.innerHTML = '<p style="text-align:center;color:#10b981;padding:2rem;"><i class="fas fa-check-circle" style="font-size:2rem;"></i><br>No customers with outstanding debt. Great job!</p>';
+                } else { 
+                    var tHTML = '<table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>Debt</th><th>Limit</th><th>Available</th></tr></thead><tbody>';
+                    debtors.forEach(function(c) { 
+                        var pct = Math.round((c.totalDebt / c.debtLimit) * 100); 
+                        var color = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#10b981';
+                        tHTML += '<tr><td><strong>' + c.name + '</strong></td><td>' + (c.phone || '-') + '</td><td style="color:#ef4444;font-weight:700;">KES ' + c.totalDebt.toLocaleString() + '</td><td>KES ' + c.debtLimit.toLocaleString() + '</td><td style="color:' + color + ';">KES ' + (c.debtLimit - c.totalDebt).toLocaleString() + ' (' + pct + '% used)</td></tr>'; 
+                    });
+                    tHTML += '</tbody></table>'; 
+                    custList.innerHTML = tHTML; 
+                }
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading credit data:', e);
+        }
     }
 };
+
+// Make globally available
+window.CashierDashboardComponent = CashierDashboardComponent;
