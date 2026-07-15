@@ -1,4 +1,8 @@
-﻿const AdminDashboardComponent = {
+// ============================================
+// ADMIN DASHBOARD - With JWT Authentication
+// ============================================
+
+const AdminDashboardComponent = {
     render() {
         var products = ProductService._cache || [];
         var sales = SaleService._cache || [];
@@ -84,20 +88,29 @@
         return html;
     },
 
+    // ============================================
+    // ✅ UPDATED: Using ApiService with JWT
+    // ============================================
+
     async loadStats() {
         try {
-            var summary = await SaleService.getCashiersSummary();
+            // ✅ REPLACED: fetch with ApiService
+            const summary = await ApiService.get('/sales/cashiers-summary');
             var rows = '';
-            summary.forEach(function(c) {
-                rows += '<tr><td><strong>' + c.name + '</strong></td><td>' + c.username + '</td><td>KES ' + Number(c.totalToday||0).toLocaleString() + '</td><td>' + c.countToday + ' sales</td><td>KES ' + Number(c.totalAll||0).toLocaleString() + '</td><td>' + c.countAll + ' total</td></tr>';
-            });
+            if (summary && summary.length) {
+                summary.forEach(function(c) {
+                    rows += '<tr><td><strong>' + c.name + '</strong></td><td>' + c.username + '</td><td>KES ' + Number(c.totalToday||0).toLocaleString() + '</td><td>' + c.countToday + ' sales</td><td>KES ' + Number(c.totalAll||0).toLocaleString() + '</td><td>' + c.countAll + ' total</td></tr>';
+                });
+            }
             var ct = document.getElementById('cashierTable'); 
             if (ct) ct.innerHTML = '<table class="table"><thead><tr><th>Cashier</th><th>Username</th><th>Today Sales</th><th>Today Count</th><th>Total Sales</th><th>Total Count</th></tr></thead><tbody>' + (rows || '<tr><td colspan="6" style="text-align:center;">No cashier sales yet</td></tr>') + '</tbody></table>';
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading cashier summary:', e);
+        }
         
         try {
-            var returnsRes = await fetch('/api/returns/summary');
-            var returnsData = await returnsRes.json();
+            // ✅ REPLACED: fetch with ApiService
+            const returnsData = await ApiService.get('/returns/summary');
             var returnsCard = document.getElementById('returnsStatCard');
             if (returnsCard) {
                 returnsCard.innerHTML = '<div class="stat-icon"><i class="fas fa-exchange-alt"></i></div>' +
@@ -105,11 +118,13 @@
                     '<div class="stat-value" style="color:#8b5cf6;">KES ' + Number(returnsData.totalRefunded || 0).toLocaleString() + '</div>' +
                     '<div class="stat-sub">' + (returnsData.totalReturns || 0) + ' returns | ' + (returnsData.totalExchanges || 0) + ' exchanges | Today: ' + (returnsData.todayReturns || 0) + '</div>';
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading returns:', e);
+        }
         
         try {
-            var poRes = await fetch('/api/purchase-orders');
-            var pos = await poRes.json();
+            // ✅ REPLACED: fetch with ApiService
+            const pos = await ApiService.get('/purchase-orders');
             var today = new Date().toISOString().split('T')[0];
             var todayPOs = pos.filter(function(po) { return po.date && po.date.startsWith(today); });
             var todayPOAmount = todayPOs.reduce(function(s, po) { return s + Number(po.total || 0); }, 0);
@@ -125,24 +140,28 @@
                     '<div class="stat-value" style="color:#ec4899;">' + todayPOs.length + ' POs</div>' +
                     '<div class="stat-sub">Today: KES ' + todayPOAmount.toLocaleString() + ' | ' + suppliers.length + ' suppliers | ' + todaySuppliers.length + ' active today</div>';
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading purchases:', e);
+        }
         
         await this.loadCreditOnly();
     },
 
     async loadCreditOnly() {
         try {
-            var creditRes = await fetch('/api/credit-summary');
-            var creditData = await creditRes.json();
+            // ✅ REPLACED: fetch with ApiService
+            const creditData = await ApiService.get('/credit-summary');
             var creditCard = document.getElementById('creditStatCard');
             if (creditCard) {
                 creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">💳 Credit</div><div class="stat-value" style="color:#ef4444;">KES ' + (Number(creditData.totalDebt) || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' owing | Paid today: KES ' + (Number(creditData.todayPayments) || 0).toLocaleString() + '</div>';
             }
-            var custRes = await fetch('/api/credit-customers');
-            var customers = await custRes.json();
+            
+            // ✅ REPLACED: fetch with ApiService
+            const customers = await ApiService.get('/credit-customers');
             var debtors = customers.filter(function(c) { return Number(c.totalDebt) > 0; });
             var debtorCount = document.getElementById('debtorCount');
             if (debtorCount) debtorCount.textContent = '(' + debtors.length + ' with debt)';
+            
             var custTable = document.getElementById('creditCustomersTable');
             if (custTable) {
                 if (debtors.length === 0) {
@@ -158,29 +177,50 @@
                     custTable.innerHTML = tableHTML;
                 }
             }
-        } catch(e) { console.error('Credit stats error:', e); }
+        } catch(e) { 
+            console.error('Credit stats error:', e); 
+        }
     },
 
-    showReturnsManagement() {
+    // ============================================
+    // RETURNS MANAGEMENT - Using ApiService
+    // ============================================
+
+    async showReturnsManagement() {
         var container = document.getElementById('mainContent');
         if (!container) return;
+        
         container.innerHTML = '<div style="text-align:center;padding:3rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</div>';
-        fetch('/api/returns').then(function(r){return r.json();}).then(function(returns){
+        
+        try {
+            // ✅ REPLACED: fetch with ApiService
+            const returns = await ApiService.get('/returns');
+            
             if (!returns || returns.length === 0) {
                 container.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;"><i class="fas fa-exchange-alt" style="font-size:4rem;color:#ccc;"></i><h3>No Returns/Exchanges Yet</h3><button class="btn btn-primary" onclick="AppRouter.navigate(\'admin-dashboard\')">Back</button></div></div>';
                 return;
             }
+            
             var totalReturns = returns.filter(function(r){return r.returnType==='return';}).length;
             var totalExchanges = returns.filter(function(r){return r.returnType==='exchange';}).length;
             var totalRefund = returns.reduce(function(s,r){return s+Number(r.refundAmount||0);},0);
+            
             var html = '<div class="card"><div class="card-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-exchange-alt"></i> Returns & Exchanges</h3><button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;" onclick="AppRouter.navigate(\'admin-dashboard\')">Back</button></div><div class="card-body">';
             html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"><div style="text-align:center;padding:1rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#ef4444;">'+totalReturns+'</div><small>Returns</small></div><div style="text-align:center;padding:1rem;background:#fef3c7;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#f59e0b;">'+totalExchanges+'</div><small>Exchanges</small></div><div style="text-align:center;padding:1rem;background:#f0fdf4;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#10b981;">KES '+totalRefund.toLocaleString()+'</div><small>Refunded</small></div><div style="text-align:center;padding:1rem;background:#eff6ff;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#3b82f6;">'+returns.length+'</div><small>Total</small></div></div>';
             html += '<div style="display:flex;gap:1rem;margin-bottom:1rem;"><input type="text" id="returnSearchInput" class="form-control" placeholder="Search..." oninput="AdminDashboardComponent._filterReturns()" style="flex:1;"><select id="returnTypeFilter" class="form-control" onchange="AdminDashboardComponent._filterReturns()" style="width:200px;"><option value="all">All</option><option value="return">Returns</option><option value="exchange">Exchanges</option></select></div>';
             html += '<table class="table" id="returnsTable"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Type</th><th>Product</th><th>Qty</th><th>Exchange</th><th>Refund</th><th>Cashier</th></tr></thead><tbody>';
-            returns.forEach(function(r){var b=r.returnType==='exchange'?'<span style="background:#fef3c7;color:#d97706;padding:3px 8px;border-radius:4px;">🔄 Exchange</span>':'<span style="background:#fef2f2;color:#dc2626;padding:3px 8px;border-radius:4px;">↩️ Return</span>';var ref=Number(r.refundAmount)>0?'<span style="color:#10b981;">KES '+Number(r.refundAmount).toLocaleString()+'</span>':'-';html+='<tr data-search="'+(r.originalReceiptNo||'')+' '+(r.customerName||'')+' '+(r.productName||'')+'"><td>'+(r.date?new Date(r.date).toLocaleDateString('en-KE'):'-')+'</td><td><strong>'+(r.originalReceiptNo||'-')+'</strong></td><td>'+(r.customerName||'-')+'</td><td>'+b+'</td><td>'+(r.productName||'-')+'</td><td>'+r.quantity+'</td><td>'+(r.exchangeProductName||'-')+'</td><td>'+ref+'</td><td>'+(r.cashierName||'-')+'</td></tr>';});
+            returns.forEach(function(r){
+                var b = r.returnType==='exchange' ? '<span style="background:#fef3c7;color:#d97706;padding:3px 8px;border-radius:4px;">🔄 Exchange</span>' : '<span style="background:#fef2f2;color:#dc2626;padding:3px 8px;border-radius:4px;">↩️ Return</span>';
+                var ref = Number(r.refundAmount)>0 ? '<span style="color:#10b981;">KES '+Number(r.refundAmount).toLocaleString()+'</span>' : '-';
+                html += '<tr data-search="'+(r.originalReceiptNo||'')+' '+(r.customerName||'')+' '+(r.productName||'')+'"><td>'+(r.date?new Date(r.date).toLocaleDateString('en-KE'):'-')+'</td><td><strong>'+(r.originalReceiptNo||'-')+'</strong></td><td>'+(r.customerName||'-')+'</td><td>'+b+'</td><td>'+(r.productName||'-')+'</td><td>'+r.quantity+'</td><td>'+(r.exchangeProductName||'-')+'</td><td>'+ref+'</td><td>'+(r.cashierName||'-')+'</td></tr>';
+            });
             html += '</tbody></table></div></div>';
             container.innerHTML = html;
-        }).catch(function(){container.innerHTML='<div class="card"><div class="card-body" style="text-align:center;padding:3rem;color:#ef4444;">Error loading returns.</div></div>';});
+            
+        } catch(e) {
+            console.error('Error loading returns:', e);
+            container.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;color:#ef4444;">Error loading returns. Please try again.</div></div>';
+        }
     },
 
     _filterReturns() {
@@ -194,3 +234,6 @@
         });
     }
 };
+
+// Make globally available
+window.AdminDashboardComponent = AdminDashboardComponent;
