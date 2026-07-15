@@ -117,7 +117,7 @@ const AdminDashboardComponent = {
                     '<div class="stat-sub">' + (returnsData.totalReturns || 0) + ' returns | ' + (returnsData.totalExchanges || 0) + ' exchanges | Today: ' + (returnsData.todayReturns || 0) + '</div>';
             }
         } catch(e) {
-            console.error('Error loading returns:', e);
+            console.error('Error loading returns summary:', e);
         }
         
         try {
@@ -195,18 +195,18 @@ const AdminDashboardComponent = {
                 return;
             }
             
-            var totalReturns = returns.filter(function(r){return r.returnType==='return';}).length;
-            var totalExchanges = returns.filter(function(r){return r.returnType==='exchange';}).length;
-            var totalRefund = returns.reduce(function(s,r){return s+Number(r.refundAmount||0);},0);
+            var totalReturns = returns.filter(function(r){ return r.returnType === 'return'; }).length;
+            var totalExchanges = returns.filter(function(r){ return r.returnType === 'exchange'; }).length;
+            var totalRefund = returns.reduce(function(s, r){ return s + Number(r.refundAmount || 0); }, 0);
             
             var html = '<div class="card"><div class="card-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-exchange-alt"></i> Returns & Exchanges</h3><button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;" onclick="AppRouter.navigate(\'admin-dashboard\')">Back</button></div><div class="card-body">';
             html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"><div style="text-align:center;padding:1rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#ef4444;">'+totalReturns+'</div><small>Returns</small></div><div style="text-align:center;padding:1rem;background:#fef3c7;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#f59e0b;">'+totalExchanges+'</div><small>Exchanges</small></div><div style="text-align:center;padding:1rem;background:#f0fdf4;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#10b981;">KES '+totalRefund.toLocaleString()+'</div><small>Refunded</small></div><div style="text-align:center;padding:1rem;background:#eff6ff;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#3b82f6;">'+returns.length+'</div><small>Total</small></div></div>';
             html += '<div style="display:flex;gap:1rem;margin-bottom:1rem;"><input type="text" id="returnSearchInput" class="form-control" placeholder="Search..." oninput="AdminDashboardComponent._filterReturns()" style="flex:1;"><select id="returnTypeFilter" class="form-control" onchange="AdminDashboardComponent._filterReturns()" style="width:200px;"><option value="all">All</option><option value="return">Returns</option><option value="exchange">Exchanges</option></select></div>';
             html += '<table class="table" id="returnsTable"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Type</th><th>Product</th><th>Qty</th><th>Exchange</th><th>Refund</th><th>Cashier</th></tr></thead><tbody>';
             returns.forEach(function(r){
-                var b = r.returnType==='exchange' ? '<span style="background:#fef3c7;color:#d97706;padding:3px 8px;border-radius:4px;">Exchange</span>' : '<span style="background:#fef2f2;color:#dc2626;padding:3px 8px;border-radius:4px;">Return</span>';
-                var ref = Number(r.refundAmount)>0 ? '<span style="color:#10b981;">KES '+Number(r.refundAmount).toLocaleString()+'</span>' : '-';
-                html += '<tr data-search="'+(r.originalReceiptNo||'')+' '+(r.customerName||'')+' '+(r.productName||'')+'"><td>'+(r.date?new Date(r.date).toLocaleDateString('en-KE'):'-')+'</td><td><strong>'+(r.originalReceiptNo||'-')+'</strong></td><td>'+(r.customerName||'-')+'</td><td>'+b+'</td><td>'+(r.productName||'-')+'</td><td>'+r.quantity+'</td><td>'+(r.exchangeProductName||'-')+'</td><td>'+ref+'</td><td>'+(r.cashierName||'-')+'</td></tr>';
+                var b = r.returnType === 'exchange' ? '<span style="background:#fef3c7;color:#d97706;padding:3px 8px;border-radius:4px;">Exchange</span>' : '<span style="background:#fef2f2;color:#dc2626;padding:3px 8px;border-radius:4px;">Return</span>';
+                var ref = Number(r.refundAmount) > 0 ? '<span style="color:#10b981;">KES '+Number(r.refundAmount).toLocaleString()+'</span>' : '-';
+                html += '<tr data-search="'+(r.originalReceiptNo||'')+' '+(r.customerName||'')+' '+(r.productName||'')+'"><td>'+(r.date ? new Date(r.date).toLocaleDateString('en-KE') : '-')+'</td><td><strong>'+(r.originalReceiptNo||'-')+'</strong></td><td>'+(r.customerName||'-')+'</td><td>'+b+'</td><td>'+(r.productName||'-')+'</td><td>'+r.quantity+'</td><td>'+(r.exchangeProductName||'-')+'</td><td>'+ref+'</td><td>'+(r.cashierName||'-')+'</td></tr>';
             });
             html += '</tbody></table></div></div>';
             container.innerHTML = html;
@@ -220,12 +220,14 @@ const AdminDashboardComponent = {
     _filterReturns: function() {
         var search = (document.getElementById('returnSearchInput')?.value || '').toLowerCase();
         var typeFilter = document.getElementById('returnTypeFilter')?.value || 'all';
-        document.querySelectorAll('#returnsTable tbody tr').forEach(function(row) {
-            var matchSearch = !search || (row.dataset.search || '').includes(search);
+        var rows = document.querySelectorAll('#returnsTable tbody tr');
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            var matchSearch = !search || (row.dataset.search || '').indexOf(search) > -1;
             var isReturn = row.innerHTML.indexOf('Return</span>') > -1;
             var matchType = typeFilter === 'all' || (typeFilter === 'return' && isReturn) || (typeFilter === 'exchange' && !isReturn);
             row.style.display = (matchSearch && matchType) ? '' : 'none';
-        });
+        }
     }
 };
 
