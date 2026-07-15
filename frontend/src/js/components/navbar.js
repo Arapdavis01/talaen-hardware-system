@@ -46,7 +46,7 @@ const NavbarComponent = {
             
             // ✅ Show cashier name
             h += '<span class="badge badge-info" style="margin:0 0.5rem;"><i class="fas fa-user"></i> ' + (user?.fullName || user?.username || 'Cashier') + '</span>';
-            h += '<button class="nav-link" onclick="AppRouter.logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>';
+            h += '<button class="nav-link" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button>';
             
         } else if (isAdmin) {
             // 🔥 ADMIN NAVIGATION
@@ -66,7 +66,7 @@ const NavbarComponent = {
             
             // ✅ Show admin badge
             h += '<span class="badge badge-success" style="margin:0 0.5rem;"><i class="fas fa-user-shield"></i> ' + (user?.fullName || user?.username || 'Admin') + '</span>';
-            h += '<button class="nav-link" onclick="AppRouter.logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>';
+            h += '<button class="nav-link" onclick="handleLogout()"><i class="fas fa-sign-out-alt"></i> Logout</button>';
         }
         
         h += '</div></div></nav>';
@@ -75,24 +75,56 @@ const NavbarComponent = {
 };
 
 // ============================================
-// ✅ GLOBAL LOGOUT FUNCTION (for navbar)
+// ✅ GLOBAL LOGOUT FUNCTION (Enhanced)
 // ============================================
-window.logoutUser = function() {
+function handleLogout() {
     const token = localStorage.getItem('token');
-    if (token) {
+    const userJson = localStorage.getItem('user');
+    let user = null;
+    try {
+        user = userJson ? JSON.parse(userJson) : null;
+    } catch (e) {
+        user = null;
+    }
+    
+    // ✅ Log activity if user exists
+    if (token && user) {
         fetch('/api/auth/logout', {
             method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` }
-        }).catch(() => {});
+            headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}` 
+            },
+            body: JSON.stringify({ 
+                userId: user.id, 
+                userName: user.fullName || user.username 
+            })
+        }).catch(() => {
+            // Ignore network errors on logout
+        });
     }
+    
+    // ✅ Clear ALL session data
     localStorage.removeItem('token');
     localStorage.removeItem('user');
+    sessionStorage.clear();
+    
+    // ✅ Redirect to login page
     window.location.href = '/login.html';
-};
+}
+
+// ✅ Make logout globally available
+window.logoutUser = handleLogout;
+window.handleLogout = handleLogout;
 
 // ============================================
 // ✅ OVERRIDE AppRouter.logout if it exists
 // ============================================
 if (window.AppRouter) {
-    AppRouter.logout = window.logoutUser;
+    // Keep original logout if it exists, but override with our function
+    if (typeof AppRouter.logout === 'function') {
+        // Store original if needed
+        AppRouter._originalLogout = AppRouter.logout;
+    }
+    AppRouter.logout = handleLogout;
 }
