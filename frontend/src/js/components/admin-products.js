@@ -1,3 +1,7 @@
+// ============================================
+// ADMIN PRODUCTS - With JWT Authentication
+// ============================================
+
 const AdminProductsComponent = {
     render: function() {
         var products = ProductService._cache || [];
@@ -29,10 +33,8 @@ const AdminProductsComponent = {
                 variants.forEach(function(p) {
                     var threshold = ProductService.getStockAlertThreshold ? ProductService.getStockAlertThreshold(p.id) : 10;
                     var status = p.stock === 0 ? '<span class="badge badge-danger">Out</span>' : p.stock <= threshold ? '<span class="badge badge-warning">Low</span>' : '<span class="badge badge-success">OK</span>';
-                    // Show sales unit and conversion factor if set
                     var salesUnitDisplay = p.salesUnit ? p.salesUnit : '-';
                     var conversionDisplay = p.conversionFactor ? p.conversionFactor : '-';
-                    // Add data-search with ALL searchable fields + group name
                     var searchData = (p.name || '').toLowerCase() + ' ' + (p.brand || '').toLowerCase() + ' ' + (p.variant || '').toLowerCase() + ' ' + (p.category || '').toLowerCase();
                     h += '<tr class="product-row" data-search="' + searchData + '">';
                     h += '<td><strong>' + (p.brand || '-') + '</strong></td><td>' + (p.variant || '-') + '</td><td>' + (p.category || '-') + '</td>';
@@ -104,6 +106,10 @@ const AdminProductsComponent = {
         }
     },
 
+    // ============================================
+    // ✅ UPDATED: Using ApiService with JWT
+    // ============================================
+
     showAddForm: function() {
         var m = document.createElement('div'); m.className = 'modal-overlay';
         m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-plus-circle"></i> Add New Product</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div>' +
@@ -122,28 +128,31 @@ const AdminProductsComponent = {
             '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="saveBtn"><i class="fas fa-save"></i> Add Product</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
+        
         m.querySelector('#saveBtn').onclick = async function() {
             var n = document.getElementById('prodName').value.trim(), b = document.getElementById('prodBrand').value.trim(), p = parseFloat(document.getElementById('prodPrice').value);
             if (!n || !b || !p) { showStyledAlert('Required', 'Name, Brand, and Price required!', 'exclamation-triangle', '#f59e0b'); return; }
+            
             var salesUnit = document.getElementById('prodSalesUnit').value.trim();
             var convFactor = parseFloat(document.getElementById('prodConvFactor').value) || 1;
-            await fetch('/api/products', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: n,
-                    brand: b,
-                    variant: document.getElementById('prodVariant').value.trim(),
-                    category: document.getElementById('prodCategory').value.trim(),
-                    price: p,
-                    cost: parseFloat(document.getElementById('prodCost').value) || 0,
-                    stock: parseInt(document.getElementById('prodStock').value) || 0,
-                    unit: document.getElementById('prodUnit').value,
-                    salesUnit: salesUnit,
-                    conversionFactor: convFactor
-                })
+            
+            // ✅ REPLACED: fetch with ApiService
+            await ApiService.post('/products', {
+                name: n,
+                brand: b,
+                variant: document.getElementById('prodVariant').value.trim(),
+                category: document.getElementById('prodCategory').value.trim(),
+                price: p,
+                cost: parseFloat(document.getElementById('prodCost').value) || 0,
+                stock: parseInt(document.getElementById('prodStock').value) || 0,
+                unit: document.getElementById('prodUnit').value,
+                salesUnit: salesUnit,
+                conversionFactor: convFactor
             });
-            await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
+            
+            await ProductService.refresh();
+            m.remove();
+            AppRouter.render();
         };
     },
 
@@ -162,39 +171,43 @@ const AdminProductsComponent = {
             '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="addBtn"><i class="fas fa-save"></i> Add Variant</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
+        
         m.querySelector('#addBtn').onclick = async function() {
             var b = document.getElementById('varBrand').value.trim(), p = parseFloat(document.getElementById('varPrice').value);
             if (!b || !p) { showStyledAlert('Required', 'Brand and Price required!', 'exclamation-triangle', '#f59e0b'); return; }
+            
             var salesUnit = document.getElementById('varSalesUnit').value.trim();
             var convFactor = parseFloat(document.getElementById('varConvFactor').value) || 1;
-            await fetch('/api/products', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: productName,
-                    brand: b,
-                    variant: document.getElementById('varVariant').value.trim(),
-                    category: category,
-                    price: p,
-                    cost: parseFloat(document.getElementById('varCost').value) || 0,
-                    stock: parseInt(document.getElementById('varStock').value) || 0,
-                    unit: document.getElementById('varUnit').value,
-                    salesUnit: salesUnit,
-                    conversionFactor: convFactor
-                })
+            
+            // ✅ REPLACED: fetch with ApiService
+            await ApiService.post('/products', {
+                name: productName,
+                brand: b,
+                variant: document.getElementById('varVariant').value.trim(),
+                category: category,
+                price: p,
+                cost: parseFloat(document.getElementById('varCost').value) || 0,
+                stock: parseInt(document.getElementById('varStock').value) || 0,
+                unit: document.getElementById('varUnit').value,
+                salesUnit: salesUnit,
+                conversionFactor: convFactor
             });
-            await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
+            
+            await ProductService.refresh();
+            m.remove();
+            AppRouter.render();
         };
     },
 
     editProduct: function(id) {
-        var p = ProductService.getById(id); if (!p) return;
+        var p = ProductService.getById(id); 
+        if (!p) return;
+        
         var m = document.createElement('div'); m.className = 'modal-overlay';
         m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-edit"></i> Edit: ' + (p.brand||'') + ' ' + p.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div>' +
             '<div class="modal-body"><div class="form-group"><label>Brand</label><input type="text" id="editBrand" class="form-control" value="' + (p.brand||'') + '"></div><div class="form-group"><label>Variant</label><input type="text" id="editVariant" class="form-control" value="' + (p.variant||'') + '"></div>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Buying Price/Cost (KES)</label><input type="number" id="editCost" class="form-control" value="' + (p.cost||0) + '" step="0.01"></div><div class="form-group"><label>Selling Price (KES)</label><input type="number" id="editPrice" class="form-control" value="' + p.price + '" step="0.01"></div></div>' +
             '<div class="form-group"><label>Stock</label><input type="number" id="editStock" class="form-control" value="' + p.stock + '"></div>' +
-            // Edit: add sales unit and conversion factor fields
             '<hr><p style="color:#f59e0b;font-weight:600;"><i class="fas fa-sync-alt"></i> Alternative Sales Unit (optional)</p>' +
             '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">' +
             '<div class="form-group"><label>Sales Unit</label><input type="text" id="editSalesUnit" class="form-control" value="' + (p.salesUnit || '') + '" placeholder="e.g., wheelbarrow"></div>' +
@@ -203,36 +216,51 @@ const AdminProductsComponent = {
             '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="updateBtn"><i class="fas fa-save"></i> Update</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
+        
         m.querySelector('#updateBtn').onclick = async function() {
             var salesUnit = document.getElementById('editSalesUnit').value.trim();
             var convFactor = parseFloat(document.getElementById('editConvFactor').value) || 1;
-            await fetch('/api/products/' + id, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    name: p.name,
-                    brand: document.getElementById('editBrand').value.trim(),
-                    variant: document.getElementById('editVariant').value.trim(),
-                    price: parseFloat(document.getElementById('editPrice').value),
-                    cost: parseFloat(document.getElementById('editCost').value) || 0,
-                    stock: parseInt(document.getElementById('editStock').value),
-                    unit: p.unit,   // main unit unchanged from original
-                    salesUnit: salesUnit,
-                    conversionFactor: convFactor
-                })
+            
+            // ✅ REPLACED: fetch with ApiService
+            await ApiService.put('/products/' + id, {
+                name: p.name,
+                brand: document.getElementById('editBrand').value.trim(),
+                variant: document.getElementById('editVariant').value.trim(),
+                price: parseFloat(document.getElementById('editPrice').value),
+                cost: parseFloat(document.getElementById('editCost').value) || 0,
+                stock: parseInt(document.getElementById('editStock').value),
+                unit: p.unit,
+                salesUnit: salesUnit,
+                conversionFactor: convFactor
             });
-            await ProductService._fetchFromAPI(); m.remove(); AppRouter.render();
+            
+            await ProductService.refresh();
+            m.remove();
+            AppRouter.render();
         };
     },
 
     restockProduct: function(id) {
-        var q = prompt('Quantity to add:'); if (!q || parseInt(q) <= 0) return;
-        fetch('/api/products/' + id + '/stock', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity: parseInt(q) }) }).then(async function() { await ProductService._fetchFromAPI(); AppRouter.render(); });
+        var q = prompt('Quantity to add:'); 
+        if (!q || parseInt(q) <= 0) return;
+        
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.put('/products/' + id + '/stock', { quantity: parseInt(q) })
+            .then(async function() { 
+                await ProductService.refresh(); 
+                AppRouter.render(); 
+            });
     },
 
     deleteProduct: function(id) {
-        showConfirm('Delete Product', 'Are you sure you want to delete this product?', function() {
-            fetch('/api/products/' + id, { method: 'DELETE' }).then(async function() { await ProductService._fetchFromAPI(); AppRouter.render(); });
+        showConfirm('Delete Product', 'Are you sure you want to delete this product?', async function() {
+            // ✅ REPLACED: fetch with ApiService
+            await ApiService.delete('/products/' + id);
+            await ProductService.refresh();
+            AppRouter.render();
         }, 'Delete', 'danger');
     }
 };
+
+// Make globally available
+window.AdminProductsComponent = AdminProductsComponent;
