@@ -3,7 +3,7 @@
 // ============================================
 
 const AdminDashboardComponent = {
-    render() {
+    render: function() {
         var products = ProductService._cache || [];
         var sales = SaleService._cache || [];
         var lowStock = products.filter(function(p) { return p.stock <= (p.minStock || 10); });
@@ -22,50 +22,50 @@ const AdminDashboardComponent = {
         // 1. INVENTORY
         html += '<div class="stat-card" style="border-top:3px solid #3b82f6;cursor:pointer;" onclick="AppRouter.navigate(\'pos\')">';
         html += '<div class="stat-icon"><i class="fas fa-clipboard-list"></i></div>';
-        html += '<div class="stat-label">📋 Inventory</div>';
+        html += '<div class="stat-label">Inventory</div>';
         html += '<div class="stat-value">KES ' + totalInventoryValue.toLocaleString() + '</div>';
         html += '<div class="stat-sub">Stock Value | ' + totalStock.toLocaleString() + ' items in stock</div></div>';
         
         // 2. SALES
         html += '<div class="stat-card" style="border-top:3px solid #10b981;cursor:pointer;" onclick="AppRouter.navigate(\'admin-sales\')">';
         html += '<div class="stat-icon"><i class="fas fa-receipt"></i></div>';
-        html += '<div class="stat-label">🧾 Sales</div>';
+        html += '<div class="stat-label">Sales</div>';
         html += '<div class="stat-value">KES ' + allTotal.toLocaleString() + '</div>';
         html += '<div class="stat-sub">Total Revenue | Today: KES ' + todayTotal.toLocaleString() + ' (' + todaySales.length + ' sales)</div></div>';
         
         // 3. CREDIT
         html += '<div class="stat-card" id="creditStatCard" style="border-top:3px solid #f59e0b;cursor:pointer;" onclick="AppRouter.navigate(\'admin-credit\')">';
         html += '<div class="stat-icon"><i class="fas fa-credit-card"></i></div>';
-        html += '<div class="stat-label">💳 Credit</div>';
+        html += '<div class="stat-label">Credit</div>';
         html += '<div class="stat-value" style="color:#ef4444;">KES 0</div>';
         html += '<div class="stat-sub">Loading...</div></div>';
         
         // 4. RETURNS
         html += '<div class="stat-card" id="returnsStatCard" style="border-top:3px solid #8b5cf6;cursor:pointer;" onclick="AppRouter.navigate(\'admin-returns\')">';
         html += '<div class="stat-icon"><i class="fas fa-exchange-alt"></i></div>';
-        html += '<div class="stat-label">🔄 Returns/Exchanges</div>';
+        html += '<div class="stat-label">Returns/Exchanges</div>';
         html += '<div class="stat-value" style="color:#8b5cf6;">...</div>';
         html += '<div class="stat-sub">Loading...</div></div>';
         
         // 5. PURCHASES
         html += '<div class="stat-card" id="purchasesStatCard" style="border-top:3px solid #ec4899;cursor:pointer;" onclick="AppRouter.navigate(\'admin-purchases\')">';
         html += '<div class="stat-icon"><i class="fas fa-truck"></i></div>';
-        html += '<div class="stat-label">🚚 Purchases</div>';
+        html += '<div class="stat-label">Purchases</div>';
         html += '<div class="stat-value" style="color:#ec4899;">...</div>';
         html += '<div class="stat-sub">Loading...</div></div>';
         
         // 6. PRODUCTS
         html += '<div class="stat-card" style="border-top:3px solid #06b6d4;cursor:pointer;" onclick="AppRouter.navigate(\'admin-products\')">';
         html += '<div class="stat-icon"><i class="fas fa-boxes"></i></div>';
-        html += '<div class="stat-label">📦 Products</div>';
+        html += '<div class="stat-label">Products</div>';
         html += '<div class="stat-value">' + products.length + '</div>';
         html += '<div class="stat-sub">' + totalStock.toLocaleString() + ' total stock | ' + lowStock.length + ' low stock</div></div>';
         
         // 7. REPORTS
         html += '<div class="stat-card" style="border-top:3px solid #64748b;cursor:pointer;" onclick="AppRouter.navigate(\'admin-reports\')">';
         html += '<div class="stat-icon"><i class="fas fa-chart-bar"></i></div>';
-        html += '<div class="stat-label">📈 Reports</div>';
-        html += '<div class="stat-value" style="color:#64748b;">📊</div>';
+        html += '<div class="stat-label">Reports</div>';
+        html += '<div class="stat-value" style="color:#64748b;">Analytics</div>';
         html += '<div class="stat-sub">View analytics & reports</div></div>';
         
         html += '</div>';
@@ -89,13 +89,12 @@ const AdminDashboardComponent = {
     },
 
     // ============================================
-    // ✅ UPDATED: Using ApiService with JWT
+    // UPDATED: Using ApiService with JWT
     // ============================================
 
-    async loadStats() {
+    loadStats: async function() {
         try {
-            // ✅ REPLACED: fetch with ApiService
-            const summary = await ApiService.get('/sales/cashiers-summary');
+            var summary = await ApiService.get('/sales/cashiers-summary');
             var rows = '';
             if (summary && summary.length) {
                 summary.forEach(function(c) {
@@ -109,12 +108,11 @@ const AdminDashboardComponent = {
         }
         
         try {
-            // ✅ REPLACED: fetch with ApiService
-            const returnsData = await ApiService.get('/returns/summary');
+            var returnsData = await ApiService.get('/returns/summary');
             var returnsCard = document.getElementById('returnsStatCard');
             if (returnsCard) {
                 returnsCard.innerHTML = '<div class="stat-icon"><i class="fas fa-exchange-alt"></i></div>' +
-                    '<div class="stat-label">🔄 Returns/Exchanges</div>' +
+                    '<div class="stat-label">Returns/Exchanges</div>' +
                     '<div class="stat-value" style="color:#8b5cf6;">KES ' + Number(returnsData.totalRefunded || 0).toLocaleString() + '</div>' +
                     '<div class="stat-sub">' + (returnsData.totalReturns || 0) + ' returns | ' + (returnsData.totalExchanges || 0) + ' exchanges | Today: ' + (returnsData.todayReturns || 0) + '</div>';
             }
@@ -123,8 +121,7 @@ const AdminDashboardComponent = {
         }
         
         try {
-            // ✅ REPLACED: fetch with ApiService
-            const pos = await ApiService.get('/purchase-orders');
+            var pos = await ApiService.get('/purchase-orders');
             var today = new Date().toISOString().split('T')[0];
             var todayPOs = pos.filter(function(po) { return po.date && po.date.startsWith(today); });
             var todayPOAmount = todayPOs.reduce(function(s, po) { return s + Number(po.total || 0); }, 0);
@@ -136,7 +133,7 @@ const AdminDashboardComponent = {
             var purchasesCard = document.getElementById('purchasesStatCard');
             if (purchasesCard) {
                 purchasesCard.innerHTML = '<div class="stat-icon"><i class="fas fa-truck"></i></div>' +
-                    '<div class="stat-label">🚚 Purchases</div>' +
+                    '<div class="stat-label">Purchases</div>' +
                     '<div class="stat-value" style="color:#ec4899;">' + todayPOs.length + ' POs</div>' +
                     '<div class="stat-sub">Today: KES ' + todayPOAmount.toLocaleString() + ' | ' + suppliers.length + ' suppliers | ' + todaySuppliers.length + ' active today</div>';
             }
@@ -147,17 +144,15 @@ const AdminDashboardComponent = {
         await this.loadCreditOnly();
     },
 
-    async loadCreditOnly() {
+    loadCreditOnly: async function() {
         try {
-            // ✅ REPLACED: fetch with ApiService
-            const creditData = await ApiService.get('/credit-summary');
+            var creditData = await ApiService.get('/credit-summary');
             var creditCard = document.getElementById('creditStatCard');
             if (creditCard) {
-                creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">💳 Credit</div><div class="stat-value" style="color:#ef4444;">KES ' + (Number(creditData.totalDebt) || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' owing | Paid today: KES ' + (Number(creditData.todayPayments) || 0).toLocaleString() + '</div>';
+                creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Credit</div><div class="stat-value" style="color:#ef4444;">KES ' + (Number(creditData.totalDebt) || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' owing | Paid today: KES ' + (Number(creditData.todayPayments) || 0).toLocaleString() + '</div>';
             }
             
-            // ✅ REPLACED: fetch with ApiService
-            const customers = await ApiService.get('/credit-customers');
+            var customers = await ApiService.get('/credit-customers');
             var debtors = customers.filter(function(c) { return Number(c.totalDebt) > 0; });
             var debtorCount = document.getElementById('debtorCount');
             if (debtorCount) debtorCount.textContent = '(' + debtors.length + ' with debt)';
@@ -186,15 +181,14 @@ const AdminDashboardComponent = {
     // RETURNS MANAGEMENT - Using ApiService
     // ============================================
 
-    async showReturnsManagement() {
+    showReturnsManagement: async function() {
         var container = document.getElementById('mainContent');
         if (!container) return;
         
         container.innerHTML = '<div style="text-align:center;padding:3rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</div>';
         
         try {
-            // ✅ REPLACED: fetch with ApiService
-            const returns = await ApiService.get('/returns');
+            var returns = await ApiService.get('/returns');
             
             if (!returns || returns.length === 0) {
                 container.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;"><i class="fas fa-exchange-alt" style="font-size:4rem;color:#ccc;"></i><h3>No Returns/Exchanges Yet</h3><button class="btn btn-primary" onclick="AppRouter.navigate(\'admin-dashboard\')">Back</button></div></div>';
@@ -210,7 +204,7 @@ const AdminDashboardComponent = {
             html += '<div style="display:flex;gap:1rem;margin-bottom:1rem;"><input type="text" id="returnSearchInput" class="form-control" placeholder="Search..." oninput="AdminDashboardComponent._filterReturns()" style="flex:1;"><select id="returnTypeFilter" class="form-control" onchange="AdminDashboardComponent._filterReturns()" style="width:200px;"><option value="all">All</option><option value="return">Returns</option><option value="exchange">Exchanges</option></select></div>';
             html += '<table class="table" id="returnsTable"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Type</th><th>Product</th><th>Qty</th><th>Exchange</th><th>Refund</th><th>Cashier</th></tr></thead><tbody>';
             returns.forEach(function(r){
-                var b = r.returnType==='exchange' ? '<span style="background:#fef3c7;color:#d97706;padding:3px 8px;border-radius:4px;">🔄 Exchange</span>' : '<span style="background:#fef2f2;color:#dc2626;padding:3px 8px;border-radius:4px;">↩️ Return</span>';
+                var b = r.returnType==='exchange' ? '<span style="background:#fef3c7;color:#d97706;padding:3px 8px;border-radius:4px;">Exchange</span>' : '<span style="background:#fef2f2;color:#dc2626;padding:3px 8px;border-radius:4px;">Return</span>';
                 var ref = Number(r.refundAmount)>0 ? '<span style="color:#10b981;">KES '+Number(r.refundAmount).toLocaleString()+'</span>' : '-';
                 html += '<tr data-search="'+(r.originalReceiptNo||'')+' '+(r.customerName||'')+' '+(r.productName||'')+'"><td>'+(r.date?new Date(r.date).toLocaleDateString('en-KE'):'-')+'</td><td><strong>'+(r.originalReceiptNo||'-')+'</strong></td><td>'+(r.customerName||'-')+'</td><td>'+b+'</td><td>'+(r.productName||'-')+'</td><td>'+r.quantity+'</td><td>'+(r.exchangeProductName||'-')+'</td><td>'+ref+'</td><td>'+(r.cashierName||'-')+'</td></tr>';
             });
@@ -223,7 +217,7 @@ const AdminDashboardComponent = {
         }
     },
 
-    _filterReturns() {
+    _filterReturns: function() {
         var search = (document.getElementById('returnSearchInput')?.value || '').toLowerCase();
         var typeFilter = document.getElementById('returnTypeFilter')?.value || 'all';
         document.querySelectorAll('#returnsTable tbody tr').forEach(function(row) {
