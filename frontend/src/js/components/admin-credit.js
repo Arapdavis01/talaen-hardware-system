@@ -1,3 +1,7 @@
+// ============================================
+// ADMIN CREDIT - With JWT Authentication
+// ============================================
+
 const AdminCreditComponent = {
     _allPayments: [],
 
@@ -29,10 +33,14 @@ const AdminCreditComponent = {
         await this.loadRecentPayments();
     },
 
+    // ============================================
+    // ✅ UPDATED: Using ApiService with JWT
+    // ============================================
+
     async loadSummary() {
         try {
-            var res = await fetch('/api/credit-summary');
-            var data = await res.json();
+            // ✅ REPLACED: fetch with ApiService
+            const data = await ApiService.get('/credit-summary');
             var div = document.getElementById('creditSummary');
             if (div) {
                 div.innerHTML = 
@@ -41,16 +49,18 @@ const AdminCreditComponent = {
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-file-invoice"></i></div><div class="stat-label">Today Credit Sales</div><div class="stat-value">KES ' + (Number(data.todayCreditSales) || 0).toLocaleString() + '</div><div class="stat-sub">Today</div></div>' +
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES ' + (Number(data.todayPayments) || 0).toLocaleString() + '</div><div class="stat-sub">Received today</div></div>';
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading summary:', e);
+        }
     },
 
     async loadCustomers() {
         try {
-            var res = await fetch('/api/credit-customers');
-            var customers = await res.json();
+            // ✅ REPLACED: fetch with ApiService
+            const customers = await ApiService.get('/credit-customers');
             var div = document.getElementById('allCustomersTable');
             if (div) {
-                if (!customers.length) {
+                if (!customers || !customers.length) {
                     div.innerHTML = '<p style="text-align:center;color:#999;">No credit customers registered yet.</p>';
                 } else {
                     var h = '<table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>ID Number</th><th>Debt Limit</th><th>Total Debt</th><th>Available</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
@@ -85,17 +95,19 @@ const AdminCreditComponent = {
                     div.innerHTML = h;
                 }
             }
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading customers:', e);
+        }
     },
 
     async loadRecentSales() {
         try {
-            var res = await fetch('/api/credit-sales');
-            var sales = await res.json();
+            // ✅ REPLACED: fetch with ApiService
+            const sales = await ApiService.get('/credit-sales');
+            const customers = await ApiService.get('/credit-customers');
+            
             var div = document.getElementById('recentCreditSales');
             if (div) {
-                var custRes = await fetch('/api/credit-customers');
-                var customers = await custRes.json();
                 var debtors = customers.filter(function(c) { return Number(c.totalDebt) > 0; });
                 var debtorIds = debtors.map(function(c) { return c.id; });
                 var activeSales = sales.filter(function(s) { return debtorIds.indexOf(s.customerId) > -1; });
@@ -129,40 +141,65 @@ const AdminCreditComponent = {
                 h += '</tbody></table>';
                 div.innerHTML = h;
             }
-        } catch(e) { console.error('Load recent sales error:', e); }
+        } catch(e) { 
+            console.error('Load recent sales error:', e); 
+        }
     },
 
-    viewCustomerSales(customerId) {
-        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(c){
-            fetch('/api/credit-sales').then(function(r){return r.json();}).then(function(allSales){
-                var customerSales = allSales.filter(function(s) { return s.customerId == customerId; });
-                var totalCredit = customerSales.reduce(function(s, sale) { return s + Number(sale.amount||0); }, 0);
-                var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;"><i class="fas fa-shopping-cart"></i> Credit History - ' + c.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
-                h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"><div style="text-align:center;padding:0.75rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#ef4444;">KES ' + Number(c.totalDebt||0).toLocaleString() + '</div><small>Current Debt</small></div><div style="text-align:center;padding:0.75rem;background:#fef3c7;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#f59e0b;">KES ' + Number(c.debtLimit||0).toLocaleString() + '</div><small>Debt Limit</small></div><div style="text-align:center;padding:0.75rem;background:#eff6ff;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#3b82f6;">' + customerSales.length + '</div><small>Transactions</small></div><div style="text-align:center;padding:0.75rem;background:#f0fdf4;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#10b981;">KES ' + totalCredit.toLocaleString() + '</div><small>Total Credit</small></div></div>';
-                if (customerSales.length > 0) { h += '<h4>📋 Credit Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Sale ID</th><th>Amount</th><th>Debt Before</th><th>Debt After</th><th>Cashier</th><th>Items</th></tr></thead><tbody>'; customerSales.sort(function(a,b){return new Date(b.date)-new Date(a.date);}).forEach(function(s){ h += '<tr><td><small>'+(s.date?new Date(s.date).toLocaleString('en-KE'):'-')+'</small></td><td><strong>#'+(s.saleId||'-')+'</strong></td><td style="color:#ef4444;font-weight:600;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>KES '+Number(s.debtBefore||0).toLocaleString()+'</td><td>KES '+Number(s.debtAfter||0).toLocaleString()+'</td><td>'+(s.cashierName||'-')+'</td><td><button class="btn btn-sm btn-outline-primary" onclick="AdminCreditComponent.viewSaleProducts('+s.saleId+')"><i class="fas fa-box"></i> Items</button></td></tr>'; }); h += '</tbody></table>'; }
-                if (c.payments && c.payments.length > 0) { var totalPaid = c.payments.reduce(function(s,p){return s+Number(p.amount||0);},0); h += '<h4 style="margin-top:1.5rem;">💳 Payments (Total: KES '+totalPaid.toLocaleString()+')</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>'; c.payments.forEach(function(p){ h += '<tr><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;font-weight:600;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(p.paymentMethod||'cash').toUpperCase()+'</td><td>'+(p.receivedBy||'-')+'</td></tr>'; }); h += '</tbody></table>'; }
-                h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-                var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = h;
-                document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-            });
-        });
+    async viewCustomerSales(customerId) {
+        try {
+            // ✅ REPLACED: fetch with ApiService
+            const customer = await ApiService.get('/credit-customers/' + customerId);
+            const allSales = await ApiService.get('/credit-sales');
+            
+            var customerSales = allSales.filter(function(s) { return s.customerId == customerId; });
+            var totalCredit = customerSales.reduce(function(s, sale) { return s + Number(sale.amount||0); }, 0);
+            
+            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;"><i class="fas fa-shopping-cart"></i> Credit History - ' + customer.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
+            h += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"><div style="text-align:center;padding:0.75rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#ef4444;">KES ' + Number(customer.totalDebt||0).toLocaleString() + '</div><small>Current Debt</small></div><div style="text-align:center;padding:0.75rem;background:#fef3c7;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#f59e0b;">KES ' + Number(customer.debtLimit||0).toLocaleString() + '</div><small>Debt Limit</small></div><div style="text-align:center;padding:0.75rem;background:#eff6ff;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#3b82f6;">' + customerSales.length + '</div><small>Transactions</small></div><div style="text-align:center;padding:0.75rem;background:#f0fdf4;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#10b981;">KES ' + totalCredit.toLocaleString() + '</div><small>Total Credit</small></div></div>';
+            
+            if (customerSales.length > 0) {
+                h += '<h4>📋 Credit Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Sale ID</th><th>Amount</th><th>Debt Before</th><th>Debt After</th><th>Cashier</th><th>Items</th></tr></thead><tbody>';
+                customerSales.sort(function(a,b){return new Date(b.date)-new Date(a.date);}).forEach(function(s){
+                    h += '<tr><td><small>'+(s.date?new Date(s.date).toLocaleString('en-KE'):'-')+'</small></td><td><strong>#'+(s.saleId||'-')+'</strong></td><td style="color:#ef4444;font-weight:600;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>KES '+Number(s.debtBefore||0).toLocaleString()+'</td><td>KES '+Number(s.debtAfter||0).toLocaleString()+'</td><td>'+(s.cashierName||'-')+'</td><td><button class="btn btn-sm btn-outline-primary" onclick="AdminCreditComponent.viewSaleProducts('+s.saleId+')"><i class="fas fa-box"></i> Items</button></td></tr>';
+                });
+                h += '</tbody></table>';
+            }
+            
+            if (customer.payments && customer.payments.length > 0) {
+                var totalPaid = customer.payments.reduce(function(s,p){return s+Number(p.amount||0);},0);
+                h += '<h4 style="margin-top:1.5rem;">💳 Payments (Total: KES '+totalPaid.toLocaleString()+')</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>';
+                customer.payments.forEach(function(p){
+                    h += '<tr><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;font-weight:600;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(p.paymentMethod||'cash').toUpperCase()+'</td><td>'+(p.receivedBy||'-')+'</td></tr>';
+                });
+                h += '</tbody></table>';
+            }
+            h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+            
+            var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = h;
+            document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
+        } catch(e) {
+            console.error('Error viewing customer sales:', e);
+        }
     },
 
-    // ========== FILTERABLE PAYMENTS ==========
     async loadRecentPayments() {
         try {
-            var res = await fetch('/api/credit-customers');
-            var customers = await res.json();
+            // ✅ REPLACED: fetch with ApiService
+            const customers = await ApiService.get('/credit-customers');
             var allPayments = [];
+            
             for (var i = 0; i < customers.length; i++) {
-                var pres = await fetch('/api/debt-payments/' + customers[i].id);
-                var payments = await pres.json();
-                payments.forEach(function(p) { 
-                    p.customerName = customers[i].name;
-                    p.customerId = customers[i].id;
-                    allPayments.push(p); 
-                });
+                var payments = await ApiService.get('/debt-payments/' + customers[i].id);
+                if (payments && payments.length) {
+                    payments.forEach(function(p) { 
+                        p.customerName = customers[i].name;
+                        p.customerId = customers[i].id;
+                        allPayments.push(p); 
+                    });
+                }
             }
+            
             allPayments.sort(function(a, b) { return new Date(b.date) - new Date(a.date); });
             this._allPayments = allPayments;
             
@@ -174,11 +211,16 @@ const AdminCreditComponent = {
                 }
                 this._renderPaymentsTable(allPayments.slice(0, 10), div);
             }
-        } catch(e) { console.error('Payments error:', e); }
+        } catch(e) { 
+            console.error('Payments error:', e); 
+        }
     },
 
     _renderPaymentsTable(payments, div) {
-        if (!payments.length) { div.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No payments found.</p>'; return; }
+        if (!payments.length) { 
+            div.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No payments found.</p>'; 
+            return; 
+        }
         var totalShown = payments.reduce(function(s, p) { return s + Number(p.amount || 0); }, 0);
         
         var h = '<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center;">';
@@ -211,13 +253,23 @@ const AdminCreditComponent = {
         var now = new Date();
         var today = now.toISOString().split('T')[0];
         
-        if (filter === 'today') { filtered = all.filter(function(p) { return p.date && p.date.startsWith(today); }); }
-        else if (filter === 'week') { var weekAgo = new Date(now.getTime() - 7*24*60*60*1000).toISOString().split('T')[0]; filtered = all.filter(function(p) { return p.date && p.date >= weekAgo; }); }
-        else if (filter === 'month') { var monthAgo = new Date(now.getTime() - 30*24*60*60*1000).toISOString().split('T')[0]; filtered = all.filter(function(p) { return p.date && p.date >= monthAgo; }); }
-        else if (filter === 'all') { filtered = all; }
-        else { filtered = all.slice(0, parseInt(filter)); }
+        if (filter === 'today') { 
+            filtered = all.filter(function(p) { return p.date && p.date.startsWith(today); }); 
+        } else if (filter === 'week') { 
+            var weekAgo = new Date(now.getTime() - 7*24*60*60*1000).toISOString().split('T')[0]; 
+            filtered = all.filter(function(p) { return p.date && p.date >= weekAgo; }); 
+        } else if (filter === 'month') { 
+            var monthAgo = new Date(now.getTime() - 30*24*60*60*1000).toISOString().split('T')[0]; 
+            filtered = all.filter(function(p) { return p.date && p.date >= monthAgo; }); 
+        } else if (filter === 'all') { 
+            filtered = all; 
+        } else { 
+            filtered = all.slice(0, parseInt(filter)); 
+        }
         
-        if (search) { filtered = filtered.filter(function(p) { return (p.customerName || '').toLowerCase().indexOf(search) > -1; }); }
+        if (search) { 
+            filtered = filtered.filter(function(p) { return (p.customerName || '').toLowerCase().indexOf(search) > -1; }); 
+        }
         
         var div = document.getElementById('recentPayments');
         if (div) this._renderPaymentsTable(filtered, div);
@@ -229,46 +281,96 @@ const AdminCreditComponent = {
         this._filterPayments();
     },
 
-    // ========== OTHER FUNCTIONS ==========
-    viewProducts(customerId) {
-        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(c){
-            fetch('/api/credit-sales').then(function(r){return r.json();}).then(function(allSales){
-                var customerSales = allSales.filter(function(s) { return s.customerId == customerId; });
-                var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;"><i class="fas fa-box"></i> Products Taken by ' + c.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Total Debt:</strong> KES ' + Number(c.totalDebt||0).toLocaleString() + ' | <strong>Limit:</strong> KES ' + Number(c.debtLimit||0).toLocaleString() + '</p>';
-                if (!customerSales.length) { h += '<p style="text-align:center;color:#999;">No credit purchases found.</p>'; }
-                else { h += '<table class="table"><thead><tr><th>Date</th><th>Sale ID</th><th>Amount</th><th>Cashier</th><th>Action</th></tr></thead><tbody>'; customerSales.forEach(function(s){ h += '<tr><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td><strong>#'+(s.saleId||'-')+'</strong></td><td style="color:#ef4444;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>'+(s.cashierName||'-')+'</td><td><button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewSaleProducts('+s.saleId+')"><i class="fas fa-eye"></i> Items</button></td></tr>'; }); h += '</tbody></table>'; }
-                h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-                var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = h;
-                document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-            });
-        });
-    },
+    // ============================================
+    // VIEW FUNCTIONS - Using ApiService
+    // ============================================
 
-    viewSaleProducts(saleId) {
-        fetch('/api/sales').then(function(r){return r.json();}).then(function(sales){
-            var sale = sales.find(function(s) { return s.id == saleId; });
-            if (!sale) { showStyledAlert('Error', 'Sale not found', 'times-circle', '#ef4444'); return; }
-            var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;"><i class="fas fa-receipt"></i> Items - '+(sale.receiptNo||'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Customer:</strong> '+(sale.customerName||'Walk-in')+' | <strong>Date:</strong> '+new Date(sale.date).toLocaleDateString('en-KE')+'</p>';
-            if (sale.items && sale.items.length > 0) { h += '<table class="table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>'; sale.items.forEach(function(item){ h += '<tr><td>'+item.productName+'</td><td>'+item.quantity+'</td><td>KES '+Number(item.price||0).toLocaleString()+'</td><td>KES '+(Number(item.price||0)*item.quantity).toLocaleString()+'</td></tr>'; }); h += '</tbody></table><p style="text-align:right;font-weight:700;">Total: KES '+Number(sale.total||0).toLocaleString()+'</p>'; }
+    async viewProducts(customerId) {
+        try {
+            // ✅ REPLACED: fetch with ApiService
+            const customer = await ApiService.get('/credit-customers/' + customerId);
+            const allSales = await ApiService.get('/credit-sales');
+            
+            var customerSales = allSales.filter(function(s) { return s.customerId == customerId; });
+            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;"><i class="fas fa-box"></i> Products Taken by ' + customer.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Total Debt:</strong> KES ' + Number(customer.totalDebt||0).toLocaleString() + ' | <strong>Limit:</strong> KES ' + Number(customer.debtLimit||0).toLocaleString() + '</p>';
+            if (!customerSales.length) { 
+                h += '<p style="text-align:center;color:#999;">No credit purchases found.</p>'; 
+            } else {
+                h += '<table class="table"><thead><tr><th>Date</th><th>Sale ID</th><th>Amount</th><th>Cashier</th><th>Action</th></tr></thead><tbody>';
+                customerSales.forEach(function(s){ 
+                    h += '<tr><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td><strong>#'+(s.saleId||'-')+'</strong></td><td style="color:#ef4444;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>'+(s.cashierName||'-')+'</td><td><button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewSaleProducts('+s.saleId+')"><i class="fas fa-eye"></i> Items</button></td></tr>';
+                });
+                h += '</tbody></table>';
+            }
             h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
             var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-        });
+        } catch(e) {
+            console.error('Error viewing products:', e);
+        }
     },
 
-    deactivateCustomer(id, name) {
-        showConfirm('Deactivate', 'Deactivate <strong>'+name+'</strong>?', function(){
-            fetch('/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:0})}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Success',name+' deactivated.','check-circle','#10b981');}});
-        },'Deactivate','danger');
+    async viewSaleProducts(saleId) {
+        try {
+            // ✅ REPLACED: fetch with ApiService
+            const sales = await ApiService.get('/sales');
+            var sale = sales.find(function(s) { return s.id == saleId; });
+            
+            if (!sale) { 
+                showStyledAlert('Error', 'Sale not found', 'times-circle', '#ef4444'); 
+                return; 
+            }
+            
+            var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;"><i class="fas fa-receipt"></i> Items - '+(sale.receiptNo||'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Customer:</strong> '+(sale.customerName||'Walk-in')+' | <strong>Date:</strong> '+new Date(sale.date).toLocaleDateString('en-KE')+'</p>';
+            if (sale.items && sale.items.length > 0) {
+                h += '<table class="table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>';
+                sale.items.forEach(function(item){ 
+                    h += '<tr><td>'+item.productName+'</td><td>'+item.quantity+'</td><td>KES '+Number(item.price||0).toLocaleString()+'</td><td>KES '+(Number(item.price||0)*item.quantity).toLocaleString()+'</td></tr>';
+                });
+                h += '</tbody></table><p style="text-align:right;font-weight:700;">Total: KES '+Number(sale.total||0).toLocaleString()+'</p>';
+            }
+            h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+            var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = h;
+            document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
+        } catch(e) {
+            console.error('Error viewing sale products:', e);
+        }
     },
 
-    activateCustomer(id, name) {
-        fetch('/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({isActive:1})}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Success',name+' reactivated.','check-circle','#10b981');}});
+    // ============================================
+    // CRUD OPERATIONS - Using ApiService
+    // ============================================
+
+    async deactivateCustomer(id, name) {
+        showConfirm('Deactivate', 'Deactivate <strong>'+name+'</strong>?', async function(){
+            // ✅ REPLACED: fetch with ApiService
+            const result = await ApiService.put('/credit-customers/' + id, { isActive: 0 });
+            if (result.success) {
+                await AdminCreditComponent.loadAll();
+                showStyledAlert('Success', name + ' deactivated.', 'check-circle', '#10b981');
+            }
+        }, 'Deactivate', 'danger');
     },
 
-    deletePayment(paymentId, customerId, customerName, amount) {
-        showConfirm('Delete Payment','Delete <strong>KES '+Number(amount).toLocaleString()+'</strong> from <strong>'+customerName+'</strong>?<br><br><span style="color:#ef4444;">⚠️ Debt restored by KES '+Number(amount).toLocaleString()+'</span>',function(){
-            fetch('/api/debt-payments/'+paymentId,{method:'DELETE'}).then(function(r){return r.json();}).then(function(d){if(d.success){AdminCreditComponent.loadAll();showStyledAlert('Deleted','Payment deleted.','check-circle','#10b981');}else{showStyledAlert('Error',d.message||'Failed','times-circle','#ef4444');}});
+    async activateCustomer(id, name) {
+        // ✅ REPLACED: fetch with ApiService
+        const result = await ApiService.put('/credit-customers/' + id, { isActive: 1 });
+        if (result.success) {
+            await AdminCreditComponent.loadAll();
+            showStyledAlert('Success', name + ' reactivated.', 'check-circle', '#10b981');
+        }
+    },
+
+    async deletePayment(paymentId, customerId, customerName, amount) {
+        showConfirm('Delete Payment','Delete <strong>KES '+Number(amount).toLocaleString()+'</strong> from <strong>'+customerName+'</strong>?<br><br><span style="color:#ef4444;">⚠️ Debt restored by KES '+Number(amount).toLocaleString()+'</span>', async function(){
+            // ✅ REPLACED: fetch with ApiService
+            const result = await ApiService.delete('/debt-payments/' + paymentId);
+            if (result.success) {
+                await AdminCreditComponent.loadAll();
+                showStyledAlert('Deleted', 'Payment deleted.', 'check-circle', '#10b981');
+            } else {
+                showStyledAlert('Error', result.message || 'Failed', 'times-circle', '#ef4444');
+            }
         },'Delete','danger');
     },
 
@@ -277,45 +379,117 @@ const AdminCreditComponent = {
         m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-user-plus"></i> Register Credit Customer</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Customer Name *</label><input type="text" id="regCustName" class="form-control" autofocus></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Phone</label><input type="text" id="regCustPhone" class="form-control" placeholder="254XXXXXXXXX"></div><div class="form-group"><label>ID Number</label><input type="text" id="regCustId" class="form-control" placeholder="National ID"></div></div><div class="form-group"><label>Address</label><input type="text" id="regCustAddress" class="form-control"></div><div class="form-group"><label>Debt Limit (KES) *</label><input type="number" id="regCustLimit" class="form-control" value="5000" min="1000"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="saveCustBtn"><i class="fas fa-save"></i> Register</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
         var self = this;
-        m.querySelector('#saveCustBtn').onclick = function(){
+        m.querySelector('#saveCustBtn').onclick = async function(){
             var name = m.querySelector('#regCustName').value.trim();
-            if(!name){ showStyledAlert('Required','Name required!','exclamation-triangle','#f59e0b'); return; }
-            fetch('/api/credit-customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,phone:m.querySelector('#regCustPhone').value,idNumber:m.querySelector('#regCustId').value,address:m.querySelector('#regCustAddress').value,debtLimit:parseFloat(m.querySelector('#regCustLimit').value)||5000,cashierName:'Admin'})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();self.loadAll();showStyledAlert('Success','Registered!','check-circle','#10b981');}});
+            if(!name){ 
+                showStyledAlert('Required', 'Name required!', 'exclamation-triangle', '#f59e0b'); 
+                return; 
+            }
+            // ✅ REPLACED: fetch with ApiService
+            const result = await ApiService.post('/credit-customers', {
+                name: name,
+                phone: m.querySelector('#regCustPhone').value,
+                idNumber: m.querySelector('#regCustId').value,
+                address: m.querySelector('#regCustAddress').value,
+                debtLimit: parseFloat(m.querySelector('#regCustLimit').value) || 5000,
+                cashierName: 'Admin'
+            });
+            if (result.success) {
+                m.remove();
+                await self.loadAll();
+                showStyledAlert('Success', 'Customer registered!', 'check-circle', '#10b981');
+            }
         };
     },
 
-    editCustomer(id) {
-        fetch('/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
+    async editCustomer(id) {
+        try {
+            // ✅ REPLACED: fetch with ApiService
+            const customer = await ApiService.get('/credit-customers/' + id);
+            
             var m = document.createElement('div'); m.className = 'modal-overlay';
-            m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;"><i class="fas fa-edit"></i> Edit '+c.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Name</label><input type="text" id="editCustName" class="form-control" value="'+(c.name||'')+'"></div><div class="form-group"><label>Debt Limit (KES)</label><input type="number" id="editCustLimit" class="form-control" value="'+(c.debtLimit||0)+'"></div><div class="form-group"><label>Phone</label><input type="text" id="editCustPhone" class="form-control" value="'+(c.phone||'')+'"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="updateCustBtn">Update</button></div></div>';
+            m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;"><i class="fas fa-edit"></i> Edit '+customer.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Name</label><input type="text" id="editCustName" class="form-control" value="'+(customer.name||'')+'"></div><div class="form-group"><label>Debt Limit (KES)</label><input type="number" id="editCustLimit" class="form-control" value="'+(customer.debtLimit||0)+'"></div><div class="form-group"><label>Phone</label><input type="text" id="editCustPhone" class="form-control" value="'+(customer.phone||'')+'"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="updateCustBtn">Update</button></div></div>';
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-            m.querySelector('#updateCustBtn').onclick = function(){
-                fetch('/api/credit-customers/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:m.querySelector('#editCustName').value,debtLimit:parseFloat(m.querySelector('#editCustLimit').value)||5000,phone:m.querySelector('#editCustPhone').value})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();AdminCreditComponent.loadAll();}});
+            
+            m.querySelector('#updateCustBtn').onclick = async function(){
+                // ✅ REPLACED: fetch with ApiService
+                const result = await ApiService.put('/credit-customers/' + id, {
+                    name: m.querySelector('#editCustName').value,
+                    debtLimit: parseFloat(m.querySelector('#editCustLimit').value) || 5000,
+                    phone: m.querySelector('#editCustPhone').value
+                });
+                if (result.success) {
+                    m.remove();
+                    await AdminCreditComponent.loadAll();
+                }
             };
-        });
+        } catch(e) {
+            console.error('Error editing customer:', e);
+        }
     },
 
-    viewHistory(id) {
-        fetch('/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
-            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-history"></i> '+c.name+' - History</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(c.totalDebt||0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(c.debtLimit||0).toLocaleString()+'</p>';
-            if(c.recentSales&&c.recentSales.length>0){h+='<h4>Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Debt After</th><th>Cashier</th></tr></thead><tbody>';c.recentSales.forEach(function(s){h+='<tr><td>'+new Date(s.date).toLocaleDateString('en-KE')+'</td><td style="color:#ef4444;">KES '+Number(s.amount).toLocaleString()+'</td><td>KES '+Number(s.debtAfter).toLocaleString()+'</td><td>'+s.cashierName+'</td></tr>';});h+='</tbody></table>';}
-            if(c.payments&&c.payments.length>0){h+='<h4>Payments</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>';c.payments.forEach(function(p){h+='<tr><td>'+new Date(p.date).toLocaleDateString('en-KE')+'</td><td style="color:#10b981;">KES '+Number(p.amount).toLocaleString()+'</td><td>'+p.paymentMethod+'</td><td>'+p.receivedBy+'</td></tr>';});h+='</tbody></table>';}
+    async viewHistory(id) {
+        try {
+            // ✅ REPLACED: fetch with ApiService
+            const customer = await ApiService.get('/credit-customers/' + id);
+            
+            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-history"></i> '+customer.name+' - History</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(customer.totalDebt||0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(customer.debtLimit||0).toLocaleString()+'</p>';
+            if(customer.recentSales && customer.recentSales.length > 0){
+                h+='<h4>Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Debt After</th><th>Cashier</th></tr></thead><tbody>';
+                customer.recentSales.forEach(function(s){
+                    h+='<tr><td>'+new Date(s.date).toLocaleDateString('en-KE')+'</td><td style="color:#ef4444;">KES '+Number(s.amount).toLocaleString()+'</td><td>KES '+Number(s.debtAfter).toLocaleString()+'</td><td>'+s.cashierName+'</td></tr>';
+                });
+                h+='</tbody></table>';
+            }
+            if(customer.payments && customer.payments.length > 0){
+                h+='<h4>Payments</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>';
+                customer.payments.forEach(function(p){
+                    h+='<tr><td>'+new Date(p.date).toLocaleDateString('en-KE')+'</td><td style="color:#10b981;">KES '+Number(p.amount).toLocaleString()+'</td><td>'+p.paymentMethod+'</td><td>'+p.receivedBy+'</td></tr>';
+                });
+                h+='</tbody></table>';
+            }
             h+='</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
             var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;
             document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
-        });
+        } catch(e) {
+            console.error('Error viewing history:', e);
+        }
     },
 
-    showPayment(id) {
-        fetch('/api/credit-customers/'+id).then(function(r){return r.json();}).then(function(c){
+    async showPayment(id) {
+        try {
+            // ✅ REPLACED: fetch with ApiService
+            const customer = await ApiService.get('/credit-customers/' + id);
+            
             var m=document.createElement('div');m.className='modal-overlay';
-            m.innerHTML='<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Record Payment - '+c.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p>Current Debt: <strong style="color:#ef4444;">KES '+Number(c.totalDebt||0).toLocaleString()+'</strong></p><div class="form-group"><label>Amount (KES)</label><input type="number" id="payAmount" class="form-control" min="1" max="'+(c.totalDebt||0)+'"></div><div class="form-group"><label>Method</label><select id="payMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmPayBtn">Confirm</button></div></div>';
+            m.innerHTML='<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Record Payment - '+customer.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p>Current Debt: <strong style="color:#ef4444;">KES '+Number(customer.totalDebt||0).toLocaleString()+'</strong></p><div class="form-group"><label>Amount (KES)</label><input type="number" id="payAmount" class="form-control" min="1" max="'+(customer.totalDebt||0)+'"></div><div class="form-group"><label>Method</label><select id="payMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmPayBtn">Confirm</button></div></div>';
             document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
-            m.querySelector('#confirmPayBtn').onclick=function(){
+            
+            m.querySelector('#confirmPayBtn').onclick = async function(){
                 var amount=parseFloat(m.querySelector('#payAmount').value)||0;
-                if(amount<=0||amount>c.totalDebt){showStyledAlert('Invalid','Enter valid amount!','times-circle','#ef4444');return;}
-                fetch('/api/debt-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customerId:id,customerName:c.name,amount:amount,paymentMethod:m.querySelector('#payMethod').value,receivedBy:'Admin'})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();AdminCreditComponent.loadAll();showStyledAlert('Success','Payment recorded!','check-circle','#10b981');}});
+                if(amount<=0||amount>customer.totalDebt){
+                    showStyledAlert('Invalid','Enter valid amount!','times-circle','#ef4444');
+                    return;
+                }
+                // ✅ REPLACED: fetch with ApiService
+                const result = await ApiService.post('/debt-payments', {
+                    customerId: id,
+                    customerName: customer.name,
+                    amount: amount,
+                    paymentMethod: m.querySelector('#payMethod').value,
+                    receivedBy: 'Admin'
+                });
+                if (result.success) {
+                    m.remove();
+                    await AdminCreditComponent.loadAll();
+                    showStyledAlert('Success', 'Payment recorded!', 'check-circle', '#10b981');
+                }
             };
-        });
+        } catch(e) {
+            console.error('Error showing payment:', e);
+        }
     }
 };
+
+// Make globally available
+window.AdminCreditComponent = AdminCreditComponent;
