@@ -1,3 +1,7 @@
+// ============================================
+// ADMIN SALES - With JWT Authentication
+// ============================================
+
 const AdminSalesComponent = {
     _currentFilter: 'all',
 
@@ -35,10 +39,10 @@ const AdminSalesComponent = {
             paymentMethods[pm].total += Number(s.total || 0);
         });
         
-        var icons = { cash: '', mpesa: '', card: '', credit: '' };
+        var icons = { cash: '💰', mpesa: '📱', card: '💳', credit: '📋' };
         for (var pm in paymentMethods) {
             h += '<div style="background:white;border:1px solid #ddd;border-radius:1rem;padding:1rem;text-align:center;">';
-            h += '<div style="font-size:2rem;">' + (icons[pm] || '') + '</div>';
+            h += '<div style="font-size:2rem;">' + (icons[pm] || '💵') + '</div>';
             h += '<div style="font-weight:600;margin:0.5rem 0;">' + pm.toUpperCase() + '</div>';
             h += '<div style="font-size:1.2rem;font-weight:700;color:var(--secondary);">KES ' + paymentMethods[pm].total.toLocaleString() + '</div>';
             h += '<div style="font-size:0.8rem;color:#999;">' + paymentMethods[pm].count + ' sales</div></div>';
@@ -106,7 +110,10 @@ const AdminSalesComponent = {
             csv += [s.receiptNo, s.date, s.customerName, (s.items||[]).length, Number(s.total||0), s.paymentMethod, s.cashierName].join(',') + '\n';
         });
         var blob = new Blob([csv], { type: 'text/csv' });
-        var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'sales_' + Date.now() + '.csv'; a.click();
+        var a = document.createElement('a'); 
+        a.href = URL.createObjectURL(blob); 
+        a.download = 'sales_' + Date.now() + '.csv'; 
+        a.click();
     },
 
     _filterSales() {
@@ -120,9 +127,15 @@ const AdminSalesComponent = {
             var show = true;
             if (search) show = text.includes(search);
             if (show && filter === 'today') show = date.toDateString() === now.toDateString();
-            else if (show && filter === 'week') { var weekAgo = new Date(now.getTime() - 7*24*60*60*1000); show = date >= weekAgo; }
+            else if (show && filter === 'week') { 
+                var weekAgo = new Date(now.getTime() - 7*24*60*60*1000); 
+                show = date >= weekAgo; 
+            }
             else if (show && filter === 'month') show = date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
             row.style.display = show ? '' : 'none';
         });
     }
 };
+
+// Make globally available
+window.AdminSalesComponent = AdminSalesComponent;
