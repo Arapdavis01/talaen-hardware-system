@@ -1,6 +1,20 @@
-﻿const CashierSettingsComponent = {
+// ============================================
+// CASHIER SETTINGS - With JWT Authentication
+// ============================================
+
+const CashierSettingsComponent = {
+    // ✅ Helper to get current user from JWT
+    _getCurrentUser() {
+        const userJson = localStorage.getItem('user');
+        try {
+            return userJson ? JSON.parse(userJson) : null;
+        } catch (e) {
+            return null;
+        }
+    },
+
     render() {
-        var user = AuthService.getCurrentUser();
+        var user = this._getCurrentUser();
         
         return '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-key"></i> Change My Password</h3></div><div class="card-body">' +
             '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:1rem;">' +
@@ -37,16 +51,24 @@
 
     togglePass(fieldId, btn) {
         var field = document.getElementById(fieldId);
-        if (field.type === 'password') { field.type = 'text'; btn.innerHTML = '<i class="fas fa-eye-slash"></i>'; }
-        else { field.type = 'password'; btn.innerHTML = '<i class="fas fa-eye"></i>'; }
+        if (field.type === 'password') { 
+            field.type = 'text'; 
+            btn.innerHTML = '<i class="fas fa-eye-slash"></i>'; 
+        } else { 
+            field.type = 'password'; 
+            btn.innerHTML = '<i class="fas fa-eye"></i>'; 
+        }
     },
 
     checkStrength() {
         var pass = document.getElementById('newPass').value, bar = document.getElementById('strengthBar');
         if (!bar) return;
         var strength = 0;
-        if (pass.length >= 4) strength++; if (pass.length >= 6) strength++; if (pass.length >= 8) strength++;
-        if (/[A-Z]/.test(pass)) strength++; if (/[0-9]/.test(pass)) strength++;
+        if (pass.length >= 4) strength++; 
+        if (pass.length >= 6) strength++; 
+        if (pass.length >= 8) strength++;
+        if (/[A-Z]/.test(pass)) strength++; 
+        if (/[0-9]/.test(pass)) strength++;
         var color = strength <= 2 ? '#ef4444' : strength <= 3 ? '#f59e0b' : strength <= 4 ? '#3b82f6' : '#10b981';
         var label = strength <= 2 ? 'Weak' : strength <= 3 ? 'Medium' : strength <= 4 ? 'Strong' : 'Very Strong';
         bar.innerHTML = '<div style="height:4px;background:#e5e7eb;border-radius:2px;"><div style="width:' + (strength*20) + '%;height:100%;background:' + color + ';border-radius:2px;"></div></div><small style="color:' + color + ';">' + label + '</small>';
@@ -59,37 +81,106 @@
         ind.innerHTML = np === cp ? '<span style="color:#10b981;">Passwords match</span>' : '<span style="color:#ef4444;">Passwords do not match</span>';
     },
 
+    // ============================================
+    // ✅ UPDATED: Using ApiService with JWT
+    // ============================================
+
     async changePassword() {
-        var current = document.getElementById('currentPass').value, newPass = document.getElementById('newPass').value, confirm = document.getElementById('confirmPass').value;
-        var user = AuthService.getCurrentUser();
-        if (!current || !newPass || !confirm) { this.showMsg('passMsg', 'All fields required!', 'danger'); return; }
-        if (newPass !== confirm) { this.showMsg('passMsg', 'Passwords do not match!', 'danger'); return; }
-        if (newPass.length < 4) { this.showMsg('passMsg', 'Min 4 characters!', 'danger'); return; }
+        var current = document.getElementById('currentPass').value, 
+            newPass = document.getElementById('newPass').value, 
+            confirm = document.getElementById('confirmPass').value;
+        var user = this._getCurrentUser();
+        
+        if (!current || !newPass || !confirm) { 
+            this.showMsg('passMsg', 'All fields required!', 'danger'); 
+            return; 
+        }
+        if (newPass !== confirm) { 
+            this.showMsg('passMsg', 'Passwords do not match!', 'danger'); 
+            return; 
+        }
+        if (newPass.length < 4) { 
+            this.showMsg('passMsg', 'Min 4 characters!', 'danger'); 
+            return; 
+        }
         
         try {
-            var check = await fetch('/api/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user.username,password:current})});
-            var cr = await check.json();
-            if (!cr.success) { this.showMsg('passMsg', 'Current password incorrect!', 'danger'); return; }
-            await fetch('/api/users/'+user.id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:newPass})});
+            // ✅ REPLACED: fetch with ApiService - verify current password via login
+            const loginResult = await ApiService.post('/auth/login', {
+                username: user.username,
+                password: current
+            });
+            
+            if (!loginResult.success) { 
+                this.showMsg('passMsg', 'Current password incorrect!', 'danger'); 
+                return; 
+            }
+            
+            // ✅ REPLACED: fetch with ApiService - update password
+            await ApiService.put('/users/' + user.id, { password: newPass });
+            
             this.showMsg('passMsg', 'Password changed! Please login again.', 'success');
-            setTimeout(function(){ AppRouter.logout(); }, 2000);
-        } catch(e) { this.showMsg('passMsg', 'Error: '+e.message, 'danger'); }
+            setTimeout(function(){ 
+                // Clear token and redirect to login
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login.html';
+            }, 2000);
+        } catch(e) { 
+            this.showMsg('passMsg', 'Error: ' + e.message, 'danger'); 
+        }
     },
 
     async updateProfile() {
-        var fullName = document.getElementById('editFullName').value.trim(), username = document.getElementById('editUsername').value.trim(), password = document.getElementById('profilePass').value;
-        var user = AuthService.getCurrentUser();
-        if (!fullName || !username) { this.showMsg('profileMsg', 'Name and username required!', 'danger'); return; }
-        if (!password) { this.showMsg('profileMsg', 'Enter password to confirm!', 'danger'); return; }
+        var fullName = document.getElementById('editFullName').value.trim(), 
+            username = document.getElementById('editUsername').value.trim(), 
+            password = document.getElementById('profilePass').value;
+        var user = this._getCurrentUser();
+        
+        if (!fullName || !username) { 
+            this.showMsg('profileMsg', 'Name and username required!', 'danger'); 
+            return; 
+        }
+        if (!password) { 
+            this.showMsg('profileMsg', 'Enter password to confirm!', 'danger'); 
+            return; 
+        }
         
         try {
-            var check = await fetch('/api/auth/login', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:user.username,password:password})});
-            var cr = await check.json();
-            if (!cr.success) { this.showMsg('profileMsg', 'Password incorrect!', 'danger'); return; }
-            await fetch('/api/users/'+user.id, {method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullName:fullName,username:username})});
-            user.fullName = fullName; user.username = username;
-            this.showMsg('profileMsg', 'Profile updated! Login again.', 'success');
-            setTimeout(function(){ AppRouter.logout(); }, 2000);
-        } catch(e) { this.showMsg('profileMsg', 'Error: '+e.message, 'danger'); }
+            // ✅ REPLACED: fetch with ApiService - verify password via login
+            const loginResult = await ApiService.post('/auth/login', {
+                username: user.username,
+                password: password
+            });
+            
+            if (!loginResult.success) { 
+                this.showMsg('profileMsg', 'Password incorrect!', 'danger'); 
+                return; 
+            }
+            
+            // ✅ REPLACED: fetch with ApiService - update profile
+            await ApiService.put('/users/' + user.id, { 
+                fullName: fullName, 
+                username: username 
+            });
+            
+            // ✅ Update stored user info
+            const updatedUser = await ApiService.get('/users/' + user.id);
+            if (updatedUser) {
+                localStorage.setItem('user', JSON.stringify(updatedUser));
+            }
+            
+            this.showMsg('profileMsg', 'Profile updated! Please login again.', 'success');
+            setTimeout(function(){ 
+                localStorage.removeItem('token');
+                localStorage.removeItem('user');
+                window.location.href = '/login.html';
+            }, 2000);
+        } catch(e) { 
+            this.showMsg('profileMsg', 'Error: ' + e.message, 'danger'); 
+        }
     }
 };
+
+// Make globally available
+window.CashierSettingsComponent = CashierSettingsComponent;
