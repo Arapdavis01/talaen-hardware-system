@@ -75,7 +75,7 @@ const NavbarComponent = {
 };
 
 // ============================================
-// ✅ GLOBAL LOGOUT FUNCTION (Enhanced)
+// ✅ GLOBAL LOGOUT FUNCTION (Using ApiService)
 // ============================================
 function handleLogout() {
     const token = localStorage.getItem('token');
@@ -87,18 +87,11 @@ function handleLogout() {
         user = null;
     }
     
-    // ✅ Log activity if user exists
+    // ✅ Log activity if user exists - using ApiService
     if (token && user) {
-        fetch('/api/auth/logout', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}` 
-            },
-            body: JSON.stringify({ 
-                userId: user.id, 
-                userName: user.fullName || user.username 
-            })
+        ApiService.post('/auth/logout', {
+            userId: user.id,
+            userName: user.fullName || user.username
         }).catch(() => {
             // Ignore network errors on logout
         });
