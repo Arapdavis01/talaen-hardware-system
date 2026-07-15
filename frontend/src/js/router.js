@@ -6,13 +6,13 @@ const AppRouter = {
     _currentView: 'dashboard',
     _isInitialized: false,
 
-    async init() {
+    init: async function() {
         if (this._isInitialized) return;
         
-        // ✅ Check if user is logged in via JWT
-        const token = localStorage.getItem('token');
-        const userJson = localStorage.getItem('user');
-        let user = null;
+        // Check if user is logged in via JWT
+        var token = localStorage.getItem('token');
+        var userJson = localStorage.getItem('user');
+        var user = null;
         try {
             user = userJson ? JSON.parse(userJson) : null;
         } catch (e) {
@@ -20,61 +20,53 @@ const AppRouter = {
         }
         
         if (token && user) {
-            // ✅ User is logged in - set appropriate dashboard
             this._currentView = user.role === 'admin' ? 'admin-dashboard' : 'cashier-dashboard';
         } else {
-            // ✅ Not logged in - show public dashboard
             this._currentView = 'dashboard';
         }
         
-        // ✅ Load initial data with JWT
+        // Load initial data with JWT
         await this._loadInitialData();
         await this.render();
         this._isInitialized = true;
     },
 
-    // ✅ Load initial data with JWT
-    async _loadInitialData() {
+    _loadInitialData: async function() {
         try {
-            // Load products with JWT token
             await ProductService.getAll();
-            // Load sales with JWT token
             await SaleService.getAll();
         } catch (error) {
             console.error('Error loading initial data:', error);
-            // If token expired, redirect to login
             if (error.message && error.message.includes('401')) {
                 this.logout();
             }
         }
     },
 
-    // ✅ Navigate to a view
-    async navigate(view) {
-        // Check if user is logged in for protected routes
-        const token = localStorage.getItem('token');
-        const userJson = localStorage.getItem('user');
-        let user = null;
+    navigate: async function(view) {
+        var token = localStorage.getItem('token');
+        var userJson = localStorage.getItem('user');
+        var user = null;
         try {
             user = userJson ? JSON.parse(userJson) : null;
         } catch (e) {
             user = null;
         }
         
-        // ✅ Protect admin routes
+        // Protect admin routes
         if (view.startsWith('admin-') && (!user || user.role !== 'admin')) {
             alert('Access denied. Admin privileges required.');
             return;
         }
         
-        // ✅ Protect cashier routes
+        // Protect cashier routes
         if (view.startsWith('cashier-') && !user) {
             alert('Please login to access this page.');
             this.navigate('dashboard');
             return;
         }
         
-        // ✅ Special case for 'admin' - show login modal
+        // Special case for 'admin' - show login modal
         if (view === 'admin') {
             this._showLoginModal();
             return;
@@ -82,7 +74,7 @@ const AppRouter = {
         
         this._currentView = view;
         
-        // ✅ Refresh data with JWT token
+        // Refresh data with JWT token
         await ProductService.getAll();
         await SaleService.getAll();
         
@@ -90,30 +82,22 @@ const AppRouter = {
         window.scrollTo(0, 0);
     },
 
-    // ✅ Logout - Clear JWT session
-    async logout() {
-        // ✅ Call logout API with JWT token
-        const token = localStorage.getItem('token');
+    logout: async function() {
+        var token = localStorage.getItem('token');
         if (token) {
             try {
-                await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${token}` 
-                    }
-                });
+                await ApiService.post('/auth/logout');
             } catch (e) {
                 // Ignore errors on logout
             }
         }
         
-        // ✅ Clear all session data
+        // Clear all session data
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         sessionStorage.clear();
         
-        // ✅ Reset cache
+        // Reset cache
         ProductService.clearCache();
         
         this._currentView = 'dashboard';
@@ -121,31 +105,29 @@ const AppRouter = {
         window.location.href = '/login.html';
     },
 
-    // ✅ Render the current view
-    async render() {
-        const app = document.getElementById('app');
+    render: async function() {
+        var app = document.getElementById('app');
         if (!app) return;
         
-        // ✅ Check if user is logged in
-        const token = localStorage.getItem('token');
-        const userJson = localStorage.getItem('user');
-        let user = null;
+        var token = localStorage.getItem('token');
+        var userJson = localStorage.getItem('user');
+        var user = null;
         try {
             user = userJson ? JSON.parse(userJson) : null;
         } catch (e) {
             user = null;
         }
-        const isLoggedIn = token && user;
+        var isLoggedIn = token && user;
         
-        let html = NavbarComponent.render(this._currentView);
+        var html = NavbarComponent.render(this._currentView);
         html += '<div class="container" style="margin-top:2rem;" id="mainContent">';
         
         if (isLoggedIn) {
             if (user.role === 'cashier') {
-                const content = this._getCashierContent();
+                var content = this._getCashierContent();
                 html += content instanceof Promise ? await content : content;
             } else if (user.role === 'admin') {
-                const content = await this._getAdminContent();
+                var content = await this._getAdminContent();
                 html += content;
             } else {
                 html += this._getPublicContent();
@@ -157,47 +139,45 @@ const AppRouter = {
         html += '</div>';
         app.innerHTML = html;
         
-        // ✅ Initialize particles if available
         if (typeof ParticlesComponent !== 'undefined') {
             ParticlesComponent.init();
         }
         
-        // ✅ Handle delayed initialization for tabs
         this._handleTabInitialization();
     },
 
-    // ✅ Handle tab initialization after render
-    _handleTabInitialization() {
-        const tabMap = {
-            'admin-returns': () => {
+    _handleTabInitialization: function() {
+        var self = this;
+        var tabMap = {
+            'admin-returns': function() {
                 setTimeout(function() {
                     if (typeof AdminDashboardComponent !== 'undefined') {
                         AdminDashboardComponent.showReturnsManagement();
                     }
                 }, 100);
             },
-            'cashier-sales': () => {
+            'cashier-sales': function() {
                 setTimeout(function() {
                     if (typeof CashierDashboardComponent !== 'undefined') {
                         CashierDashboardComponent._switchTab('sales');
                     }
                 }, 100);
             },
-            'cashier-returns': () => {
+            'cashier-returns': function() {
                 setTimeout(function() {
                     if (typeof CashierDashboardComponent !== 'undefined') {
                         CashierDashboardComponent._switchTab('returns');
                     }
                 }, 100);
             },
-            'cashier-credit': () => {
+            'cashier-credit': function() {
                 setTimeout(function() {
                     if (typeof CashierDashboardComponent !== 'undefined') {
                         CashierDashboardComponent._switchTab('credit');
                     }
                 }, 100);
             },
-            'cashier-reports': () => {
+            'cashier-reports': function() {
                 setTimeout(function() {
                     if (typeof CashierDashboardComponent !== 'undefined') {
                         CashierDashboardComponent._switchTab('reports');
@@ -211,60 +191,58 @@ const AppRouter = {
         }
     },
 
-    // ✅ Get public content
-    _getPublicContent() {
+    _getPublicContent: function() {
         if (typeof PublicDashboardComponent !== 'undefined') {
             return PublicDashboardComponent.render();
         }
         return '<div class="text-center"><h2>Welcome to Talaen Hardware</h2><p>Please login to access the system.</p></div>';
     },
 
-    // ✅ Get cashier content
-    _getCashierContent() {
-        const viewMap = {
-            'cashier-dashboard': () => {
+    _getCashierContent: function() {
+        var viewMap = {
+            'cashier-dashboard': function() {
                 if (typeof CashierDashboardComponent !== 'undefined') {
                     CashierDashboardComponent._currentView = 'overview';
                     return CashierDashboardComponent.render();
                 }
                 return '<div>Cashier Dashboard</div>';
             },
-            'pos': () => {
+            'pos': function() {
                 if (typeof POSComponent !== 'undefined') {
-                    const r = POSComponent.render();
+                    var r = POSComponent.render();
                     return r instanceof Promise ? r : r;
                 }
                 return '<div>POS System</div>';
             },
-            'cashier-sales': () => {
+            'cashier-sales': function() {
                 if (typeof CashierDashboardComponent !== 'undefined') {
                     CashierDashboardComponent._currentView = 'sales';
                     return CashierDashboardComponent.render();
                 }
                 return '<div>Sales</div>';
             },
-            'cashier-returns': () => {
+            'cashier-returns': function() {
                 if (typeof CashierDashboardComponent !== 'undefined') {
                     CashierDashboardComponent._currentView = 'returns';
                     return CashierDashboardComponent.render();
                 }
                 return '<div>Returns</div>';
             },
-            'cashier-credit': () => {
+            'cashier-credit': function() {
                 if (typeof CashierDashboardComponent !== 'undefined') {
                     CashierDashboardComponent._currentView = 'credit';
                     return CashierDashboardComponent.render();
                 }
                 return '<div>Credit</div>';
             },
-            'cashier-reports': () => {
+            'cashier-reports': function() {
                 if (typeof CashierDashboardComponent !== 'undefined') {
                     CashierDashboardComponent._currentView = 'reports';
                     return CashierDashboardComponent.render();
                 }
                 return '<div>Reports</div>';
             },
-            'cashier-settings': () => {
+            'cashier-settings': function() {
                 if (typeof CashierSettingsComponent !== 'undefined') {
                     return CashierSettingsComponent.render();
                 }
@@ -272,13 +250,12 @@ const AppRouter = {
             }
         };
         
-        const view = viewMap[this._currentView];
+        var view = viewMap[this._currentView];
         if (view) {
-            const result = view();
+            var result = view();
             return result;
         }
         
-        // Default fallback
         if (typeof CashierDashboardComponent !== 'undefined') {
             CashierDashboardComponent._currentView = 'overview';
             return CashierDashboardComponent.render();
@@ -286,69 +263,68 @@ const AppRouter = {
         return '<div>Cashier Dashboard</div>';
     },
 
-    // ✅ Get admin content
-    async _getAdminContent() {
-        const viewMap = {
-            'pos': async () => {
+    _getAdminContent: async function() {
+        var viewMap = {
+            'pos': async function() {
                 if (typeof AdminPOSComponent !== 'undefined') {
-                    const r = AdminPOSComponent.render();
+                    var r = AdminPOSComponent.render();
                     return r instanceof Promise ? await r : r;
                 }
                 return '<div>Admin POS</div>';
             },
-            'inventory': async () => {
+            'inventory': async function() {
                 if (typeof AdminPOSComponent !== 'undefined') {
-                    const r = AdminPOSComponent.render();
+                    var r = AdminPOSComponent.render();
                     return r instanceof Promise ? await r : r;
                 }
                 return '<div>Inventory Management</div>';
             },
-            'admin-dashboard': () => {
+            'admin-dashboard': function() {
                 if (typeof AdminDashboardComponent !== 'undefined') {
                     return AdminDashboardComponent.render();
                 }
                 return '<div>Admin Dashboard</div>';
             },
-            'admin-sales': () => {
+            'admin-sales': function() {
                 if (typeof AdminSalesComponent !== 'undefined') {
                     return AdminSalesComponent.render();
                 }
                 return '<div>Sales Management</div>';
             },
-            'admin-reports': () => {
+            'admin-reports': function() {
                 if (typeof AdminReportsComponent !== 'undefined') {
                     return AdminReportsComponent.render();
                 }
                 return '<div>Reports</div>';
             },
-            'admin-purchases': () => {
+            'admin-purchases': function() {
                 if (typeof AdminPurchasesComponent !== 'undefined') {
                     return AdminPurchasesComponent.render();
                 }
                 return '<div>Purchase Orders</div>';
             },
-            'admin-products': () => {
+            'admin-products': function() {
                 if (typeof AdminProductsComponent !== 'undefined') {
                     return AdminProductsComponent.render();
                 }
                 return '<div>Product Management</div>';
             },
-            'admin-credit': () => {
+            'admin-credit': function() {
                 if (typeof AdminCreditComponent !== 'undefined') {
                     return AdminCreditComponent.render();
                 }
                 return '<div>Credit Management</div>';
             },
-            'admin-returns': () => {
+            'admin-returns': function() {
                 return '<div style="text-align:center;padding:3rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</div>';
             },
-            'admin-settings': () => {
+            'admin-settings': function() {
                 if (typeof AdminSettingsComponent !== 'undefined') {
                     return AdminSettingsComponent.render();
                 }
                 return '<div>Settings</div>';
             },
-            'admin-mpesa': () => {
+            'admin-mpesa': function() {
                 if (typeof AdminMpesaComponent !== 'undefined') {
                     return AdminMpesaComponent.render();
                 }
@@ -356,23 +332,21 @@ const AppRouter = {
             }
         };
         
-        const view = viewMap[this._currentView];
+        var view = viewMap[this._currentView];
         if (view) {
-            const result = view();
+            var result = view();
             return result instanceof Promise ? await result : result;
         }
         
-        // Default fallback
         if (typeof AdminDashboardComponent !== 'undefined') {
             return AdminDashboardComponent.render();
         }
         return '<div>Admin Dashboard</div>';
     },
 
-    // ✅ Toggle password visibility
-    toggleLoginPass() {
-        const f = document.getElementById('adminPasswordInput');
-        const b = document.getElementById('loginPassToggle');
+    toggleLoginPass: function() {
+        var f = document.getElementById('adminPasswordInput');
+        var b = document.getElementById('loginPassToggle');
         if (f && b) {
             if (f.type === 'password') {
                 f.type = 'text';
@@ -384,66 +358,74 @@ const AppRouter = {
         }
     },
 
-    // ✅ Show login modal
-    _showLoginModal() {
-        const self = this;
-        const modal = document.createElement('div');
+    // ============================================
+    // SHOW LOGIN MODAL - FIXED
+    // ============================================
+
+    _showLoginModal: function() {
+        var self = this;
+        var modal = document.createElement('div');
         modal.className = 'modal-overlay';
-        modal.innerHTML = `
-            <div class="modal" style="max-width:400px;">
-                <div class="modal-header">
-                    <h3><i class="fas fa-user-shield"></i> System Login</h3>
-                    <button class="btn btn-sm" onclick="this.closest('.modal-overlay').remove()">X</button>
-                </div>
-                <div class="modal-body">
-                    <div class="form-group">
-                        <label>Username</label>
-                        <input type="text" id="loginUsername" class="form-control" value="admin">
-                    </div>
-                    <div class="form-group">
-                        <label>Password</label>
-                        <div style="position:relative;">
-                            <input type="password" id="adminPasswordInput" class="form-control" placeholder="Enter password" style="padding-right:40px;">
-                            <button type="button" onclick="AppRouter.toggleLoginPass()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#999;" id="loginPassToggle">
-                                <i class="fas fa-eye"></i>
-                            </button>
-                        </div>
-                    </div>
-                    <div id="loginError" style="display:none;color:red;margin-top:0.5rem;"></div>
-                    <div style="background:#f5f5f5;padding:0.75rem;margin-top:0.75rem;border-radius:0.5rem;font-size:0.8rem;">
-                        <small>Admin: admin/admin123 | Cashier: cashier/cashier123</small>
-                    </div>
-                </div>
-                <div class="modal-footer">
-                    <button class="btn btn-outline" onclick="this.closest('.modal-overlay').remove()">Cancel</button>
-                    <button class="btn btn-primary" id="loginSubmitBtn">Login</button>
-                </div>
-            </div>
-        `;
+        modal.innerHTML = '' +
+            '<div class="modal" style="max-width:400px;">' +
+                '<div class="modal-header">' +
+                    '<h3><i class="fas fa-user-shield"></i> System Login</h3>' +
+                    '<button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button>' +
+                '</div>' +
+                '<div class="modal-body">' +
+                    '<div class="form-group">' +
+                        '<label>Username</label>' +
+                        // FIXED: Removed value="admin", added placeholder and autofocus
+                        '<input type="text" id="loginUsername" class="form-control" placeholder="Enter username" autofocus>' +
+                    '</div>' +
+                    '<div class="form-group">' +
+                        '<label>Password</label>' +
+                        '<div style="position:relative;">' +
+                            '<input type="password" id="adminPasswordInput" class="form-control" placeholder="Enter password" style="padding-right:40px;">' +
+                            '<button type="button" onclick="AppRouter.toggleLoginPass()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#999;" id="loginPassToggle">' +
+                                '<i class="fas fa-eye"></i>' +
+                            '</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div id="loginError" style="display:none;color:red;margin-top:0.5rem;"></div>' +
+                    '<div style="background:#f5f5f5;padding:0.75rem;margin-top:0.75rem;border-radius:0.5rem;font-size:0.8rem;">' +
+                        '<small>Admin: admin/admin123 | Cashier: cashier/cashier123</small>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="modal-footer">' +
+                    '<button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>' +
+                    '<button class="btn btn-primary" id="loginSubmitBtn">Login</button>' +
+                '</div>' +
+            '</div>';
         document.body.appendChild(modal);
         
-        // ✅ Close modal on overlay click
+        // Close modal on overlay click
         modal.onclick = function(e) {
             if (e.target === modal) modal.remove();
         };
         
-        // ✅ Handle login button click
+        // Handle login button click - Using ApiService
         document.getElementById('loginSubmitBtn').onclick = async function() {
-            const username = document.getElementById('loginUsername').value.trim();
-            const password = document.getElementById('adminPasswordInput').value;
-            const errorDiv = document.getElementById('loginError');
+            var username = document.getElementById('loginUsername').value.trim();
+            var password = document.getElementById('adminPasswordInput').value;
+            var errorDiv = document.getElementById('loginError');
+            
+            // Validate username
+            if (!username) {
+                errorDiv.style.display = 'block';
+                errorDiv.textContent = 'Please enter username';
+                return;
+            }
             
             try {
-                const response = await fetch('/api/auth/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                // Using ApiService instead of direct fetch
+                var data = await ApiService.post('/auth/login', {
+                    username: username,
+                    password: password
                 });
                 
-                const data = await response.json();
-                
                 if (data.success) {
-                    // ✅ Store JWT token and user
+                    // Store JWT token and user
                     localStorage.setItem('token', data.token);
                     localStorage.setItem('user', JSON.stringify(data.user));
                     
@@ -460,23 +442,28 @@ const AppRouter = {
             }
         };
         
-        // ✅ Enter key support
+        // Enter key support
         document.getElementById('adminPasswordInput').addEventListener('keydown', function(e) {
             if (e.key === 'Enter') {
                 document.getElementById('loginSubmitBtn').click();
             }
         });
+        
+        // Also support Enter key on username field
+        document.getElementById('loginUsername').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                document.getElementById('adminPasswordInput').focus();
+            }
+        });
     },
 
     // ============================================
-    // CALCULATOR METHODS (Unchanged)
+    // CALCULATOR METHODS
     // ============================================
     
-    _showCalculator() {
-        // ... (calculator code remains the same)
-        // ✅ Just need to update AuthService calls to use localStorage
-        const userJson = localStorage.getItem('user');
-        let user = null;
+    _showCalculator: function() {
+        var userJson = localStorage.getItem('user');
+        var user = null;
         try {
             user = userJson ? JSON.parse(userJson) : null;
         } catch (e) {}
@@ -488,37 +475,37 @@ const AppRouter = {
         // (Keep the existing calculator implementation)
     },
 
-    _calcInput(val) {
+    _calcInput: function(val) {
         // ... (existing calculator code)
     },
 
-    _calcCalculate() {
+    _calcCalculate: function() {
         // ... (existing calculator code)
     },
 
-    _calcMemory(action) {
+    _calcMemory: function(action) {
         // ... (existing calculator code)
     },
 
-    _getCalcStorageKey() {
-        const userJson = localStorage.getItem('user');
-        let user = null;
+    _getCalcStorageKey: function() {
+        var userJson = localStorage.getItem('user');
+        var user = null;
         try {
             user = userJson ? JSON.parse(userJson) : null;
         } catch (e) {}
         return user ? 'talaen_calc_' + user.username : 'talaen_calc_default';
     },
 
-    _calcClearHistory() {
+    _calcClearHistory: function() {
         // ... (existing calculator code)
     },
 
-    _saveCalcState() {
+    _saveCalcState: function() {
         // ... (existing calculator code)
     }
 };
 
-// ✅ Initialize router when DOM is ready
+// Initialize router when DOM is ready
 document.addEventListener('DOMContentLoaded', function() {
     AppRouter.init();
 });
