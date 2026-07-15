@@ -1,6 +1,11 @@
-﻿const PublicDashboardComponent = {
+// ============================================
+// PUBLIC DASHBOARD - No JWT Required (Public View)
+// ============================================
+
+const PublicDashboardComponent = {
     _slideIndex: 0,
     _slideInterval: null,
+    _totalSlides: 1,
 
     render() {
         var products = ProductService._cache || [];
@@ -43,8 +48,14 @@
             html += '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;"><i class="fas fa-box-open" style="font-size:4rem;color:var(--gray-400);"></i><p style="margin-top:1rem;color:var(--gray-500);">No products available yet.</p></div></div>';
         } else {
             var icons = {
-                'CEMENT': '', 'NAILS': '', 'PAINT': '', 'IRON SHEETS': '',
-                'PVC PIPES': '', 'SAND': '', 'TILES': '', 'DOOR HANDLES': ''
+                'CEMENT': '🧱', 
+                'NAILS': '🔩', 
+                'PAINT': '🎨', 
+                'IRON SHEETS': '🛠️',
+                'PVC PIPES': '🔧', 
+                'SAND': '🏖️', 
+                'TILES': '🧩', 
+                'DOOR HANDLES': '🚪'
             };
             
             var cards = [];
@@ -56,7 +67,7 @@
                 var minPrice = prices[0];
                 var maxPrice = prices[prices.length - 1];
                 var priceRange = minPrice === maxPrice ? 'KES ' + minPrice.toLocaleString() : 'KES ' + minPrice.toLocaleString() + ' - ' + maxPrice.toLocaleString();
-                var icon = icons[group.displayName.toUpperCase()] || '';
+                var icon = icons[group.displayName.toUpperCase()] || '📦';
                 
                 var variantNames = variants.map(function(v) {
                     return (v.brand ? v.brand + ' ' : '') + (v.variant || 'Standard');
@@ -80,6 +91,7 @@
             
             var cardsPerSlide = 4; // 4 columns
             var totalSlides = Math.ceil(cards.length / cardsPerSlide);
+            this._totalSlides = totalSlides;
             
             // Carousel container
             html += '<div class="card" style="overflow:hidden;position:relative;">';
@@ -118,9 +130,9 @@
             html += '</div></div>'; // End card
             
             // Start auto-slide after DOM renders
+            var self = this;
             setTimeout(function() {
-                PublicDashboardComponent._totalSlides = totalSlides;
-                PublicDashboardComponent._startAutoSlide();
+                self._startAutoSlide();
             }, 500);
         }
         
@@ -180,3 +192,6 @@
         });
     }
 };
+
+// Make globally available
+window.PublicDashboardComponent = PublicDashboardComponent;
