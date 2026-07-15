@@ -1,7 +1,8 @@
 const express = require('express');
 const path = require('path');
 const mysql = require('mysql2/promise');
-const bcrypt = require('bcrypt'); // 👈 Added for password hashing
+const bcrypt = require('bcrypt');
+const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -9,7 +10,64 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'frontend', 'public')));
 app.use('/src', express.static(path.join(__dirname, 'frontend', 'src')));
 
-// 🔥 UPDATED: MySQL connection with SSL support for Aiven
+// 🔥 SECURE: MySQL connection with CA certificate for Aiven
+let sslConfig = false;
+if (process.env.MYSQL_SSL === 'true') {
+    // Try to read CA certificate from file or environment variable
+    let caCert = null;
+    
+    // Option 1: Read from file (ca.pem in project root)
+    try {
+        if (fs.existsSync('./ca.pem')) {
+            caCert = fs.readFileSync('./ca.pem', 'utf8');
+            console.log('✅ CA certificate loaded from ca.pem file');
+        }
+    } catch(e) {
+        console.log('⚠️  Could not read ca.pem file');
+    }
+    
+    // Option 2: Read from environment variable (MYSQL_CA_CERT)
+    if (!caCert && process.env.MYSQL_CA_CERT) {
+        caCert = process.env.MYSQL_CA_CERT;
+        console.log('✅ CA certificate loaded from MYSQL_CA_CERT environment variable');
+    }
+    
+    // Option 3: Use the hardcoded certificate (fallback)
+    if (!caCert) {
+        caCert = `-----BEGIN CERTIFICATE-----
+MIIERDCCAqygAwIBAgIUIKeTwDKnCJLjmrBkW4TiIkUqfqowDQYJKoZIhvcNAQEM
+BQAwOjE4MDYGA1UEAwwvZWZlNjM4MzctNDliMS00YzAwLTljODctZDNlMWJiNjZk
+YjBkIFByb2plY3QgQ0EwHhcNMjYwNzE1MDYzNjMzWhcNMzYwNzEyMDYzNjMzWjA6
+MTgwNgYDVQQDDC9lZmU2MzgzNy00OWIxLTRjMDAtOWM4Ny1kM2UxYmI2NmRiMGQg
+UHJvamVjdCBDQTCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2f7Xhz
+qdApd7QksyvTeHju1EmhKr1llwwg3xLitsMdLCI33DeqmujfVw1Vc0MNkIp7wMTL
+zxkm+LHbeSYZAPrFv+yinhSJr8EpXgNnBRjjVSqirBpiWa9aWBe9AHGTv0yW7Hm8
+FveEmzlzFWh+IAFGt9KEAaIFd1frCRcYXdxHnflxbuZs3TpGunxuI+CPvvJV51ST
+JuglGbT8/GICqvyF1dHDtXvYyIpf0YfJjMe50tfAmA3vmvw8Oy9T+vAo+WbDwOfl
+EJ0qJJygIJJv8ZcxFGfwI0k2O0MarKYLOoubzcvVVjG5jARmup2+lpeL4leQko4X
+78s3AtkGbRFHudgMGHxYsVKFdp7kGEOXkGM3zhOEYhh5ZvCjq6khkZXRDO33s81r
+nZ1Oz9vcXDGYD8lt7Q/gbRNRpoLxCwDzT07jXrkrcJ4u7UI8OQ0TNEat3z0E3pVD
+NbRfMIw7dMw9MsjVkUpL7hduxJ6WFLnWkWHwaBueLkgR04l5BY3jcOXh4QIDAQAB
+o0IwQDAdBgNVHQ4EFgQU92EtOMWMEea+CxU7Xb5ktWsxuHIwEgYDVR0TAQH/BAgw
+BgEB/wIBADALBgNVHQ8EBAMCAQYwDQYJKoZIhvcNAQEMBQADggGBAC5N0X7xqPRB
+y7ezWHMTvLAQM0i4CfCuZnvTg+vTrGxceXHUAkFmJAgntyODDGsDiPotOZIU4e3H
++d5o4RZf3lNn4jE6xg0cGGgXug5r4UX9yJSi77hGRSSzWqUkkNvAMFfdnJg44Q/c
+l3pRSiNBfXUTReBRMbwznLSjaJ6W+Xhw5VirAXaDMH6sd0hhnk4X7ZI2cqcXgoGm
+0hxSlG7I37MYbrehk26mrcKdEBSgzLyjp5o0HHadzH+7tXarVJSk+2VJVYk57Nxm
+JL2wOYO2NMaZdjIXJu+TkiisNJLhO+qQmXqmn2uTlbraEsGayJMufm5w1yTxYDsq
+MmwCI7ajl2E4ffR6LYqPPkhEe1+iybEMWv/a04OuVXNwu5RKLwTpKcvNkOunw1XM
+InA1zmpHFdPnMkPG3x7SoLZxCErKtk0RuAdfksPk1PRX5r0nqGiTq2fEQo+r6s8G
+oLcFmnSVl63Ou1tioUB7ZLDi1UcUKK+/Uisml8r+601ATLYlxJxgRQ==
+-----END CERTIFICATE-----`;
+        console.log('✅ CA certificate loaded from hardcoded fallback');
+    }
+    
+    sslConfig = {
+        ca: caCert,
+        rejectUnauthorized: true
+    };
+}
+
 const pool = mysql.createPool({
     host: process.env.MYSQLHOST || 'localhost',
     user: process.env.MYSQLUSER || 'root',
@@ -18,7 +76,7 @@ const pool = mysql.createPool({
     port: process.env.MYSQLPORT || 3306,
     waitForConnections: true,
     connectionLimit: 10,
-    ssl: process.env.MYSQL_SSL === 'true' ? { rejectUnauthorized: true } : false
+    ssl: sslConfig
 });
 
 async function initDB() {
@@ -47,7 +105,6 @@ async function initDB() {
     try { await pool.query("ALTER TABLE sales ADD COLUMN return_date DATETIME NULL"); } catch(e) {}
     try { await pool.query("ALTER TABLE settings ADD COLUMN announcement TEXT"); } catch(e) {}
 
-    // 🔥 UPDATED: Hash passwords before storing
     const [users] = await pool.query("SELECT COUNT(*) as c FROM users");
     if (users[0].c === 0) {
         const hashedAdmin = await bcrypt.hash('admin123', 10);
@@ -78,7 +135,6 @@ function logActivity(userId, userName, action, details) {
     pool.query("INSERT INTO activity_log (userId, userName, action, details, date) VALUES (?,?,?,?,NOW())", [userId||null, userName||'System', action, details]);
 }
 
-// 🔥 UPDATED: Secure login with bcrypt
 app.post('/api/auth/login', async (req, res) => { 
     const { username, password } = req.body; 
     try {
@@ -116,7 +172,6 @@ app.post('/api/auth/login', async (req, res) => {
 // USERS
 app.get('/api/users', async (req, res) => { const [r] = await pool.query("SELECT id, username, password, role, fullName, isActive FROM users"); res.json(r); });
 
-// 🔥 UPDATED: Hash new user password
 app.post('/api/users', async (req, res) => { 
     const { username, password, role, fullName } = req.body; 
     try {
@@ -132,7 +187,6 @@ app.post('/api/users', async (req, res) => {
     }
 });
 
-// 🔥 UPDATED: Hash password when updating
 app.put('/api/users/:id', async (req, res) => { 
     const { password, isActive, fullName, username, toggle } = req.body; 
     const [user] = await pool.query("SELECT * FROM users WHERE id=?", [req.params.id]); 
@@ -155,7 +209,6 @@ app.put('/api/users/:id', async (req, res) => {
 // SETTINGS
 app.get('/api/settings', async (req, res) => { const [r] = await pool.query("SELECT * FROM settings WHERE id=1"); res.json(r[0] || { adminPassword: 'admin123' }); });
 
-// 🔥 UPDATED: Hash admin password when updating
 app.put('/api/settings', async (req, res) => { 
     if (req.body.adminPassword) {
         const hashedPassword = await bcrypt.hash(req.body.adminPassword, 10);
@@ -186,7 +239,7 @@ app.delete('/api/products/:id', async (req, res) => { await pool.query("UPDATE p
 app.put('/api/products/:id/stock', async (req, res) => { await pool.query("UPDATE products SET stock=stock+? WHERE id=?", [req.body.quantity, req.params.id]); res.json({ success: true }); });
 app.get('/api/products/search', async (req, res) => { const q = '%' + (req.query.q || '') + '%'; const [products] = await pool.query("SELECT id, name, brand, variant, price, stock, unit FROM products WHERE isActive=1 AND (name LIKE ? OR brand LIKE ? OR variant LIKE ?) AND stock > 0 ORDER BY name LIMIT 20", [q, q, q]); res.json(products); });
 
-// SALES (All unchanged - keep your existing sales endpoints)
+// SALES
 app.get('/api/sales', async (req, res) => { const [sales] = await pool.query("SELECT * FROM sales ORDER BY date DESC"); for (let s of sales) { const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = ?", [s.id]); s.items = items; } res.json(sales); });
 app.get('/api/sales/cashiers-summary', async (req, res) => { const [cashiers] = await pool.query("SELECT id, fullName, username FROM users WHERE role='cashier' AND isActive=1"); const today = new Date().toISOString().split('T')[0]; const result = []; for (let c of cashiers) { const [sales] = await pool.query("SELECT * FROM sales WHERE cashierId=? AND isVoid=0", [c.id]); const todaySales = sales.filter(s => s.date && s.date.startsWith(today)); result.push({ id: c.id, name: c.fullName, username: c.username, totalAll: sales.reduce((s, sale) => s + Number(sale.total), 0), totalToday: todaySales.reduce((s, sale) => s + Number(sale.total), 0), countAll: sales.length, countToday: todaySales.length }); } res.json(result); });
 app.get('/api/sales/cashier/:id', async (req, res) => { const [sales] = await pool.query("SELECT * FROM sales WHERE cashierId=? AND isVoid=0 ORDER BY date DESC", [req.params.id]); const today = new Date().toISOString().split('T')[0]; const todaySales = sales.filter(s => s.date && s.date.startsWith(today)); res.json({ all: sales, today: todaySales, totalAll: sales.reduce((s, sale) => s + Number(sale.total), 0), totalToday: todaySales.reduce((s, sale) => s + Number(sale.total), 0), countAll: sales.length, countToday: todaySales.length }); });
@@ -199,7 +252,7 @@ app.get('/api/returns/receipt/:receiptNo', async (req, res) => { const [returns]
 app.get('/api/returns/summary', async (req, res) => { try { var [totalReturns] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='return'"); var [totalExchanges] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='exchange'"); var [totalRefunded] = await pool.query("SELECT SUM(refundAmount) as total FROM returns_table"); var today = new Date().toISOString().split('T')[0] + '%'; var [todayReturns] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE date LIKE ?", [today]); res.json({ totalReturns: totalReturns[0].count || 0, totalExchanges: totalExchanges[0].count || 0, totalRefunded: totalRefunded[0].total || 0, todayReturns: todayReturns[0].count || 0 }); } catch(e) { res.json({ totalReturns: 0, totalExchanges: 0, totalRefunded: 0, todayReturns: 0 }); } });
 app.get('/api/sales/search/:receiptNo', async (req, res) => { const [sale] = await pool.query("SELECT * FROM sales WHERE receiptNo = ?", [req.params.receiptNo]); if (sale.length) { const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = ?", [sale[0].id]); sale[0].items = items; res.json(sale[0]); } else { res.json({ error: 'Sale not found' }); } });
 
-// PURCHASE ORDERS (All unchanged)
+// PURCHASE ORDERS
 app.get('/api/purchase-orders', async (req, res) => { const [pos] = await pool.query("SELECT * FROM purchase_orders ORDER BY date DESC"); for (let po of pos) { const [items] = await pool.query("SELECT * FROM po_items WHERE poId = ?", [po.id]); po.items = items; } res.json(pos); });
 app.post('/api/purchase-orders', async (req, res) => { try { const d = req.body; const poNumber = 'PO-' + Date.now().toString(36).toUpperCase(); const [po] = await pool.query("INSERT INTO purchase_orders (poNumber, supplierName, supplierId, notes, total, createdBy, date) VALUES (?,?,?,?,?,?,NOW())", [poNumber, d.supplierName, d.supplierId||null, d.notes, d.total, d.createdBy]); const poId = po.insertId; if (d.items) { for (let i of d.items) { await pool.query("INSERT INTO po_items (poId, productName, brand, variant, quantity, unitPrice, sellingPrice, lastPrice, currentStock, discount, total) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [poId, i.productName, i.brand||'', i.variant||'', i.quantity, i.unitPrice, i.sellingPrice||0, i.lastPrice||0, i.currentStock||0, i.discount||0, i.total]); } } logActivity(null, 'Admin', 'purchase_order', 'PO: ' + poNumber); res.json({ success: true, poNumber: poNumber }); } catch(e) { res.json({ success: false, message: e.message }); } });
 app.put('/api/purchase-orders/:id/receive', async (req, res) => { const [po] = await pool.query("SELECT * FROM purchase_orders WHERE id = ?", [req.params.id]); if (!po.length) return res.json({ success: false }); const [items] = await pool.query("SELECT * FROM po_items WHERE poId = ?", [req.params.id]); for (let i of items) { const [p] = await pool.query("SELECT * FROM products WHERE name=? AND brand=? AND variant=? AND isActive=1", [i.productName, i.brand, i.variant]); if (p.length) await pool.query("UPDATE products SET stock = stock + ?, cost = ? WHERE id = ?", [i.quantity, i.unitPrice, p[0].id]); } await pool.query("UPDATE purchase_orders SET status = 'received', receivedDate = NOW() WHERE id = ?", [req.params.id]); logActivity(null, 'Admin', 'po_received', 'PO received: ' + po[0].poNumber); res.json({ success: true }); });
