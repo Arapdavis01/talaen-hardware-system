@@ -5,7 +5,7 @@
 const AdminSettingsComponent = {
     _activityFilter: 'all',
 
-    render() {
+    render: function() {
         var h = '';
         
         // Change Admin Password
@@ -29,7 +29,7 @@ const AdminSettingsComponent = {
         // Announcement Banner
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 class="card-title" style="color:white;"><i class="fas fa-bullhorn"></i> Announcement Banner</h3></div><div class="card-body">';
         h += '<div class="form-group"><label>Message (leave empty to hide from cashiers)</label>';
-        h += '<input type="text" id="announcementText" class="form-control" placeholder="e.g., Merry Christmas! 🎄 Happy New Year! 🎆" style="font-size:1.1rem;">';
+        h += '<input type="text" id="announcementText" class="form-control" placeholder="Enter announcement message..." style="font-size:1.1rem;">';
         h += '</div>';
         h += '<button class="btn btn-primary" onclick="AdminSettingsComponent.saveAnnouncement()"><i class="fas fa-save"></i> Save Announcement</button>';
         h += '<div id="announcementMsg" style="margin-top:0.5rem;"></div>';
@@ -75,34 +75,31 @@ const AdminSettingsComponent = {
     },
 
     // ============================================
-    // ✅ UPDATED: Using ApiService with JWT
+    // UPDATED: Using ApiService with JWT
     // ============================================
 
     // ========== ANNOUNCEMENT ==========
-    loadAnnouncement() {
-        // ✅ REPLACED: fetch with ApiService
+    loadAnnouncement: function() {
         ApiService.get('/settings').then(function(s) {
             var input = document.getElementById('announcementText');
             if (input) input.value = s.announcement || '';
         });
     },
 
-    saveAnnouncement() {
+    saveAnnouncement: function() {
         var text = document.getElementById('announcementText').value.trim();
-        // ✅ REPLACED: fetch with ApiService
         ApiService.put('/settings', { announcement: text })
             .then(function(d) {
                 if (d.success) {
-                    AdminSettingsComponent.showMsg('announcementMsg', '✅ Announcement saved!', 'success');
+                    AdminSettingsComponent.showMsg('announcementMsg', 'Announcement saved!', 'success');
                 }
             });
     },
 
     // ========== M-PESA CONFIG ==========
-    async loadMpesaConfig() {
+    loadMpesaConfig: async function() {
         try {
-            // ✅ REPLACED: fetch with ApiService
-            const config = await ApiService.get('/mpesa/config');
+            var config = await ApiService.get('/mpesa/config');
             var ck = document.getElementById('mpesaConsumerKey');
             var cs = document.getElementById('mpesaConsumerSecret');
             var pk = document.getElementById('mpesaPasskey');
@@ -115,16 +112,17 @@ const AdminSettingsComponent = {
             if (tn) tn.value = config.tillNumber || '';
             if (sc) sc.value = config.shortCode || '';
             if (env) env.value = config.environment || 'sandbox';
-        } catch(e) {}
+        } catch(e) {
+            console.error('Error loading M-Pesa config:', e);
+        }
     },
 
-    async saveMpesaConfig() {
+    saveMpesaConfig: async function() {
         var btn = document.getElementById('saveMpesaBtn');
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
         try {
-            // ✅ REPLACED: fetch with ApiService
-            const data = await ApiService.put('/mpesa/config', {
+            var data = await ApiService.put('/mpesa/config', {
                 consumerKey: document.getElementById('mpesaConsumerKey').value.trim(),
                 consumerSecret: document.getElementById('mpesaConsumerSecret').value.trim(),
                 passkey: document.getElementById('mpesaPasskey').value.trim(),
@@ -145,26 +143,37 @@ const AdminSettingsComponent = {
     },
 
     // ========== EXISTING FUNCTIONS ==========
-    filterActivity(filter, btn) {
+    filterActivity: function(filter, btn) {
         this._activityFilter = filter;
-        document.querySelectorAll('.activity-filter').forEach(function(b) { b.className = 'btn btn-sm btn-outline activity-filter'; });
+        document.querySelectorAll('.activity-filter').forEach(function(b) { 
+            b.className = 'btn btn-sm btn-outline activity-filter'; 
+        });
         btn.className = 'btn btn-sm btn-primary activity-filter active';
         var clearBtn = document.getElementById('clearActivityBtn');
         if (clearBtn) {
-            var labels = { all: 'Clear All', login: 'Clear Logins', sale: 'Clear Sales', add_product: 'Clear Products/Users', profile_update: 'Clear Edits', password: 'Clear Passwords' };
+            var labels = { 
+                all: 'Clear All', 
+                login: 'Clear Logins', 
+                sale: 'Clear Sales', 
+                add_product: 'Clear Products/Users', 
+                profile_update: 'Clear Edits', 
+                password: 'Clear Passwords' 
+            };
             clearBtn.innerHTML = '<i class="fas fa-trash"></i> ' + (labels[filter] || 'Clear All');
         }
         this.loadActivity();
     },
 
-    showMsg(elId, msg, type) {
-        var el = document.getElementById(elId); if (!el) return;
-        el.innerHTML = '<span style="color:' + (type==='success'?'#10b981':'#ef4444') + ';font-weight:600;">' + (type==='success'?'✅ ':'❌ ') + msg + '</span>';
+    showMsg: function(elId, msg, type) {
+        var el = document.getElementById(elId); 
+        if (!el) return;
+        var color = type === 'success' ? '#10b981' : '#ef4444';
+        var prefix = type === 'success' ? '' : '';
+        el.innerHTML = '<span style="color:' + color + ';font-weight:600;">' + prefix + msg + '</span>';
         setTimeout(function(){ el.innerHTML = ''; }, 5000);
     },
 
-    loadCurrentPassword() {
-        // ✅ REPLACED: fetch with ApiService
+    loadCurrentPassword: function() {
         ApiService.get('/settings').then(function(s){
             if (s && s.adminPassword) { 
                 document.getElementById('currentPassDisplay').textContent = '........'; 
@@ -173,8 +182,9 @@ const AdminSettingsComponent = {
         });
     },
 
-    toggleShowCurrent() {
-        var el = document.getElementById('currentPassDisplay'), btn = document.getElementById('showCurrentBtn');
+    toggleShowCurrent: function() {
+        var el = document.getElementById('currentPassDisplay');
+        var btn = document.getElementById('showCurrentBtn');
         if (el.textContent === '........') { 
             el.textContent = el.dataset.realPass || 'N/A'; 
             btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide'; 
@@ -184,17 +194,31 @@ const AdminSettingsComponent = {
         }
     },
 
-    toggleAdminPass() { 
-        var f=document.getElementById('newAdminPass'),b=document.getElementById('adminPassToggle'); 
-        if(f.type==='password'){f.type='text';b.innerHTML='<i class="fas fa-eye-slash"></i>';}else{f.type='password';b.innerHTML='<i class="fas fa-eye"></i>';} 
+    toggleAdminPass: function() { 
+        var f = document.getElementById('newAdminPass');
+        var b = document.getElementById('adminPassToggle'); 
+        if (f.type === 'password') {
+            f.type = 'text';
+            b.innerHTML = '<i class="fas fa-eye-slash"></i>';
+        } else {
+            f.type = 'password';
+            b.innerHTML = '<i class="fas fa-eye"></i>';
+        } 
     },
     
-    toggleAddPass() { 
-        var f=document.getElementById('cashierPass'),b=document.getElementById('addPassToggle'); 
-        if(f.type==='password'){f.type='text';b.innerHTML='<i class="fas fa-eye-slash"></i>';}else{f.type='password';b.innerHTML='<i class="fas fa-eye"></i>';} 
+    toggleAddPass: function() { 
+        var f = document.getElementById('cashierPass');
+        var b = document.getElementById('addPassToggle'); 
+        if (f.type === 'password') {
+            f.type = 'text';
+            b.innerHTML = '<i class="fas fa-eye-slash"></i>';
+        } else {
+            f.type = 'password';
+            b.innerHTML = '<i class="fas fa-eye"></i>';
+        } 
     },
 
-    changeAdminPass() {
+    changeAdminPass: function() {
         var p = document.getElementById('newAdminPass').value.trim(); 
         if (!p || p.length < 4) { 
             showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); 
@@ -202,31 +226,34 @@ const AdminSettingsComponent = {
         }
         var self = this;
         
-        // ✅ REPLACED: fetch with ApiService
         Promise.all([
             ApiService.put('/settings', { adminPassword: p }),
             ApiService.put('/users/1', { password: p })
         ]).then(function(){
-            self.showMsg('adminPassMsg','Password updated!','success');
-            document.getElementById('newAdminPass').value='';
+            self.showMsg('adminPassMsg', 'Password updated!', 'success');
+            document.getElementById('newAdminPass').value = '';
             self.loadActivity();
         }).catch(function(e){
-            self.showMsg('adminPassMsg','Error: '+e.message,'danger');
+            self.showMsg('adminPassMsg', 'Error: ' + e.message, 'danger');
         });
     },
 
-    addUser() {
-        var n=document.getElementById('cashierName').value.trim(),
-            u=document.getElementById('cashierUser').value.trim(),
-            p=document.getElementById('cashierPass').value.trim(),
-            r=document.getElementById('cashierRole').value;
+    addUser: function() {
+        var n = document.getElementById('cashierName').value.trim();
+        var u = document.getElementById('cashierUser').value.trim();
+        var p = document.getElementById('cashierPass').value.trim();
+        var r = document.getElementById('cashierRole').value;
         
-        if(!n||!u||!p){showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');return;}
+        if (!n || !u || !p) {
+            showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');
+            return;
+        }
         
-        var btn=document.getElementById('addCashierBtn'),self=this;
-        btn.disabled=true;btn.innerHTML='Adding...';
+        var btn = document.getElementById('addCashierBtn');
+        var self = this;
+        btn.disabled = true;
+        btn.innerHTML = 'Adding...';
         
-        // ✅ REPLACED: fetch with ApiService
         ApiService.post('/users', {
             username: u,
             password: p,
@@ -234,59 +261,70 @@ const AdminSettingsComponent = {
             fullName: n,
             adminName: 'Admin'
         }).then(function(d){
-            btn.disabled=false;
-            btn.innerHTML='<i class="fas fa-plus"></i> Add';
-            if(d.success || d.id){
-                self.showMsg('userMsg','User added!','success');
-                document.getElementById('cashierName').value='';
-                document.getElementById('cashierUser').value='';
-                document.getElementById('cashierPass').value='';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plus"></i> Add';
+            if (d.success || d.id) {
+                self.showMsg('userMsg', 'User added!', 'success');
+                document.getElementById('cashierName').value = '';
+                document.getElementById('cashierUser').value = '';
+                document.getElementById('cashierPass').value = '';
                 self.loadUsers();
                 self.loadActivity();
             } else {
                 self.showMsg('userMsg', d.message || 'Failed', 'danger');
             }
         }).catch(function(e){
-            btn.disabled=false;
-            btn.innerHTML='<i class="fas fa-plus"></i> Add';
-            self.showMsg('userMsg','Error: '+e.message,'danger');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-plus"></i> Add';
+            self.showMsg('userMsg', 'Error: ' + e.message, 'danger');
         });
     },
 
-    loadUsers() {
-        var list=document.getElementById('userList');if(!list)return;
+    loadUsers: function() {
+        var list = document.getElementById('userList');
+        if (!list) return;
         
-        // ✅ REPLACED: fetch with ApiService
         ApiService.get('/users').then(function(users){
-            var h='<table class="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
-            if(!users || !users.length){h+='<tr><td colspan="6">No users</td></tr>';}
-            else{users.forEach(function(c){var pwId='pw_'+c.id;
-                h+='<tr><td><strong>'+c.fullName+'</strong></td><td>'+c.username+'</td><td><span class="badge '+(c.role==='admin'?'badge-success':'badge-info')+'">'+c.role+'</span></td>';
-                h+='<td><div style="display:flex;align-items:center;gap:0.5rem;"><code id="'+pwId+'" data-real="'+c.password+'">....</code><button class="btn btn-sm btn-outline" onclick="var e=document.getElementById(\''+pwId+'\');e.textContent=e.textContent===\'....\'?e.dataset.real:\'....\'"><i class="fas fa-eye"></i></button></div></td>';
-                h+='<td><span class="badge '+(c.isActive?'badge-success':'badge-danger')+'">'+(c.isActive?'Active':'Inactive')+'</span></td>';
-                h+='<td>';
-                h+='<button class="btn btn-sm btn-primary" onclick="AdminSettingsComponent.editUser('+c.id+',\''+c.fullName+'\',\''+c.username+'\')"><i class="fas fa-edit"></i></button> ';
-                h+='<button class="btn btn-sm btn-warning" onclick="AdminSettingsComponent.resetPassword('+c.id+',\''+c.fullName+'\',\''+(c.password||'')+'\')"><i class="fas fa-key"></i></button> ';
-                if (c.role !== 'admin') {
-                    h+='<button class="btn btn-sm '+(c.isActive?'btn-danger':'btn-success')+'" onclick="AdminSettingsComponent.removeUser('+c.id+','+c.isActive+',\''+c.fullName+'\')"><i class="fas '+(c.isActive?'fa-user-slash':'fa-user-check')+'"></i> '+(c.isActive?'Deactivate':'Activate')+'</button>';
-                }
-                h+='</td></tr>';
-            });}h+='</tbody></table>';list.innerHTML=h;
+            var h = '<table class="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+            if (!users || !users.length) {
+                h += '<tr><td colspan="6">No users</td></tr>';
+            } else {
+                users.forEach(function(c){
+                    var pwId = 'pw_' + c.id;
+                    h += '<tr><td><strong>' + c.fullName + '</strong></td><td>' + c.username + '</td><td><span class="badge ' + (c.role === 'admin' ? 'badge-success' : 'badge-info') + '">' + c.role + '</span></td>';
+                    h += '<td><div style="display:flex;align-items:center;gap:0.5rem;"><code id="' + pwId + '" data-real="' + c.password + '">....</code><button class="btn btn-sm btn-outline" onclick="var e=document.getElementById(\'' + pwId + '\');e.textContent=e.textContent===\'....\'?e.dataset.real:\'....\'"><i class="fas fa-eye"></i></button></div></td>';
+                    h += '<td><span class="badge ' + (c.isActive ? 'badge-success' : 'badge-danger') + '">' + (c.isActive ? 'Active' : 'Inactive') + '</span></td>';
+                    h += '<td>';
+                    h += '<button class="btn btn-sm btn-primary" onclick="AdminSettingsComponent.editUser(' + c.id + ',\'' + c.fullName + '\',\'' + c.username + '\')"><i class="fas fa-edit"></i></button> ';
+                    h += '<button class="btn btn-sm btn-warning" onclick="AdminSettingsComponent.resetPassword(' + c.id + ',\'' + c.fullName + '\',\'' + (c.password || '') + '\')"><i class="fas fa-key"></i></button> ';
+                    if (c.role !== 'admin') {
+                        h += '<button class="btn btn-sm ' + (c.isActive ? 'btn-danger' : 'btn-success') + '" onclick="AdminSettingsComponent.removeUser(' + c.id + ',' + c.isActive + ',\'' + c.fullName + '\')"><i class="fas ' + (c.isActive ? 'fa-user-slash' : 'fa-user-check') + '"></i> ' + (c.isActive ? 'Deactivate' : 'Activate') + '</button>';
+                    }
+                    h += '</td></tr>';
+                });
+            }
+            h += '</tbody></table>';
+            list.innerHTML = h;
         });
     },
 
-    editUser(id, name, username) {
-        var m=document.createElement('div');m.className='modal-overlay';
-        m.innerHTML='<div class="modal"><div class="modal-header"><h3><i class="fas fa-edit"></i> Edit: '+name+'</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Full Name</label><input type="text" id="editName" class="form-control" value="'+name+'"></div><div class="form-group"><label>Username</label><input type="text" id="editUsername" class="form-control" value="'+username+'"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="saveEditBtn"><i class="fas fa-save"></i> Save</button></div></div>';
-        document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};var self=this;
-        m.querySelector('#saveEditBtn').onclick=function(){
-            var nn=document.getElementById('editName').value.trim(),
-                nu=document.getElementById('editUsername').value.trim();
-            if(!nn||!nu){showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');return;}
-            // ✅ REPLACED: fetch with ApiService
-            ApiService.put('/users/'+id, { fullName: nn, username: nu })
+    editUser: function(id, name, username) {
+        var m = document.createElement('div');
+        m.className = 'modal-overlay';
+        m.innerHTML = '<div class="modal"><div class="modal-header"><h3><i class="fas fa-edit"></i> Edit: ' + name + '</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Full Name</label><input type="text" id="editName" class="form-control" value="' + name + '"></div><div class="form-group"><label>Username</label><input type="text" id="editUsername" class="form-control" value="' + username + '"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="saveEditBtn"><i class="fas fa-save"></i> Save</button></div></div>';
+        document.body.appendChild(m);
+        m.onclick = function(e){ if (e.target === m) m.remove(); };
+        var self = this;
+        m.querySelector('#saveEditBtn').onclick = function(){
+            var nn = document.getElementById('editName').value.trim();
+            var nu = document.getElementById('editUsername').value.trim();
+            if (!nn || !nu) {
+                showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');
+                return;
+            }
+            ApiService.put('/users/' + id, { fullName: nn, username: nu })
                 .then(function(){
-                    self.showMsg('userMsg','Updated!','success');
+                    self.showMsg('userMsg', 'Updated!', 'success');
                     m.remove();
                     self.loadUsers();
                     self.loadActivity();
@@ -294,16 +332,23 @@ const AdminSettingsComponent = {
         };
     },
 
-    resetPassword(id, name, currentPass) {
+    resetPassword: function(id, name, currentPass) {
         var self = this;
-        var m = document.createElement('div'); m.className = 'modal-overlay';
+        var m = document.createElement('div');
+        m.className = 'modal-overlay';
         m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-key"></i> Reset: ' + name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div style="background:#f5f5f5;padding:0.75rem;border-radius:0.5rem;margin-bottom:1rem;"><strong>Current:</strong> <code id="oldPassDisplay">....</code> <button class="btn btn-sm btn-outline" id="showOldPassBtn">Show</button></div><div class="form-group"><label>New Password</label><input type="text" id="resetPass" class="form-control" placeholder="New password"></div></div><div class="modal-footer"><button class="btn btn-outline" id="cancelReset">Cancel</button><button class="btn btn-warning" id="confirmReset"><i class="fas fa-save"></i> Reset</button></div></div>';
         document.body.appendChild(m);
         m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#oldPassDisplay').dataset.real = currentPass || '';
         m.querySelector('#showOldPassBtn').onclick = function() { 
-            var e=document.getElementById('oldPassDisplay'); 
-            if(e.textContent==='....'){e.textContent=e.dataset.real||'';this.textContent='Hide';}else{e.textContent='....';this.textContent='Show';} 
+            var e = document.getElementById('oldPassDisplay'); 
+            if (e.textContent === '....') {
+                e.textContent = e.dataset.real || '';
+                this.textContent = 'Hide';
+            } else {
+                e.textContent = '....';
+                this.textContent = 'Show';
+            } 
         };
         m.querySelector('#cancelReset').onclick = function() { m.remove(); };
         m.querySelector('#confirmReset').onclick = function() {
@@ -312,8 +357,7 @@ const AdminSettingsComponent = {
                 showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); 
                 return; 
             }
-            // ✅ REPLACED: fetch with ApiService
-            ApiService.put('/users/'+id, { password: np })
+            ApiService.put('/users/' + id, { password: np })
                 .then(function(){ 
                     self.showMsg('userMsg', 'Password reset!', 'success'); 
                     m.remove(); 
@@ -323,22 +367,21 @@ const AdminSettingsComponent = {
         };
     },
 
-    removeUser(id, isActive, name) {
+    removeUser: function(id, isActive, name) {
         var self = this;
         var action = isActive ? 'Deactivate' : 'Activate';
-        var icon = isActive ? '🔒' : '🔓';
         var msg = isActive ? 'This will deactivate the user. They will not be able to login.' : 'This will activate the user. They will be able to login again.';
         
-        var m = document.createElement('div'); m.className = 'modal-overlay';
-        m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,'+(isActive?'#ef4444,#dc2626':'#10b981,#059669')+');color:white;"><h3 style="color:white;"><i class="fas '+(isActive?'fa-user-slash':'fa-user-check')+'"></i> ' + action + ' User: ' + name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="text-align:center;"><div style="font-size:3rem;margin-bottom:1rem;">' + icon + '</div><h3>' + action + ' User</h3><p style="color:#999;">' + msg + '</p></div><div class="modal-footer" style="justify-content:center;"><button class="btn btn-outline" id="cancelRemove">Cancel</button><button class="btn '+(isActive?'btn-danger':'btn-success')+'" id="confirmRemove"><i class="fas '+(isActive?'fa-user-slash':'fa-user-check')+'"></i> ' + action + '</button></div></div>';
+        var m = document.createElement('div');
+        m.className = 'modal-overlay';
+        m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,' + (isActive ? '#ef4444,#dc2626' : '#10b981,#059669') + ');color:white;"><h3 style="color:white;"><i class="fas ' + (isActive ? 'fa-user-slash' : 'fa-user-check') + '"></i> ' + action + ' User: ' + name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="text-align:center;"><h3>' + action + ' User</h3><p style="color:#999;">' + msg + '</p></div><div class="modal-footer" style="justify-content:center;"><button class="btn btn-outline" id="cancelRemove">Cancel</button><button class="btn ' + (isActive ? 'btn-danger' : 'btn-success') + '" id="confirmRemove"><i class="fas ' + (isActive ? 'fa-user-slash' : 'fa-user-check') + '"></i> ' + action + '</button></div></div>';
         document.body.appendChild(m);
         m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#cancelRemove').onclick = function() { m.remove(); };
         m.querySelector('#confirmRemove').onclick = function() {
             m.querySelector('#confirmRemove').disabled = true;
             m.querySelector('#confirmRemove').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-            // ✅ REPLACED: fetch with ApiService
-            ApiService.put('/users/'+id, { toggle: true })
+            ApiService.put('/users/' + id, { toggle: true })
                 .then(function(){ 
                     m.remove(); 
                     self.loadUsers(); 
@@ -348,17 +391,26 @@ const AdminSettingsComponent = {
         };
     },
 
-    clearActivity() {
-        var self = this; var filter = this._activityFilter || 'all';
-        var labels = { all: 'all activity logs', login: 'all login logs', sale: 'all sales logs', add_product: 'all product/user logs', profile_update: 'all edit logs', password: 'all password logs' };
+    clearActivity: function() {
+        var self = this;
+        var filter = this._activityFilter || 'all';
+        var labels = { 
+            all: 'all activity logs', 
+            login: 'all login logs', 
+            sale: 'all sales logs', 
+            add_product: 'all product/user logs', 
+            profile_update: 'all edit logs', 
+            password: 'all password logs' 
+        };
         var msg = 'Delete ' + (labels[filter] || 'all activity logs') + '?';
-        var m = document.createElement('div'); m.className = 'modal-overlay';
+        var m = document.createElement('div');
+        m.className = 'modal-overlay';
         m.innerHTML = '<div class="modal"><div class="modal-header"><h3><i class="fas fa-trash"></i> Clear Activity</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p style="text-align:center;font-size:1.1rem;">' + msg + '</p><p style="text-align:center;color:var(--danger);">This cannot be undone!</p></div><div class="modal-footer"><button class="btn btn-outline" id="cancelClear">Cancel</button><button class="btn btn-danger" id="confirmClear"><i class="fas fa-trash"></i> Delete</button></div></div>';
-        document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
+        document.body.appendChild(m);
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#cancelClear').onclick = function() { m.remove(); };
         m.querySelector('#confirmClear').onclick = function() { 
             m.remove(); 
-            // ✅ REPLACED: fetch with ApiService
             ApiService.delete('/activity')
                 .then(function() { 
                     self.loadActivity(); 
@@ -367,21 +419,41 @@ const AdminSettingsComponent = {
         };
     },
 
-    loadActivity() {
-        var log=document.getElementById('activityLog');if(!log)return;var filter=this._activityFilter||'all';
+    loadActivity: function() {
+        var log = document.getElementById('activityLog');
+        if (!log) return;
+        var filter = this._activityFilter || 'all';
         
-        // ✅ REPLACED: fetch with ApiService
         ApiService.get('/activity').then(function(logs){
-            var filtered=logs;
-            if(filter==='login')filtered=logs.filter(function(l){return l.action==='login';});
-            else if(filter==='sale')filtered=logs.filter(function(l){return l.action==='sale';});
-            else if(filter==='add_product')filtered=logs.filter(function(l){return l.action==='add_product'||l.action==='add_cashier';});
-            else if(filter==='profile_update')filtered=logs.filter(function(l){return l.action==='profile_update';});
-            else if(filter==='password')filtered=logs.filter(function(l){return l.action==='password_change';});
-            var h='<table class="table"><thead><tr><th>Date</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody>';
-            if(!filtered || !filtered.length){h+='<tr><td colspan="4">No activity</td></tr>';}
-            else{filtered.forEach(function(l){var b='<span class="badge badge-info">'+l.action+'</span>';if(l.action==='login')b='<span class="badge badge-info">Login</span>';else if(l.action==='sale')b='<span class="badge badge-primary">Sale</span>';else if(l.action==='add_product')b='<span class="badge badge-success">Add Product</span>';else if(l.action==='add_cashier')b='<span class="badge badge-success">Add User</span>';else if(l.action==='profile_update')b='<span class="badge badge-warning">Edit</span>';else if(l.action==='password_change')b='<span class="badge badge-danger">Password</span>';h+='<tr><td><small>'+new Date(l.date).toLocaleString('en-KE')+'</small></td><td><strong>'+l.userName+'</strong></td><td>'+b+'</td><td>'+l.details+'</td></tr>';});}
-            h+='</tbody></table>';log.innerHTML=h;
+            var filtered = logs;
+            if (filter === 'login') {
+                filtered = logs.filter(function(l){ return l.action === 'login'; });
+            } else if (filter === 'sale') {
+                filtered = logs.filter(function(l){ return l.action === 'sale'; });
+            } else if (filter === 'add_product') {
+                filtered = logs.filter(function(l){ return l.action === 'add_product' || l.action === 'add_cashier'; });
+            } else if (filter === 'profile_update') {
+                filtered = logs.filter(function(l){ return l.action === 'profile_update'; });
+            } else if (filter === 'password') {
+                filtered = logs.filter(function(l){ return l.action === 'password_change'; });
+            }
+            var h = '<table class="table"><thead><tr><th>Date</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody>';
+            if (!filtered || !filtered.length) {
+                h += '<tr><td colspan="4">No activity</td></tr>';
+            } else {
+                filtered.forEach(function(l){
+                    var b = '<span class="badge badge-info">' + l.action + '</span>';
+                    if (l.action === 'login') b = '<span class="badge badge-info">Login</span>';
+                    else if (l.action === 'sale') b = '<span class="badge badge-primary">Sale</span>';
+                    else if (l.action === 'add_product') b = '<span class="badge badge-success">Add Product</span>';
+                    else if (l.action === 'add_cashier') b = '<span class="badge badge-success">Add User</span>';
+                    else if (l.action === 'profile_update') b = '<span class="badge badge-warning">Edit</span>';
+                    else if (l.action === 'password_change') b = '<span class="badge badge-danger">Password</span>';
+                    h += '<tr><td><small>' + new Date(l.date).toLocaleString('en-KE') + '</small></td><td><strong>' + l.userName + '</strong></td><td>' + b + '</td><td>' + l.details + '</td></tr>';
+                });
+            }
+            h += '</tbody></table>';
+            log.innerHTML = h;
         });
     }
 };
