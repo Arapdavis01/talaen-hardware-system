@@ -1,3 +1,7 @@
+// ============================================
+// POS COMPONENT - With JWT Authentication
+// ============================================
+
 const POSComponent = {
     _cart: [],
     _products: [],
@@ -5,6 +9,16 @@ const POSComponent = {
     _selectedCustomer: null,
     _heldCarts: [],
     _heldCartCounter: 0,
+
+    // ✅ Helper to get current user from JWT
+    _getCurrentUser() {
+        const userJson = localStorage.getItem('user');
+        try {
+            return userJson ? JSON.parse(userJson) : null;
+        } catch (e) {
+            return null;
+        }
+    },
 
     _showAlert(title, message, icon, color, callback) {
         var m = document.createElement('div'); m.className = 'modal-overlay';
@@ -15,9 +29,11 @@ const POSComponent = {
 
     async render() {
         try {
-            var res = await fetch('/api/products');
-            if (res.ok) this._products = await res.json();
-        } catch(e) { this._products = ProductService._cache || []; }
+            // ✅ REPLACED: fetch with ApiService
+            this._products = await ApiService.get('/products') || [];
+        } catch(e) { 
+            this._products = ProductService._cache || []; 
+        }
         
         if (this._products.length === 0) {
             return '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;"><i class="fas fa-box-open" style="font-size:4rem;color:var(--gray-400);"></i><h3>No Products Available</h3><p>Please ask admin to add products first.</p></div></div>';
@@ -33,9 +49,7 @@ const POSComponent = {
             html += '<div style="margin-bottom:1rem;border:1px solid #ddd;border-radius:1rem;overflow:hidden;"><div style="background:#f5f5f5;padding:0.5rem 1rem;font-weight:700;">' + group.displayName + ' (' + variants.length + ' variants)</div><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:0.5rem;padding:0.5rem;">';
             for (var j = 0; j < variants.length; j++) {
                 var p = variants[j];
-                // Determine stock color
                 var stockColor = p.stock <= 0 ? '#ef4444' : p.stock <= 10 ? '#f59e0b' : '#10b981';
-                // Show price and unit label (if conversion exists, show main unit price and note)
                 var priceDisplay = 'KES ' + (p.price||0).toLocaleString();
                 var unitDisplay = (p.unit||'pcs');
                 if (p.conversionFactor && p.conversionFactor > 1 && p.salesUnit) {
@@ -93,7 +107,7 @@ const POSComponent = {
 
     search() { var s = (document.getElementById('searchProduct')?.value || '').toLowerCase(); document.querySelectorAll('.product-item').forEach(function(el) { el.style.display = (el.dataset.search || '').includes(s) ? '' : 'none'; }); },
 
-    // ========== NEW: Quick Add Modal ==========
+    // ========== Quick Add Modal ==========
     showQuickAdd(productId) {
         var product = this._products.find(function(p) { return p.id == productId; });
         if (!product || product.stock <= 0) { this._showMessage('Out of stock!', 'danger'); return; }
@@ -104,7 +118,6 @@ const POSComponent = {
         var mainPrice = product.price;
         var mainStock = product.stock;
 
-        // Build unit options
         var units = [{
             value: 'main',
             label: mainUnit.charAt(0).toUpperCase() + mainUnit.slice(1),
@@ -131,7 +144,6 @@ const POSComponent = {
         if (product.brand) html += '<p style="color:#666;">' + product.brand + '</p>';
         if (product.variant) html += '<p style="color:#999;">' + product.variant + '</p></div>';
 
-        // Unit selector if multiple
         if (units.length > 1) {
             html += '<div class="form-group"><label><strong>Sell by:</strong></label>';
             html += '<div id="unitSelector" style="display:flex;gap:0.5rem;margin-top:0.5rem;">';
@@ -146,7 +158,6 @@ const POSComponent = {
             });
             html += '</div></div>';
         } else {
-            // Single unit
             var u = units[0];
             html += '<div style="text-align:center;margin-bottom:1rem;">';
             html += '<div style="font-weight:700;font-size:1.2rem;">KES ' + u.price.toLocaleString() + '/' + u.unit + '</div>';
@@ -155,18 +166,15 @@ const POSComponent = {
             html += '<input type="hidden" id="quickUnit" value="main">';
         }
 
-        // Quantity input
         html += '<div class="form-group"><label>Quantity:</label>';
         html += '<input type="number" id="quickQty" class="form-control" value="1" min="1" max="' + units[0].maxStock + '" style="font-size:1.2rem;text-align:center;" oninput="POSComponent._updateQuickAddTotal(' + productId + ')">';
         html += '</div>';
 
-        // Total preview
         html += '<div id="quickAddTotal" style="text-align:center;font-size:1.3rem;font-weight:700;margin:1rem 0;padding:0.75rem;background:#f5f5f5;border-radius:0.5rem;">Total: KES ' + (units[0].price * 1).toLocaleString() + '</div>';
 
         html += '<button class="btn btn-success" style="width:100%;padding:0.75rem;font-size:1.1rem;" id="quickAddBtn"><i class="fas fa-cart-plus"></i> Add to Cart</button>';
         html += '</div></div></div>';
 
-        // Remove existing modal if any
         var oldModal = document.getElementById('quickAddModal');
         if (oldModal) oldModal.remove();
 
@@ -176,16 +184,13 @@ const POSComponent = {
         var modal = document.getElementById('quickAddModal');
         modal.onclick = function(e) { if (e.target === modal) modal.remove(); };
 
-        // Unit selector styling
         if (units.length > 1) {
             modal.querySelectorAll('.unit-option').forEach(function(label) {
                 label.addEventListener('click', function() {
                     var radio = label.querySelector('input[type="radio"]');
                     radio.checked = true;
-                    // Highlight selected
                     modal.querySelectorAll('.unit-option').forEach(l => l.style.borderColor = '#ccc');
                     label.style.borderColor = 'var(--primary)';
-                    // Update max and total
                     var selVal = radio.value;
                     var selUnit = units.find(u => u.value === selVal);
                     var qtyInput = modal.querySelector('#quickQty');
@@ -196,7 +201,6 @@ const POSComponent = {
             });
         }
 
-        // Add to cart button
         modal.querySelector('#quickAddBtn').onclick = function() {
             var qty = parseInt(modal.querySelector('#quickQty').value) || 1;
             var selectedUnitValue = modal.querySelector('input[name="quickUnit"]:checked')?.value || 'main';
@@ -206,7 +210,6 @@ const POSComponent = {
             modal.remove();
         };
 
-        // Initial total
         this._updateQuickAddTotal(productId);
     },
 
@@ -239,25 +242,21 @@ const POSComponent = {
         mainPrice = product.price;
 
         if (selectedUnit.value === 'main') {
-            // Selling in main unit
             maxQty = product.stock;
             effPrice = mainPrice;
             displayUnit = mainUnit;
             conversionFactor = 1;
         } else {
-            // Selling in sales unit
             conversionFactor = product.conversionFactor || 1;
             maxQty = product.stock * conversionFactor;
             effPrice = mainPrice / conversionFactor;
             displayUnit = product.salesUnit;
         }
 
-        // Clamp quantity
         quantity = Math.max(1, Math.min(quantity, maxQty));
 
         var existing = this._cart.find(function(i) { return i.productId == product.id; });
         if (existing) {
-            // If existing item is in a different unit, refuse (or you could convert, but simpler to warn)
             if (existing.unit !== displayUnit) {
                 this._showMessage('You already have this product in your cart with a different unit. Clear it first or add another variant.', 'warning');
                 return;
@@ -285,8 +284,6 @@ const POSComponent = {
         this._updateCart();
         this._showMessage('Added ' + quantity + ' ' + displayUnit + ' to cart', 'success');
     },
-
-    // Old addToCart removed – no longer used by tiles
 
     updateCartQty(productId, change) {
         var item = this._cart.find(function(i) { return i.productId == productId; }); if (!item) return;
@@ -323,7 +320,7 @@ const POSComponent = {
 
         if (isNaN(newQty) || newQty < 1) {
             this._showMessage('Quantity must be at least 1', 'warning');
-            this._updateCart(); // reset input
+            this._updateCart();
             return;
         }
         if (newQty > maxQty) {
@@ -417,12 +414,14 @@ const POSComponent = {
 
     _updateHeldCartCount() { var count = document.getElementById('heldCartCount'); if (count) count.textContent = this._heldCarts.length; },
 
+    // ========== CUSTOMER METHODS ==========
     searchCustomers() {
         var q = document.getElementById('customerName')?.value.trim(); var div = document.getElementById('customerSuggestions');
         if (!q || q.length < 2) { if (div) div.style.display = 'none'; return; }
         var self = this;
-        fetch('/api/credit-customers/search/' + encodeURIComponent(q)).then(function(r){return r.json();}).then(function(customers){
-            if (!customers.length) { div.style.display = 'block'; div.innerHTML = '<div style="padding:0.75rem;text-align:center;color:#999;">No customer found. <a href="#" onclick="POSComponent.showRegisterCustomer();return false;" style="color:var(--primary);">Register new?</a></div>'; return; }
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/credit-customers/search/' + encodeURIComponent(q)).then(function(customers){
+            if (!customers || !customers.length) { div.style.display = 'block'; div.innerHTML = '<div style="padding:0.75rem;text-align:center;color:#999;">No customer found. <a href="#" onclick="POSComponent.showRegisterCustomer();return false;" style="color:var(--primary);">Register new?</a></div>'; return; }
             var h = '';
             customers.forEach(function(c){ var debtColor = c.totalDebt > 0 ? '#ef4444' : '#10b981'; var available = c.debtLimit - c.totalDebt;
                 h += '<div style="padding:0.75rem;border-bottom:1px solid #eee;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="POSComponent.selectCustomer(' + c.id + ')">';
@@ -435,7 +434,8 @@ const POSComponent = {
 
     selectCustomer(customerId) {
         var self = this;
-        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/credit-customers/' + customerId).then(function(customer){
             if (!customer) return;
             var nameInput = document.getElementById('customerName'); if (nameInput) nameInput.value = customer.name;
             var div = document.getElementById('customerSuggestions'); if (div) div.style.display = 'none';
@@ -467,14 +467,31 @@ const POSComponent = {
         m.querySelector('#saveCustBtn').onclick = function(){
             var name = m.querySelector('#regCustName').value.trim();
             if(!name){ self._showAlert('Required','Customer name is required!','exclamation-triangle','#f59e0b'); return; }
-            var user = AuthService.getCurrentUser();
-            fetch('/api/credit-customers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name,phone:m.querySelector('#regCustPhone').value,idNumber:m.querySelector('#regCustId').value,address:m.querySelector('#regCustAddress').value,debtLimit:parseFloat(m.querySelector('#regCustLimit').value)||5000,cashierId:user?.id,cashierName:user?.fullName})}).then(function(r){return r.json();}).then(function(d){if(d.success){m.remove();self._showMessage('✅ Customer registered successfully!','success');var nameInput=document.getElementById('customerName');if(nameInput){nameInput.value=name;nameInput.dispatchEvent(new Event('input'));}}});
+            var user = self._getCurrentUser();
+            // ✅ REPLACED: fetch with ApiService
+            ApiService.post('/credit-customers', {
+                name: name,
+                phone: m.querySelector('#regCustPhone').value,
+                idNumber: m.querySelector('#regCustId').value,
+                address: m.querySelector('#regCustAddress').value,
+                debtLimit: parseFloat(m.querySelector('#regCustLimit').value) || 5000,
+                cashierId: user?.id,
+                cashierName: user?.fullName
+            }).then(function(d){
+                if(d.success){
+                    m.remove();
+                    self._showMessage('✅ Customer registered successfully!','success');
+                    var nameInput=document.getElementById('customerName');
+                    if(nameInput){nameInput.value=name;nameInput.dispatchEvent(new Event('input'));}
+                }
+            });
         };
     },
 
     viewCustomerDetails(customerId) {
         var self = this;
-        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/credit-customers/' + customerId).then(function(customer){
             var m = document.createElement('div'); m.className = 'modal-overlay';
             var recentSalesHTML = '';
             if (customer.recentSales && customer.recentSales.length > 0) { recentSalesHTML = '<h4 style="margin-top:1rem;">📋 Recent Credit Purchases</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Cashier</th></tr>'; customer.recentSales.forEach(function(s){ recentSalesHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#ef4444;">KES '+s.amount.toLocaleString()+'</td><td style="color:#666;">'+(s.cashierName||'-')+'</td></tr>'; }); recentSalesHTML += '</table>'; }
@@ -487,7 +504,8 @@ const POSComponent = {
 
     showDebtPayment(customerId) {
         var self = this;
-        fetch('/api/credit-customers/' + customerId).then(function(r){return r.json();}).then(function(customer){
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/credit-customers/' + customerId).then(function(customer){
             var m = document.createElement('div'); m.className = 'modal-overlay';
             m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Record Debt Payment</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div style="text-align:center;margin-bottom:1rem;"><h3>👤 '+customer.name+'</h3><p>Current Debt: <strong style="color:#ef4444;">KES '+(customer.totalDebt||0).toLocaleString()+'</strong></p></div><div class="form-group"><label>Amount Paid (KES) *</label><input type="number" id="debtPaymentAmount" class="form-control" placeholder="Enter amount" min="1" max="'+(customer.totalDebt||0)+'" style="font-size:1.2rem;text-align:center;"></div><div class="form-group"><label>Payment Method</label><select id="debtPaymentMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmDebtPayment"><i class="fas fa-check"></i> Confirm Payment</button></div></div>';
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
@@ -495,14 +513,23 @@ const POSComponent = {
                 var amount = parseFloat(m.querySelector('#debtPaymentAmount').value) || 0;
                 if (amount <= 0) { self._showAlert('Invalid Amount','Enter a valid amount!','exclamation-triangle','#f59e0b'); return; }
                 if (amount > customer.totalDebt) { self._showAlert('Limit Exceeded','Amount cannot exceed debt of KES '+customer.totalDebt.toLocaleString(),'exclamation-triangle','#ef4444'); return; }
-                var user = AuthService.getCurrentUser();
-                fetch('/api/debt-payments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({customerId:customerId,customerName:customer.name,amount:amount,paymentMethod:m.querySelector('#debtPaymentMethod').value,receivedBy:user?.fullName||'Admin',receivedById:user?.id||null})}).then(function(r){return r.json();}).then(function(d){
+                var user = self._getCurrentUser();
+                // ✅ REPLACED: fetch with ApiService
+                ApiService.post('/debt-payments', {
+                    customerId: customerId,
+                    customerName: customer.name,
+                    amount: amount,
+                    paymentMethod: m.querySelector('#debtPaymentMethod').value,
+                    receivedBy: user?.fullName || 'Admin',
+                    receivedById: user?.id || null
+                }).then(function(d){
                     if(d.success){ var sm = document.createElement('div'); sm.className = 'modal-overlay'; sm.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-check-circle"></i> Payment Recorded!</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="text-align:center;"><div style="font-size:3rem;color:#10b981;margin-bottom:1rem;"><i class="fas fa-money-check-alt"></i></div><h3>KES '+amount.toLocaleString()+'</h3><p style="color:#999;">From: <strong>'+customer.name+'</strong></p><div style="background:#f0fdf4;padding:1rem;border-radius:0.5rem;margin-top:1rem;"><p style="color:#10b981;">✅ Payment recorded!</p><p>Remaining Debt: <strong style="color:#ef4444;">KES '+(customer.totalDebt-amount).toLocaleString()+'</strong></p></div></div><div class="modal-footer" style="justify-content:center;"><button class="btn btn-primary" onclick="this.closest(\'.modal-overlay\').remove();AppRouter.navigate(\'cashier-dashboard\')">Dashboard</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>'; document.body.appendChild(sm); sm.onclick = function(e){if(e.target===sm)sm.remove();}; m.remove(); self._selectedCustomer=null;self._selectedCustomerId=null;var debtDiv=document.getElementById('customerDebtInfo');if(debtDiv)debtDiv.style.display='none';var nameInput=document.getElementById('customerName');if(nameInput)nameInput.value='';setTimeout(function(){if(typeof CashierDashboardComponent!=='undefined'&&CashierDashboardComponent.loadCreditOnly)CashierDashboardComponent.loadCreditOnly();if(typeof AdminDashboardComponent!=='undefined'&&AdminDashboardComponent.loadCreditOnly)AdminDashboardComponent.loadCreditOnly();},500); }
                 });
             };
         });
     },
 
+    // ========== SALE METHODS ==========
     completeSale() {
         var self = this;
         if (this._cart.length === 0) { this._showMessage('Cart is empty!', 'warning'); return; }
@@ -546,16 +573,27 @@ const POSComponent = {
             if(!phone){ self._showAlert('Required','Enter phone number!','exclamation-triangle','#f59e0b'); return; }
             var btn = m.querySelector('#mpesaStkBtn'); btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
             var statusDiv = m.querySelector('#mpesaStkStatus'); statusDiv.innerHTML = '<span style="color:#3b82f6;"><i class="fas fa-spinner fa-spin"></i> Sending STK Push...</span>';
-            fetch('/api/mpesa/stk-push',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({phoneNumber:phone,amount:Math.round(total),accountReference:'TIH-SALE'})}).then(function(r){return r.json();}).then(function(d){
+            // ✅ REPLACED: fetch with ApiService
+            ApiService.post('/mpesa/stk-push', {
+                phoneNumber: phone,
+                amount: Math.round(total),
+                accountReference: 'TIH-SALE'
+            }).then(function(d){
                 btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send STK Push';
-                if(d.success){ statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> STK Push sent! Waiting...</span>'; var attempts=0; var checkStatus=setInterval(function(){attempts++;fetch('/api/mpesa/transaction/'+d.checkoutRequestID).then(function(r){return r.json();}).then(function(t){if(t.status==='completed'){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#10b981;">✅ Payment received! Ref: '+t.mpesaReceiptNumber+'</span>';setTimeout(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,t.mpesaReceiptNumber,null,transport);},1000);}else if(t.status==='failed'){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#ef4444;">❌ Payment failed</span>';}if(attempts>30){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#f59e0b;">⚠️ Timeout</span>';}});},2000); }else{statusDiv.innerHTML='<span style="color:#ef4444;">❌ '+(d.message||'Failed')+'</span>';}
+                if(d.success){ statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> STK Push sent! Waiting...</span>'; var attempts=0; var checkStatus=setInterval(function(){attempts++;ApiService.get('/mpesa/transaction/'+d.checkoutRequestID).then(function(t){if(t.status==='completed'){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#10b981;">✅ Payment received! Ref: '+t.mpesaReceiptNumber+'</span>';setTimeout(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,t.mpesaReceiptNumber,null,transport);},1000);}else if(t.status==='failed'){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#ef4444;">❌ Payment failed</span>';}if(attempts>30){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#f59e0b;">⚠️ Timeout</span>';}});},2000); }else{statusDiv.innerHTML='<span style="color:#ef4444;">❌ '+(d.message||'Failed')+'</span>';}
             }).catch(function(){btn.disabled=false;btn.innerHTML='<i class="fas fa-paper-plane"></i> Send STK Push';statusDiv.innerHTML='<span style="color:#ef4444;">Network error</span>';});
         };
-        m.querySelector('#mpesaTillBtn').onclick = function(){ var receipt=m.querySelector('#mpesaReceipt').value.trim();if(!receipt){self._showAlert('Required','Enter M-Pesa receipt number!','exclamation-triangle','#f59e0b');return;}fetch('/api/mpesa/till-payment',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({saleId:null,mpesaReceiptNumber:receipt,phoneNumber:m.querySelector('#mpesaPhoneTill').value.trim(),amount:total})}).then(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,receipt,null,transport);}); };
+        m.querySelector('#mpesaTillBtn').onclick = function(){ var receipt=m.querySelector('#mpesaReceipt').value.trim();if(!receipt){self._showAlert('Required','Enter M-Pesa receipt number!','exclamation-triangle','#f59e0b');return;} // ✅ REPLACED: fetch with ApiService
+        ApiService.post('/mpesa/till-payment', {
+            saleId: null,
+            mpesaReceiptNumber: receipt,
+            phoneNumber: m.querySelector('#mpesaPhoneTill').value.trim(),
+            amount: total
+        }).then(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,receipt,null,transport);}); };
     },
 
     _processSale(name, pm, subtotalExclVAT, vatAmount, total, discount, tendered, change, mpesaRef, customerId, transport, phone) {
-        var self = this; var user = AuthService.getCurrentUser();
+        var self = this; var user = this._getCurrentUser();
         var subtotalInclVAT = subtotalExclVAT + vatAmount;
         var msg = '<div style="text-align:center;"><p style="font-size:1.2rem;"><strong>Total: KES ' + total.toLocaleString() + '</strong></p><p>Customer: ' + name + '</p><p>Payment: ' + (pm === 'mpesa' && mpesaRef && !phone ? 'M-PESA (Till)' : pm.toUpperCase()) + '</p>';
         if (discount > 0) msg += '<p style="color:#ef4444;">Discount: -KES ' + discount.toLocaleString() + '</p>';
@@ -568,7 +606,17 @@ const POSComponent = {
         this._showConfirm('Complete Sale', msg, async function() {
             var saleData = { items: self._cart, customerName: name, paymentMethod: pm, subtotal: subtotalInclVAT, subtotalExclVAT: subtotalExclVAT, tax: vatAmount, discount: discount || 0, total: total, transportCost: transport || 0, cashierId: user?.id, cashierName: user?.fullName, mpesaRef: mpesaRef || null, isCredit: pm === 'credit' ? 1 : 0, customerId: customerId || null, customerPhone: phone || null };
             var sale = await SaleService.create(saleData);
-            if (pm === 'credit' && customerId && sale.saleId) { await fetch('/api/credit-sales', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({saleId: sale.saleId, customerId: customerId, customerName: name, amount: total, cashierId: user?.id, cashierName: user?.fullName}) }); }
+            if (pm === 'credit' && customerId && sale.saleId) { 
+                // ✅ REPLACED: fetch with ApiService
+                await ApiService.post('/credit-sales', {
+                    saleId: sale.saleId,
+                    customerId: customerId,
+                    customerName: name,
+                    amount: total,
+                    cashierId: user?.id,
+                    cashierName: user?.fullName
+                });
+            }
             self._cart = []; self._updateCart(); self._selectedCustomerId = null; self._selectedCustomer = null;
             var at = document.getElementById('amountTendered'); if (at) at.value = '';
             var cd = document.getElementById('changeDisplay'); if (cd) cd.style.display = 'none';
@@ -583,8 +631,117 @@ const POSComponent = {
         }, 'Confirm & Print Receipt', 'success');
     },
 
-    // ... (showReturnExchange, _searchReceipt, _searchExchangeProduct, etc. – KEEP EXACTLY AS IN YOUR ORIGINAL, no changes needed for return/exchange logic)
-    // (For brevity, I'm omitting the rest of the return/exchange functions from the answer, but you must keep them as they were. I'll include them in the final file if you need, but they are unchanged.)
+    // ========== RETURN/EXCHANGE METHODS ==========
+    showReturnExchange() {
+        var m = document.createElement('div'); m.className = 'modal-overlay';
+        m.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-exchange-alt"></i> Return / Exchange</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Receipt No</label><div style="display:flex;gap:0.5rem;"><input type="text" id="returnReceiptInput" class="form-control" placeholder="e.g., TIH-XXXXXX" style="flex:1;"><button class="btn btn-primary" id="returnSearchBtn"><i class="fas fa-search"></i> Search</button></div><div id="returnReceiptResult"></div></div><div id="returnProcessArea" style="display:none;margin-top:1rem;"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+        document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
+        var self = this;
+        m.querySelector('#returnSearchBtn').onclick = function() { self._searchReceipt(m); };
+        m.querySelector('#returnReceiptInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { self._searchReceipt(m); } });
+    },
+
+    _searchReceipt(m) {
+        var q = m.querySelector('#returnReceiptInput').value.trim();
+        if (!q) { this._showMessage('Enter a receipt number!', 'warning'); return; }
+        var self = this;
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/sales/search/' + encodeURIComponent(q)).then(function(sale){
+            var resultDiv = m.querySelector('#returnReceiptResult'), processDiv = m.querySelector('#returnProcessArea');
+            if (sale.error) { resultDiv.innerHTML = '<div style="padding:1rem;background:#fef2f2;border-radius:0.5rem;color:#ef4444;">❌ Receipt not found</div>'; processDiv.style.display = 'none'; return; }
+            // ✅ REPLACED: fetch with ApiService
+            ApiService.get('/returns/receipt/' + encodeURIComponent(sale.receiptNo)).then(function(existingReturns){
+                var returnedItems = existingReturns || [], returnedMap = {};
+                returnedItems.forEach(function(r){ var key = r.productId + '-' + r.returnType; returnedMap[key] = (returnedMap[key] || 0) + r.quantity; });
+                var html = '<div style="padding:1rem;background:#f0fdf4;border-radius:0.5rem;margin-top:0.5rem;">';
+                html += '<h4>✅ Sale Found: ' + sale.receiptNo + '</h4>';
+                html += '<p><strong>Customer:</strong> ' + (sale.customerName || 'Walk-in') + '</p>';
+                html += '<p><strong>Date:</strong> ' + new Date(sale.date).toLocaleDateString('en-KE') + '</p>';
+                html += '<p><strong>Total:</strong> KES ' + Number(sale.total || 0).toLocaleString() + '</p>';
+                if (sale.is_returned) { html += '<p style="color:#f59e0b;"><strong>⚠️ This sale has already been partially/fully returned/exchanged.</strong></p>'; }
+                html += '<hr><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">';
+                html += '<div><label><strong>Return Type:</strong></label><select id="returnTypeSelect" class="form-control"><option value="return">Return</option><option value="exchange">Exchange</option></select></div>';
+                html += '<div><label><strong>Items:</strong></label><select id="returnItemSelect" class="form-control">';
+                sale.items.forEach(function(item){ var key = item.productId + '-return'; var returnedQty = returnedMap[key] || 0; var available = item.quantity - returnedQty; if (available > 0) { html += '<option value="' + item.productId + '|' + item.productName + '|' + item.price + '|' + available + '">' + item.productName + ' (x' + available + ' available)</option>'; } });
+                html += '</select></div></div>';
+                html += '<div class="form-group"><label>Quantity</label><input type="number" id="returnQty" class="form-control" value="1" min="1"></div>';
+                html += '<div class="form-group"><label>Reason</label><input type="text" id="returnReason" class="form-control" placeholder="Reason for return/exchange"></div>';
+                html += '<div id="exchangeProductSection" style="display:none;"><div class="form-group"><label>Exchange Product</label><input type="text" id="exchangeProductSearch" class="form-control" placeholder="Search product..." oninput="POSComponent._searchExchangeProduct(this.value)"><div id="exchangeResults"></div></div><div class="form-group"><label>Exchange Quantity</label><input type="number" id="exchangeQty" class="form-control" value="1" min="1"></div></div>';
+                html += '<button class="btn btn-success" id="processReturnBtn"><i class="fas fa-check"></i> Process ' + (sale.returnType === 'exchange' ? 'Exchange' : 'Return') + '</button>';
+                html += '</div>';
+                resultDiv.innerHTML = html; processDiv.style.display = 'block';
+                processDiv.querySelector('#returnTypeSelect').onchange = function() { var el = processDiv.querySelector('#exchangeProductSection'); if (el) el.style.display = this.value === 'exchange' ? 'block' : 'none'; };
+                processDiv.querySelector('#processReturnBtn').onclick = function() { self._processReturn(sale, m); };
+            });
+        });
+    },
+
+    _searchExchangeProduct(query) {
+        var resultsDiv = document.getElementById('exchangeResults');
+        if (!resultsDiv) return;
+        if (!query || query.length < 2) { resultsDiv.innerHTML = ''; return; }
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/products/search?q=' + encodeURIComponent(query)).then(function(products){
+            if (!products || products.length === 0) { resultsDiv.innerHTML = '<div style="padding:0.5rem;color:#999;">No products found</div>'; return; }
+            var h = ''; products.forEach(function(p){ h += '<div style="padding:0.5rem;border-bottom:1px solid #eee;cursor:pointer;" onclick="document.getElementById(\'exchangeProductSearch\').value=\'' + p.name + '\';document.getElementById(\'exchangeProductSearch\').dataset.id=\'' + p.id + '\';document.getElementById(\'exchangeProductSearch\').dataset.price=\'' + p.price + '\';resultsDiv.innerHTML=\'\';">' + p.name + ' - KES ' + p.price.toLocaleString() + ' (Stock: ' + p.stock + ')</div>'; });
+            resultsDiv.innerHTML = h;
+        });
+    },
+
+    _processReturn(sale, modal) {
+        var self = this;
+        var returnType = modal.querySelector('#returnTypeSelect').value;
+        var itemSelect = modal.querySelector('#returnItemSelect');
+        var selected = itemSelect.value.split('|');
+        if (selected.length < 4) { this._showMessage('Select a valid item!', 'warning'); return; }
+        var productId = parseInt(selected[0]), productName = selected[1], price = parseFloat(selected[2]), maxQty = parseInt(selected[3]);
+        var qty = parseInt(modal.querySelector('#returnQty').value) || 1;
+        if (qty < 1 || qty > maxQty) { this._showMessage('Invalid quantity! Max available: ' + maxQty, 'warning'); return; }
+        var reason = modal.querySelector('#returnReason').value || 'No reason provided';
+        var refundAmount = returnType === 'return' ? (price * qty) : 0;
+        var exchangeProductId = null, exchangeProductName = null, exchangeAmount = 0;
+        if (returnType === 'exchange') {
+            var exchangeSearch = modal.querySelector('#exchangeProductSearch');
+            var exchangeId = exchangeSearch?.dataset?.id;
+            var exchangePrice = parseFloat(exchangeSearch?.dataset?.price) || 0;
+            var exchangeQty = parseInt(modal.querySelector('#exchangeQty').value) || 1;
+            if (!exchangeId) { this._showMessage('Select an exchange product!', 'warning'); return; }
+            exchangeProductId = parseInt(exchangeId);
+            exchangeProductName = exchangeSearch.value;
+            exchangeAmount = exchangePrice * exchangeQty;
+        }
+        var returnData = {
+            originalSaleId: sale.id,
+            originalReceiptNo: sale.receiptNo,
+            customerName: sale.customerName || 'Walk-in',
+            returnType: returnType,
+            productId: productId,
+            productName: productName,
+            quantity: qty,
+            returnAmount: refundAmount,
+            exchangeProductId: exchangeProductId,
+            exchangeProductName: exchangeProductName,
+            exchangeAmount: exchangeAmount,
+            refundAmount: returnType === 'return' ? refundAmount : 0,
+            reason: reason,
+            cashierName: this._getCurrentUser()?.fullName || 'Cashier'
+        };
+        var msg = '<div style="text-align:center;"><h3>' + (returnType === 'return' ? 'Return' : 'Exchange') + '</h3><p><strong>Product:</strong> ' + productName + '</p><p><strong>Quantity:</strong> ' + qty + '</p>';
+        if (returnType === 'return') msg += '<p><strong>Refund Amount:</strong> KES ' + refundAmount.toLocaleString() + '</p>';
+        else msg += '<p><strong>Exchange Product:</strong> ' + exchangeProductName + ' x ' + exchangeQty + '</p>';
+        msg += '</div>';
+        this._showConfirm('Process ' + (returnType === 'return' ? 'Return' : 'Exchange'), msg, function(){
+            // ✅ REPLACED: fetch with ApiService
+            ApiService.post('/returns', returnData).then(function(){
+                self._showMessage('✅ ' + (returnType === 'return' ? 'Return' : 'Exchange') + ' processed successfully!', 'success');
+                modal.remove();
+                // Refresh dashboard if returns tab is open
+                if (typeof CashierDashboardComponent !== 'undefined' && CashierDashboardComponent._currentView === 'returns') {
+                    CashierDashboardComponent._loadMyReturns();
+                }
+            }).catch(function(e){ self._showMessage('Error: ' + e.message, 'danger'); });
+        }, 'Confirm', 'success');
+    },
 
     _updateCart() {
         var el=document.getElementById('cartItems'),count=document.getElementById('cartCount');if(!el)return;
@@ -627,7 +784,31 @@ const POSComponent = {
         this.calculateChange();
     },
 
-    _showMessage(msg, type) { var d=document.createElement('div');d.style.cssText='position:fixed;top:20px;right:20px;z-index:9999;padding:1rem 1.5rem;border-radius:1rem;color:white;font-weight:600;';d.style.background=type==='danger'?'#ef4444':type==='warning'?'#f59e0b':'#10b981';d.textContent=(type==='danger'?'❌ ':'✅ ')+msg;document.body.appendChild(d);setTimeout(function(){d.remove();},3000); },
+    _showMessage(msg, type) { 
+        var d=document.createElement('div');
+        d.style.cssText='position:fixed;top:20px;right:20px;z-index:9999;padding:1rem 1.5rem;border-radius:1rem;color:white;font-weight:600;';
+        d.style.background=type==='danger'?'#ef4444':type==='warning'?'#f59e0b':'#10b981';
+        d.textContent=(type==='danger'?'❌ ':'✅ ')+msg;
+        document.body.appendChild(d);
+        setTimeout(function(){d.remove();},3000); 
+    },
 
-    _showConfirm(title, msg, onConfirm, btnText, btnType) { var m=document.createElement('div');m.className='modal-overlay';m.innerHTML='<div class="modal"><div class="modal-header"><h3>'+title+'</h3></div><div class="modal-body">'+msg+'</div><div class="modal-footer"><button class="btn btn-outline" id="modalCancel">Cancel</button><button class="btn btn-'+(btnType||'primary')+'" id="modalConfirm">'+(btnText||'Confirm')+'</button></div></div>';document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};m.querySelector('#modalCancel').onclick=function(){m.remove();};m.querySelector('#modalConfirm').onclick=function(){m.remove();if(onConfirm)onConfirm();}; }
+    _showConfirm(title, msg, onConfirm, btnText, btnType) { 
+        var m=document.createElement('div');m.className='modal-overlay';
+        m.innerHTML='<div class="modal"><div class="modal-header"><h3>'+title+'</h3></div><div class="modal-body">'+msg+'</div><div class="modal-footer"><button class="btn btn-outline" id="modalCancel">Cancel</button><button class="btn btn-'+(btnType||'primary')+'" id="modalConfirm">'+(btnText||'Confirm')+'</button></div></div>';
+        document.body.appendChild(m);
+        m.onclick=function(e){if(e.target===m)m.remove();};
+        m.querySelector('#modalCancel').onclick=function(){m.remove();};
+        m.querySelector('#modalConfirm').onclick=function(){m.remove();if(onConfirm)onConfirm();}; 
+    },
+
+    _showReceipt(sale) {
+        var h = SaleService.generateReceiptHTML(sale);
+        var m = document.createElement('div'); m.className = 'modal-overlay';
+        m.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-receipt"></i> Receipt</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">' + h + '</div><div class="modal-footer"><button class="btn btn-primary" onclick="SaleService.printReceipt(\'' + sale.receiptNo + '\')"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+        document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
+    }
 };
+
+// Make globally available
+window.POSComponent = POSComponent;
