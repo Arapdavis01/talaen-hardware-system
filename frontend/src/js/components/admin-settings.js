@@ -1,3 +1,7 @@
+// ============================================
+// ADMIN SETTINGS - With JWT Authentication
+// ============================================
+
 const AdminSettingsComponent = {
     _activityFilter: 'all',
 
@@ -70,9 +74,14 @@ const AdminSettingsComponent = {
         return h;
     },
 
+    // ============================================
+    // ✅ UPDATED: Using ApiService with JWT
+    // ============================================
+
     // ========== ANNOUNCEMENT ==========
     loadAnnouncement() {
-        fetch('/api/settings').then(function(r){return r.json();}).then(function(s) {
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/settings').then(function(s) {
             var input = document.getElementById('announcementText');
             if (input) input.value = s.announcement || '';
         });
@@ -80,22 +89,20 @@ const AdminSettingsComponent = {
 
     saveAnnouncement() {
         var text = document.getElementById('announcementText').value.trim();
-        fetch('/api/settings', {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ announcement: text })
-        }).then(function(r){return r.json();}).then(function(d) {
-            if (d.success) {
-                AdminSettingsComponent.showMsg('announcementMsg', '✅ Announcement saved!', 'success');
-            }
-        });
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.put('/settings', { announcement: text })
+            .then(function(d) {
+                if (d.success) {
+                    AdminSettingsComponent.showMsg('announcementMsg', '✅ Announcement saved!', 'success');
+                }
+            });
     },
 
     // ========== M-PESA CONFIG ==========
     async loadMpesaConfig() {
         try {
-            var res = await fetch('/api/mpesa/config');
-            var config = await res.json();
+            // ✅ REPLACED: fetch with ApiService
+            const config = await ApiService.get('/mpesa/config');
             var ck = document.getElementById('mpesaConsumerKey');
             var cs = document.getElementById('mpesaConsumerSecret');
             var pk = document.getElementById('mpesaPasskey');
@@ -116,19 +123,15 @@ const AdminSettingsComponent = {
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
         try {
-            var res = await fetch('/api/mpesa/config', {
-                method: 'PUT',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    consumerKey: document.getElementById('mpesaConsumerKey').value.trim(),
-                    consumerSecret: document.getElementById('mpesaConsumerSecret').value.trim(),
-                    passkey: document.getElementById('mpesaPasskey').value.trim(),
-                    tillNumber: document.getElementById('mpesaTillNumber').value.trim(),
-                    shortCode: document.getElementById('mpesaShortCode').value.trim(),
-                    environment: document.getElementById('mpesaEnv').value
-                })
+            // ✅ REPLACED: fetch with ApiService
+            const data = await ApiService.put('/mpesa/config', {
+                consumerKey: document.getElementById('mpesaConsumerKey').value.trim(),
+                consumerSecret: document.getElementById('mpesaConsumerSecret').value.trim(),
+                passkey: document.getElementById('mpesaPasskey').value.trim(),
+                tillNumber: document.getElementById('mpesaTillNumber').value.trim(),
+                shortCode: document.getElementById('mpesaShortCode').value.trim(),
+                environment: document.getElementById('mpesaEnv').value
             });
-            var data = await res.json();
             if (data.success) {
                 this.showMsg('mpesaConfigMsg', 'M-Pesa configuration saved!', 'success');
             } else {
@@ -161,38 +164,102 @@ const AdminSettingsComponent = {
     },
 
     loadCurrentPassword() {
-        fetch('/api/settings').then(function(r){return r.json();}).then(function(s){
-            if (s && s.adminPassword) { document.getElementById('currentPassDisplay').textContent = '........'; document.getElementById('currentPassDisplay').dataset.realPass = s.adminPassword; }
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/settings').then(function(s){
+            if (s && s.adminPassword) { 
+                document.getElementById('currentPassDisplay').textContent = '........'; 
+                document.getElementById('currentPassDisplay').dataset.realPass = s.adminPassword; 
+            }
         });
     },
 
     toggleShowCurrent() {
         var el = document.getElementById('currentPassDisplay'), btn = document.getElementById('showCurrentBtn');
-        if (el.textContent === '........') { el.textContent = el.dataset.realPass || 'N/A'; btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide'; }
-        else { el.textContent = '........'; btn.innerHTML = '<i class="fas fa-eye"></i> Show'; }
+        if (el.textContent === '........') { 
+            el.textContent = el.dataset.realPass || 'N/A'; 
+            btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide'; 
+        } else { 
+            el.textContent = '........'; 
+            btn.innerHTML = '<i class="fas fa-eye"></i> Show'; 
+        }
     },
 
-    toggleAdminPass() { var f=document.getElementById('newAdminPass'),b=document.getElementById('adminPassToggle'); if(f.type==='password'){f.type='text';b.innerHTML='<i class="fas fa-eye-slash"></i>';}else{f.type='password';b.innerHTML='<i class="fas fa-eye"></i>';} },
-    toggleAddPass() { var f=document.getElementById('cashierPass'),b=document.getElementById('addPassToggle'); if(f.type==='password'){f.type='text';b.innerHTML='<i class="fas fa-eye-slash"></i>';}else{f.type='password';b.innerHTML='<i class="fas fa-eye"></i>';} },
+    toggleAdminPass() { 
+        var f=document.getElementById('newAdminPass'),b=document.getElementById('adminPassToggle'); 
+        if(f.type==='password'){f.type='text';b.innerHTML='<i class="fas fa-eye-slash"></i>';}else{f.type='password';b.innerHTML='<i class="fas fa-eye"></i>';} 
+    },
+    
+    toggleAddPass() { 
+        var f=document.getElementById('cashierPass'),b=document.getElementById('addPassToggle'); 
+        if(f.type==='password'){f.type='text';b.innerHTML='<i class="fas fa-eye-slash"></i>';}else{f.type='password';b.innerHTML='<i class="fas fa-eye"></i>';} 
+    },
 
     changeAdminPass() {
-        var p = document.getElementById('newAdminPass').value.trim(); if (!p || p.length < 4) { showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); return; }
+        var p = document.getElementById('newAdminPass').value.trim(); 
+        if (!p || p.length < 4) { 
+            showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); 
+            return; 
+        }
         var self = this;
-        Promise.all([fetch('/api/settings',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({adminPassword:p})}),fetch('/api/users/1',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:p})})]).then(function(){self.showMsg('adminPassMsg','Password updated!','success');document.getElementById('newAdminPass').value='';self.loadActivity();}).catch(function(e){self.showMsg('adminPassMsg','Error: '+e.message,'danger');});
+        
+        // ✅ REPLACED: fetch with ApiService
+        Promise.all([
+            ApiService.put('/settings', { adminPassword: p }),
+            ApiService.put('/users/1', { password: p })
+        ]).then(function(){
+            self.showMsg('adminPassMsg','Password updated!','success');
+            document.getElementById('newAdminPass').value='';
+            self.loadActivity();
+        }).catch(function(e){
+            self.showMsg('adminPassMsg','Error: '+e.message,'danger');
+        });
     },
 
     addUser() {
-        var n=document.getElementById('cashierName').value.trim(),u=document.getElementById('cashierUser').value.trim(),p=document.getElementById('cashierPass').value.trim(),r=document.getElementById('cashierRole').value;
+        var n=document.getElementById('cashierName').value.trim(),
+            u=document.getElementById('cashierUser').value.trim(),
+            p=document.getElementById('cashierPass').value.trim(),
+            r=document.getElementById('cashierRole').value;
+        
         if(!n||!u||!p){showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');return;}
-        var btn=document.getElementById('addCashierBtn'),self=this;btn.disabled=true;btn.innerHTML='Adding...';
-        fetch('/api/users',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:u,password:p,role:r,fullName:n,adminName:'Admin'})}).then(function(r){return r.json();}).then(function(d){btn.disabled=false;btn.innerHTML='<i class="fas fa-plus"></i> Add';if(d.success||d.id){self.showMsg('userMsg','User added!','success');document.getElementById('cashierName').value='';document.getElementById('cashierUser').value='';document.getElementById('cashierPass').value='';self.loadUsers();self.loadActivity();}else{self.showMsg('userMsg',d.message||'Failed','danger');}}).catch(function(e){btn.disabled=false;btn.innerHTML='<i class="fas fa-plus"></i> Add';self.showMsg('userMsg','Error: '+e.message,'danger');});
+        
+        var btn=document.getElementById('addCashierBtn'),self=this;
+        btn.disabled=true;btn.innerHTML='Adding...';
+        
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.post('/users', {
+            username: u,
+            password: p,
+            role: r,
+            fullName: n,
+            adminName: 'Admin'
+        }).then(function(d){
+            btn.disabled=false;
+            btn.innerHTML='<i class="fas fa-plus"></i> Add';
+            if(d.success || d.id){
+                self.showMsg('userMsg','User added!','success');
+                document.getElementById('cashierName').value='';
+                document.getElementById('cashierUser').value='';
+                document.getElementById('cashierPass').value='';
+                self.loadUsers();
+                self.loadActivity();
+            } else {
+                self.showMsg('userMsg', d.message || 'Failed', 'danger');
+            }
+        }).catch(function(e){
+            btn.disabled=false;
+            btn.innerHTML='<i class="fas fa-plus"></i> Add';
+            self.showMsg('userMsg','Error: '+e.message,'danger');
+        });
     },
 
     loadUsers() {
         var list=document.getElementById('userList');if(!list)return;
-        fetch('/api/users').then(function(r){return r.json();}).then(function(users){
+        
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/users').then(function(users){
             var h='<table class="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
-            if(!users.length){h+='<tr><td colspan="6">No users</td></tr>';}
+            if(!users || !users.length){h+='<tr><td colspan="6">No users</td></tr>';}
             else{users.forEach(function(c){var pwId='pw_'+c.id;
                 h+='<tr><td><strong>'+c.fullName+'</strong></td><td>'+c.username+'</td><td><span class="badge '+(c.role==='admin'?'badge-success':'badge-info')+'">'+c.role+'</span></td>';
                 h+='<td><div style="display:flex;align-items:center;gap:0.5rem;"><code id="'+pwId+'" data-real="'+c.password+'">....</code><button class="btn btn-sm btn-outline" onclick="var e=document.getElementById(\''+pwId+'\');e.textContent=e.textContent===\'....\'?e.dataset.real:\'....\'"><i class="fas fa-eye"></i></button></div></td>';
@@ -212,7 +279,19 @@ const AdminSettingsComponent = {
         var m=document.createElement('div');m.className='modal-overlay';
         m.innerHTML='<div class="modal"><div class="modal-header"><h3><i class="fas fa-edit"></i> Edit: '+name+'</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Full Name</label><input type="text" id="editName" class="form-control" value="'+name+'"></div><div class="form-group"><label>Username</label><input type="text" id="editUsername" class="form-control" value="'+username+'"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="saveEditBtn"><i class="fas fa-save"></i> Save</button></div></div>';
         document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};var self=this;
-        m.querySelector('#saveEditBtn').onclick=function(){var nn=document.getElementById('editName').value.trim(),nu=document.getElementById('editUsername').value.trim();if(!nn||!nu){showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');return;}fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({fullName:nn,username:nu})}).then(function(){self.showMsg('userMsg','Updated!','success');m.remove();self.loadUsers();self.loadActivity();});};
+        m.querySelector('#saveEditBtn').onclick=function(){
+            var nn=document.getElementById('editName').value.trim(),
+                nu=document.getElementById('editUsername').value.trim();
+            if(!nn||!nu){showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');return;}
+            // ✅ REPLACED: fetch with ApiService
+            ApiService.put('/users/'+id, { fullName: nn, username: nu })
+                .then(function(){
+                    self.showMsg('userMsg','Updated!','success');
+                    m.remove();
+                    self.loadUsers();
+                    self.loadActivity();
+                });
+        };
     },
 
     resetPassword(id, name, currentPass) {
@@ -222,11 +301,25 @@ const AdminSettingsComponent = {
         document.body.appendChild(m);
         m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#oldPassDisplay').dataset.real = currentPass || '';
-        m.querySelector('#showOldPassBtn').onclick = function() { var e=document.getElementById('oldPassDisplay'); if(e.textContent==='....'){e.textContent=e.dataset.real||'';this.textContent='Hide';}else{e.textContent='....';this.textContent='Show';} };
+        m.querySelector('#showOldPassBtn').onclick = function() { 
+            var e=document.getElementById('oldPassDisplay'); 
+            if(e.textContent==='....'){e.textContent=e.dataset.real||'';this.textContent='Hide';}else{e.textContent='....';this.textContent='Show';} 
+        };
         m.querySelector('#cancelReset').onclick = function() { m.remove(); };
         m.querySelector('#confirmReset').onclick = function() {
-            var np = document.getElementById('resetPass').value.trim(); if (!np || np.length < 4) { showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); return; }
-            fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:np})}).then(function(){ self.showMsg('userMsg', 'Password reset!', 'success'); m.remove(); self.loadActivity(); self.loadUsers(); });
+            var np = document.getElementById('resetPass').value.trim(); 
+            if (!np || np.length < 4) { 
+                showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); 
+                return; 
+            }
+            // ✅ REPLACED: fetch with ApiService
+            ApiService.put('/users/'+id, { password: np })
+                .then(function(){ 
+                    self.showMsg('userMsg', 'Password reset!', 'success'); 
+                    m.remove(); 
+                    self.loadActivity(); 
+                    self.loadUsers(); 
+                });
         };
     },
 
@@ -244,8 +337,14 @@ const AdminSettingsComponent = {
         m.querySelector('#confirmRemove').onclick = function() {
             m.querySelector('#confirmRemove').disabled = true;
             m.querySelector('#confirmRemove').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
-            fetch('/api/users/'+id,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({toggle:true})})
-            .then(function(){ m.remove(); self.loadUsers(); self.loadActivity(); self.showMsg('userMsg', 'User status toggled!', 'success'); });
+            // ✅ REPLACED: fetch with ApiService
+            ApiService.put('/users/'+id, { toggle: true })
+                .then(function(){ 
+                    m.remove(); 
+                    self.loadUsers(); 
+                    self.loadActivity(); 
+                    self.showMsg('userMsg', 'User status toggled!', 'success'); 
+                });
         };
     },
 
@@ -257,12 +356,22 @@ const AdminSettingsComponent = {
         m.innerHTML = '<div class="modal"><div class="modal-header"><h3><i class="fas fa-trash"></i> Clear Activity</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p style="text-align:center;font-size:1.1rem;">' + msg + '</p><p style="text-align:center;color:var(--danger);">This cannot be undone!</p></div><div class="modal-footer"><button class="btn btn-outline" id="cancelClear">Cancel</button><button class="btn btn-danger" id="confirmClear"><i class="fas fa-trash"></i> Delete</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#cancelClear').onclick = function() { m.remove(); };
-        m.querySelector('#confirmClear').onclick = function() { m.remove(); fetch('/api/activity',{method:'DELETE'}).then(function() { self.loadActivity(); self.showMsg('userMsg', 'Activity cleared!', 'success'); }); };
+        m.querySelector('#confirmClear').onclick = function() { 
+            m.remove(); 
+            // ✅ REPLACED: fetch with ApiService
+            ApiService.delete('/activity')
+                .then(function() { 
+                    self.loadActivity(); 
+                    self.showMsg('userMsg', 'Activity cleared!', 'success'); 
+                }); 
+        };
     },
 
     loadActivity() {
         var log=document.getElementById('activityLog');if(!log)return;var filter=this._activityFilter||'all';
-        fetch('/api/activity').then(function(r){return r.json();}).then(function(logs){
+        
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/activity').then(function(logs){
             var filtered=logs;
             if(filter==='login')filtered=logs.filter(function(l){return l.action==='login';});
             else if(filter==='sale')filtered=logs.filter(function(l){return l.action==='sale';});
@@ -270,9 +379,12 @@ const AdminSettingsComponent = {
             else if(filter==='profile_update')filtered=logs.filter(function(l){return l.action==='profile_update';});
             else if(filter==='password')filtered=logs.filter(function(l){return l.action==='password_change';});
             var h='<table class="table"><thead><tr><th>Date</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody>';
-            if(!filtered.length){h+='<tr><td colspan="4">No activity</td></tr>';}
+            if(!filtered || !filtered.length){h+='<tr><td colspan="4">No activity</td></tr>';}
             else{filtered.forEach(function(l){var b='<span class="badge badge-info">'+l.action+'</span>';if(l.action==='login')b='<span class="badge badge-info">Login</span>';else if(l.action==='sale')b='<span class="badge badge-primary">Sale</span>';else if(l.action==='add_product')b='<span class="badge badge-success">Add Product</span>';else if(l.action==='add_cashier')b='<span class="badge badge-success">Add User</span>';else if(l.action==='profile_update')b='<span class="badge badge-warning">Edit</span>';else if(l.action==='password_change')b='<span class="badge badge-danger">Password</span>';h+='<tr><td><small>'+new Date(l.date).toLocaleString('en-KE')+'</small></td><td><strong>'+l.userName+'</strong></td><td>'+b+'</td><td>'+l.details+'</td></tr>';});}
             h+='</tbody></table>';log.innerHTML=h;
         });
     }
 };
+
+// Make globally available
+window.AdminSettingsComponent = AdminSettingsComponent;
