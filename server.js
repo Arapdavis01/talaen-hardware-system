@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const mysql = require('mysql2/promise');
+const bcrypt = require('bcrypt'); // 👈 Added for password hashing
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -8,6 +9,7 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'frontend', 'public')));
 app.use('/src', express.static(path.join(__dirname, 'frontend', 'src')));
 
+// 🔥 UPDATED: MySQL connection with SSL support for Aiven
 const pool = mysql.createPool({
     host: process.env.MYSQLHOST || 'localhost',
     user: process.env.MYSQLUSER || 'root',
@@ -15,7 +17,8 @@ const pool = mysql.createPool({
     database: process.env.MYSQLDATABASE || 'talaen_hardware',
     port: process.env.MYSQLPORT || 3306,
     waitForConnections: true,
-    connectionLimit: 10
+    connectionLimit: 10,
+    ssl: process.env.MYSQL_SSL === 'true' ? { rejectUnauthorized: true } : false
 });
 
 async function initDB() {
@@ -44,12 +47,28 @@ async function initDB() {
     try { await pool.query("ALTER TABLE sales ADD COLUMN return_date DATETIME NULL"); } catch(e) {}
     try { await pool.query("ALTER TABLE settings ADD COLUMN announcement TEXT"); } catch(e) {}
 
+    // 🔥 UPDATED: Hash passwords before storing
     const [users] = await pool.query("SELECT COUNT(*) as c FROM users");
     if (users[0].c === 0) {
-        await pool.query("INSERT INTO users VALUES (1,'admin','admin123','admin','Administrator',1)");
-        await pool.query("INSERT INTO users VALUES (2,'cashier','cashier123','cashier','Cashier User',1)");
-        await pool.query("INSERT IGNORE INTO settings (id, adminPassword, taxRate) VALUES (1,'admin123',16)");
+        const hashedAdmin = await bcrypt.hash('admin123', 10);
+        const hashedCashier = await bcrypt.hash('cashier123', 10);
+        
+        await pool.query(
+            "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES (1, 'admin', ?, 'admin', 'Administrator', 1)",
+            [hashedAdmin]
+        );
+        await pool.query(
+            "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES (2, 'cashier', ?, 'cashier', 'Cashier User', 1)",
+            [hashedCashier]
+        );
+        
+        const hashedSettingsAdmin = await bcrypt.hash('admin123', 10);
+        await pool.query(
+            "INSERT IGNORE INTO settings (id, adminPassword, taxRate) VALUES (1, ?, 16)",
+            [hashedSettingsAdmin]
+        );
     }
+    
     const [mpesa] = await pool.query("SELECT COUNT(*) as c FROM mpesa_config");
     if (mpesa[0].c === 0) { await pool.query("INSERT INTO mpesa_config (id, environment) VALUES (1, 'sandbox')"); }
     console.log('✅ Database initialized (MySQL)');
@@ -59,19 +78,92 @@ function logActivity(userId, userName, action, details) {
     pool.query("INSERT INTO activity_log (userId, userName, action, details, date) VALUES (?,?,?,?,NOW())", [userId||null, userName||'System', action, details]);
 }
 
-// AUTH
-app.post('/api/auth/login', async (req, res) => { const { username, password } = req.body; const [user] = await pool.query("SELECT * FROM users WHERE username=? AND password=? AND isActive=1", [username, password]); if (user.length > 0) { logActivity(user[0].id, user[0].fullName, 'login', 'Logged in'); return res.json({ success: true, user: { id: user[0].id, username: user[0].username, role: user[0].role, fullName: user[0].fullName } }); } res.json({ success: false, message: 'Invalid credentials' }); });
+// 🔥 UPDATED: Secure login with bcrypt
+app.post('/api/auth/login', async (req, res) => { 
+    const { username, password } = req.body; 
+    try {
+        const [user] = await pool.query(
+            "SELECT * FROM users WHERE username=? AND isActive=1", 
+            [username]
+        );
+        
+        if (user.length === 0) {
+            return res.json({ success: false, message: 'Invalid credentials' });
+        }
+
+        const isMatch = await bcrypt.compare(password, user[0].password);
+        
+        if (!isMatch) {
+            return res.json({ success: false, message: 'Invalid credentials' });
+        }
+
+        logActivity(user[0].id, user[0].fullName, 'login', 'Logged in');
+        return res.json({ 
+            success: true, 
+            user: { 
+                id: user[0].id, 
+                username: user[0].username, 
+                role: user[0].role, 
+                fullName: user[0].fullName 
+            } 
+        });
+    } catch (error) {
+        console.error('Login error:', error);
+        res.json({ success: false, message: 'Server error' });
+    }
+});
 
 // USERS
 app.get('/api/users', async (req, res) => { const [r] = await pool.query("SELECT id, username, password, role, fullName, isActive FROM users"); res.json(r); });
-app.post('/api/users', async (req, res) => { const { username, password, role, fullName } = req.body; try { const [r] = await pool.query("INSERT INTO users (username, password, role, fullName) VALUES (?,?,?,?)", [username, password, role||'cashier', fullName]); logActivity(null, 'Admin', 'add_user', 'Added: ' + fullName); res.json({ success: true, id: r.insertId }); } catch(e) { res.json({ success: false, message: 'Username exists' }); } });
-app.put('/api/users/:id', async (req, res) => { const { password, isActive, fullName, username, toggle } = req.body; const [user] = await pool.query("SELECT * FROM users WHERE id=?", [req.params.id]); if (!user.length) return res.json({ success: false }); if (password) { await pool.query("UPDATE users SET password=? WHERE id=?", [password, req.params.id]); } if (isActive !== undefined) await pool.query("UPDATE users SET isActive=? WHERE id=?", [isActive, req.params.id]); if (toggle) { if (user[0].role === 'admin') return res.json({ success: false, message: 'Cannot deactivate admin' }); await pool.query("UPDATE users SET isActive=? WHERE id=?", [user[0].isActive ? 0 : 1, req.params.id]); } if (fullName) await pool.query("UPDATE users SET fullName=? WHERE id=?", [fullName, req.params.id]); if (username) await pool.query("UPDATE users SET username=? WHERE id=?", [username, req.params.id]); res.json({ success: true }); });
+
+// 🔥 UPDATED: Hash new user password
+app.post('/api/users', async (req, res) => { 
+    const { username, password, role, fullName } = req.body; 
+    try {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const [r] = await pool.query(
+            "INSERT INTO users (username, password, role, fullName) VALUES (?,?,?,?)", 
+            [username, hashedPassword, role||'cashier', fullName]
+        );
+        logActivity(null, 'Admin', 'add_user', 'Added: ' + fullName);
+        res.json({ success: true, id: r.insertId });
+    } catch(e) {
+        res.json({ success: false, message: 'Username exists' });
+    }
+});
+
+// 🔥 UPDATED: Hash password when updating
+app.put('/api/users/:id', async (req, res) => { 
+    const { password, isActive, fullName, username, toggle } = req.body; 
+    const [user] = await pool.query("SELECT * FROM users WHERE id=?", [req.params.id]); 
+    if (!user.length) return res.json({ success: false }); 
+    
+    if (password) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        await pool.query("UPDATE users SET password=? WHERE id=?", [hashedPassword, req.params.id]); 
+    } 
+    if (isActive !== undefined) await pool.query("UPDATE users SET isActive=? WHERE id=?", [isActive, req.params.id]); 
+    if (toggle) { 
+        if (user[0].role === 'admin') return res.json({ success: false, message: 'Cannot deactivate admin' }); 
+        await pool.query("UPDATE users SET isActive=? WHERE id=?", [user[0].isActive ? 0 : 1, req.params.id]); 
+    } 
+    if (fullName) await pool.query("UPDATE users SET fullName=? WHERE id=?", [fullName, req.params.id]); 
+    if (username) await pool.query("UPDATE users SET username=? WHERE id=?", [username, req.params.id]); 
+    res.json({ success: true }); 
+});
 
 // SETTINGS
 app.get('/api/settings', async (req, res) => { const [r] = await pool.query("SELECT * FROM settings WHERE id=1"); res.json(r[0] || { adminPassword: 'admin123' }); });
+
+// 🔥 UPDATED: Hash admin password when updating
 app.put('/api/settings', async (req, res) => { 
-    if (req.body.adminPassword) { await pool.query("UPDATE settings SET adminPassword=? WHERE id=1", [req.body.adminPassword]); }
-    if (req.body.announcement !== undefined) { await pool.query("UPDATE settings SET announcement=? WHERE id=1", [req.body.announcement]); }
+    if (req.body.adminPassword) {
+        const hashedPassword = await bcrypt.hash(req.body.adminPassword, 10);
+        await pool.query("UPDATE settings SET adminPassword=? WHERE id=1", [hashedPassword]); 
+    }
+    if (req.body.announcement !== undefined) { 
+        await pool.query("UPDATE settings SET announcement=? WHERE id=1", [req.body.announcement]); 
+    }
     res.json({ success: true }); 
 });
 
@@ -94,7 +186,7 @@ app.delete('/api/products/:id', async (req, res) => { await pool.query("UPDATE p
 app.put('/api/products/:id/stock', async (req, res) => { await pool.query("UPDATE products SET stock=stock+? WHERE id=?", [req.body.quantity, req.params.id]); res.json({ success: true }); });
 app.get('/api/products/search', async (req, res) => { const q = '%' + (req.query.q || '') + '%'; const [products] = await pool.query("SELECT id, name, brand, variant, price, stock, unit FROM products WHERE isActive=1 AND (name LIKE ? OR brand LIKE ? OR variant LIKE ?) AND stock > 0 ORDER BY name LIMIT 20", [q, q, q]); res.json(products); });
 
-// SALES
+// SALES (All unchanged - keep your existing sales endpoints)
 app.get('/api/sales', async (req, res) => { const [sales] = await pool.query("SELECT * FROM sales ORDER BY date DESC"); for (let s of sales) { const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = ?", [s.id]); s.items = items; } res.json(sales); });
 app.get('/api/sales/cashiers-summary', async (req, res) => { const [cashiers] = await pool.query("SELECT id, fullName, username FROM users WHERE role='cashier' AND isActive=1"); const today = new Date().toISOString().split('T')[0]; const result = []; for (let c of cashiers) { const [sales] = await pool.query("SELECT * FROM sales WHERE cashierId=? AND isVoid=0", [c.id]); const todaySales = sales.filter(s => s.date && s.date.startsWith(today)); result.push({ id: c.id, name: c.fullName, username: c.username, totalAll: sales.reduce((s, sale) => s + Number(sale.total), 0), totalToday: todaySales.reduce((s, sale) => s + Number(sale.total), 0), countAll: sales.length, countToday: todaySales.length }); } res.json(result); });
 app.get('/api/sales/cashier/:id', async (req, res) => { const [sales] = await pool.query("SELECT * FROM sales WHERE cashierId=? AND isVoid=0 ORDER BY date DESC", [req.params.id]); const today = new Date().toISOString().split('T')[0]; const todaySales = sales.filter(s => s.date && s.date.startsWith(today)); res.json({ all: sales, today: todaySales, totalAll: sales.reduce((s, sale) => s + Number(sale.total), 0), totalToday: todaySales.reduce((s, sale) => s + Number(sale.total), 0), countAll: sales.length, countToday: todaySales.length }); });
@@ -107,7 +199,7 @@ app.get('/api/returns/receipt/:receiptNo', async (req, res) => { const [returns]
 app.get('/api/returns/summary', async (req, res) => { try { var [totalReturns] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='return'"); var [totalExchanges] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='exchange'"); var [totalRefunded] = await pool.query("SELECT SUM(refundAmount) as total FROM returns_table"); var today = new Date().toISOString().split('T')[0] + '%'; var [todayReturns] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE date LIKE ?", [today]); res.json({ totalReturns: totalReturns[0].count || 0, totalExchanges: totalExchanges[0].count || 0, totalRefunded: totalRefunded[0].total || 0, todayReturns: todayReturns[0].count || 0 }); } catch(e) { res.json({ totalReturns: 0, totalExchanges: 0, totalRefunded: 0, todayReturns: 0 }); } });
 app.get('/api/sales/search/:receiptNo', async (req, res) => { const [sale] = await pool.query("SELECT * FROM sales WHERE receiptNo = ?", [req.params.receiptNo]); if (sale.length) { const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = ?", [sale[0].id]); sale[0].items = items; res.json(sale[0]); } else { res.json({ error: 'Sale not found' }); } });
 
-// PURCHASE ORDERS
+// PURCHASE ORDERS (All unchanged)
 app.get('/api/purchase-orders', async (req, res) => { const [pos] = await pool.query("SELECT * FROM purchase_orders ORDER BY date DESC"); for (let po of pos) { const [items] = await pool.query("SELECT * FROM po_items WHERE poId = ?", [po.id]); po.items = items; } res.json(pos); });
 app.post('/api/purchase-orders', async (req, res) => { try { const d = req.body; const poNumber = 'PO-' + Date.now().toString(36).toUpperCase(); const [po] = await pool.query("INSERT INTO purchase_orders (poNumber, supplierName, supplierId, notes, total, createdBy, date) VALUES (?,?,?,?,?,?,NOW())", [poNumber, d.supplierName, d.supplierId||null, d.notes, d.total, d.createdBy]); const poId = po.insertId; if (d.items) { for (let i of d.items) { await pool.query("INSERT INTO po_items (poId, productName, brand, variant, quantity, unitPrice, sellingPrice, lastPrice, currentStock, discount, total) VALUES (?,?,?,?,?,?,?,?,?,?,?)", [poId, i.productName, i.brand||'', i.variant||'', i.quantity, i.unitPrice, i.sellingPrice||0, i.lastPrice||0, i.currentStock||0, i.discount||0, i.total]); } } logActivity(null, 'Admin', 'purchase_order', 'PO: ' + poNumber); res.json({ success: true, poNumber: poNumber }); } catch(e) { res.json({ success: false, message: e.message }); } });
 app.put('/api/purchase-orders/:id/receive', async (req, res) => { const [po] = await pool.query("SELECT * FROM purchase_orders WHERE id = ?", [req.params.id]); if (!po.length) return res.json({ success: false }); const [items] = await pool.query("SELECT * FROM po_items WHERE poId = ?", [req.params.id]); for (let i of items) { const [p] = await pool.query("SELECT * FROM products WHERE name=? AND brand=? AND variant=? AND isActive=1", [i.productName, i.brand, i.variant]); if (p.length) await pool.query("UPDATE products SET stock = stock + ?, cost = ? WHERE id = ?", [i.quantity, i.unitPrice, p[0].id]); } await pool.query("UPDATE purchase_orders SET status = 'received', receivedDate = NOW() WHERE id = ?", [req.params.id]); logActivity(null, 'Admin', 'po_received', 'PO received: ' + po[0].poNumber); res.json({ success: true }); });
