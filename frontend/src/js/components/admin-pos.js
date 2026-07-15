@@ -8,7 +8,7 @@ const AdminPOSComponent = {
     _search: '',
     _stockFilter: '',
 
-    render() {
+    render: function() {
         var products = ProductService._cache || [];
         
         var totalValue = 0;
@@ -22,14 +22,14 @@ const AdminPOSComponent = {
         h += '<div class="stats-grid">';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-boxes"></i></div><div class="stat-label">Total Products</div><div class="stat-value">' + products.length + '</div><div class="stat-sub" id="totalTypes">...</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Inventory Value</div><div class="stat-value">KES ' + totalValue.toLocaleString() + '</div><div class="stat-sub">Current stock value</div></div>';
-        h += '<div class="stat-card" style="cursor:pointer;border-top:3px solid #f59e0b;" onclick="AdminPOSComponent.showLowStockItems()"><div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="stat-label">Low Stock Items</div><div class="stat-value">' + lowStock.length + '</div><div class="stat-sub">Click to view → Need restocking</div></div>';
-        h += '<div class="stat-card" style="cursor:pointer;border-top:3px solid #ef4444;" onclick="AdminPOSComponent.showOutOfStockItems()"><div class="stat-icon"><i class="fas fa-ban"></i></div><div class="stat-label">Out of Stock</div><div class="stat-value">' + outOfStock.length + '</div><div class="stat-sub">Click to view → Unavailable</div></div>';
+        h += '<div class="stat-card" style="cursor:pointer;border-top:3px solid #f59e0b;" onclick="AdminPOSComponent.showLowStockItems()"><div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div><div class="stat-label">Low Stock Items</div><div class="stat-value">' + lowStock.length + '</div><div class="stat-sub">Click to view - Need restocking</div></div>';
+        h += '<div class="stat-card" style="cursor:pointer;border-top:3px solid #ef4444;" onclick="AdminPOSComponent.showOutOfStockItems()"><div class="stat-icon"><i class="fas fa-ban"></i></div><div class="stat-label">Out of Stock</div><div class="stat-value">' + outOfStock.length + '</div><div class="stat-sub">Click to view - Unavailable</div></div>';
         h += '</div>';
         
         // Inventory Overview with pagination
         h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-clipboard-list"></i> Products Inventory Overview</h3>';
         h += '<div style="display:flex;gap:0.5rem;">';
-        h += '<input type="text" id="inventorySearch" class="form-control" placeholder="🔍 Search inventory..." style="width:250px;" oninput="AdminPOSComponent._debounceSearch()">';
+        h += '<input type="text" id="inventorySearch" class="form-control" placeholder="Search inventory..." style="width:250px;" oninput="AdminPOSComponent._debounceSearch()">';
         h += '<select id="inventoryStockFilter" class="form-control" onchange="AdminPOSComponent._filterChange()" style="width:150px;">';
         h += '<option value="">All Stock</option><option value="out">Out of Stock</option><option value="low">Low Stock</option><option value="ok">In Stock</option></select>';
         h += '<select id="inventoryLimit" class="form-control" onchange="AdminPOSComponent._changeLimit()" style="width:90px;">';
@@ -48,7 +48,7 @@ const AdminPOSComponent = {
     },
 
     // Clickable Low Stock card
-    showLowStockItems() {
+    showLowStockItems: function() {
         var products = ProductService._cache || [];
         var lowStock = products.filter(function(p) { return p.stock <= (p.minStock || 10) && p.stock > 0; });
         
@@ -79,7 +79,7 @@ const AdminPOSComponent = {
     },
 
     // Clickable Out of Stock card
-    showOutOfStockItems() {
+    showOutOfStockItems: function() {
         var products = ProductService._cache || [];
         var outOfStock = products.filter(function(p) { return p.stock === 0; });
         
@@ -109,6 +109,7 @@ const AdminPOSComponent = {
     },
 
     _debounceTimer: null,
+    
     _debounceSearch: function() {
         clearTimeout(this._debounceTimer);
         var self = this;
@@ -132,7 +133,7 @@ const AdminPOSComponent = {
     },
 
     // ============================================
-    // ✅ UPDATED: Using ApiService with JWT
+    // UPDATED: Using ApiService with JWT
     // ============================================
 
     loadInventory: async function() {
@@ -145,23 +146,24 @@ const AdminPOSComponent = {
             if (this._search) params += '&search=' + encodeURIComponent(this._search);
             if (this._stockFilter) params += '&stock=' + this._stockFilter;
             
-            // ✅ REPLACED: fetch with ApiService
-            const data = await ApiService.get('/products/paginated' + params);
+            // Using ApiService with JWT
+            var data = await ApiService.get('/products/paginated' + params);
             
             var totalTypesEl = document.getElementById('totalTypes');
             if (totalTypesEl) {
                 try {
-                    // ✅ REPLACED: fetch with ApiService
-                    const cats = await ApiService.get('/products/categories');
+                    var cats = await ApiService.get('/products/categories');
                     totalTypesEl.textContent = (cats ? cats.length : 0) + ' product types';
-                } catch(e) { totalTypesEl.textContent = '...'; }
+                } catch(e) { 
+                    totalTypesEl.textContent = '...'; 
+                }
             }
             
             this._renderTable(data.products);
             this._renderPagination(data.pagination);
         } catch(e) {
             console.error('Error loading inventory:', e);
-            container.innerHTML = '<p style="color:#ef4444;text-align:center;">Error loading inventory</p>';
+            container.innerHTML = '<p style="color:#ef4444;text-align:center;">Error loading inventory. Please refresh.</p>';
         }
     },
 
@@ -192,7 +194,7 @@ const AdminPOSComponent = {
             
             h += '<div style="margin-bottom:1rem;border:1px solid var(--glass-border);border-radius:var(--radius-xl);overflow:hidden;box-shadow:var(--shadow-sm);">';
             h += '<div style="background:linear-gradient(135deg,rgba(26,71,42,0.9),rgba(196,154,43,0.85));color:white;padding:0.75rem 1.5rem;display:flex;justify-content:space-between;align-items:center;">';
-            h += '<div><strong style="font-size:1.1rem;">📦 ' + group.displayName + '</strong><br><small style="opacity:0.9;">' + variants.length + ' variants | Total Stock: ' + groupTotal + ' units</small></div>';
+            h += '<div><strong style="font-size:1.1rem;"> ' + group.displayName + '</strong><br><small style="opacity:0.9;">' + variants.length + ' variants | Total Stock: ' + groupTotal + ' units</small></div>';
             h += '<span class="badge" style="background:rgba(255,255,255,0.3);">' + (variants[0]?.category || 'General') + '</span>';
             h += '</div>';
             h += '<div style="padding:0.5rem;">';
@@ -229,7 +231,7 @@ const AdminPOSComponent = {
         h += '<small style="color:#666;">Showing ' + ((pagination.page - 1) * pagination.limit + 1) + '-' + Math.min(pagination.page * pagination.limit, pagination.total) + ' of ' + pagination.total.toLocaleString() + '</small>';
         h += '<div style="display:flex;gap:0.25rem;">';
         
-        h += '<button class="btn btn-sm btn-outline" onclick="AdminPOSComponent._goToPage(' + (pagination.page - 1) + ')" ' + (pagination.hasPrev ? '' : 'disabled') + '>◀</button>';
+        h += '<button class="btn btn-sm btn-outline" onclick="AdminPOSComponent._goToPage(' + (pagination.page - 1) + ')" ' + (pagination.hasPrev ? '' : 'disabled') + '>Prev</button>';
         
         var startPage = Math.max(1, pagination.page - 2);
         var endPage = Math.min(pagination.totalPages, pagination.page + 2);
@@ -248,7 +250,7 @@ const AdminPOSComponent = {
             h += '<button class="btn btn-sm btn-outline" onclick="AdminPOSComponent._goToPage(' + pagination.totalPages + ')">' + pagination.totalPages + '</button>';
         }
         
-        h += '<button class="btn btn-sm btn-outline" onclick="AdminPOSComponent._goToPage(' + (pagination.page + 1) + ')" ' + (pagination.hasNext ? '' : 'disabled') + '>▶</button>';
+        h += '<button class="btn btn-sm btn-outline" onclick="AdminPOSComponent._goToPage(' + (pagination.page + 1) + ')" ' + (pagination.hasNext ? '' : 'disabled') + '>Next</button>';
         
         h += '</div></div>';
         container.innerHTML = h;
