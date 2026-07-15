@@ -1,4 +1,8 @@
-﻿const AdminPOSComponent = {
+// ============================================
+// ADMIN POS - With JWT Authentication
+// ============================================
+
+const AdminPOSComponent = {
     _currentPage: 1,
     _limit: 25,
     _search: '',
@@ -127,6 +131,10 @@
         this.loadInventory();
     },
 
+    // ============================================
+    // ✅ UPDATED: Using ApiService with JWT
+    // ============================================
+
     loadInventory: async function() {
         var container = document.getElementById('inventoryTableContainer');
         if (!container) return;
@@ -137,14 +145,14 @@
             if (this._search) params += '&search=' + encodeURIComponent(this._search);
             if (this._stockFilter) params += '&stock=' + this._stockFilter;
             
-            var res = await fetch('/api/products/paginated' + params);
-            var data = await res.json();
+            // ✅ REPLACED: fetch with ApiService
+            const data = await ApiService.get('/products/paginated' + params);
             
             var totalTypesEl = document.getElementById('totalTypes');
             if (totalTypesEl) {
                 try {
-                    var catRes = await fetch('/api/products/categories');
-                    var cats = await catRes.json();
+                    // ✅ REPLACED: fetch with ApiService
+                    const cats = await ApiService.get('/products/categories');
                     totalTypesEl.textContent = (cats ? cats.length : 0) + ' product types';
                 } catch(e) { totalTypesEl.textContent = '...'; }
             }
@@ -152,6 +160,7 @@
             this._renderTable(data.products);
             this._renderPagination(data.pagination);
         } catch(e) {
+            console.error('Error loading inventory:', e);
             container.innerHTML = '<p style="color:#ef4444;text-align:center;">Error loading inventory</p>';
         }
     },
@@ -251,3 +260,6 @@
         window.scrollTo({ top: 300, behavior: 'smooth' });
     }
 };
+
+// Make globally available
+window.AdminPOSComponent = AdminPOSComponent;
