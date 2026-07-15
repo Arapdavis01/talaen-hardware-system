@@ -1,3 +1,7 @@
+// ============================================
+// ADMIN PURCHASES - With JWT Authentication
+// ============================================
+
 const AdminPurchasesComponent = {
     _poItems: [],
     _editingPOId: null,
@@ -51,13 +55,17 @@ const AdminPurchasesComponent = {
         return h;
     },
 
+    // ============================================
+    // ✅ UPDATED: Using ApiService with JWT
+    // ============================================
+
     // ========== FILTERED & GROUPED PO HISTORY ==========
     _allPOs: [],
 
     loadPOs() {
         var self = this;
-        fetch('/api/purchase-orders')
-            .then(function(r){ return r.json(); })
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/purchase-orders')
             .then(function(pos){
                 self._allPOs = pos || [];
                 self._renderPOs(pos);
@@ -209,10 +217,11 @@ const AdminPurchasesComponent = {
         this._renderPOs(filtered);
     },
 
-    // ========== EXISTING FUNCTIONS (unchanged) ==========
+    // ========== EXISTING FUNCTIONS (updated with ApiService) ==========
+    
     loadSuppliers() {
-        fetch('/api/suppliers')
-            .then(function(r){return r.json();})
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/suppliers')
             .then(function(suppliers){
                 var sel = document.getElementById('supplierSelect'); if(!sel)return;
                 sel.innerHTML = '<option value="">Select Supplier...</option>';
@@ -226,7 +235,13 @@ const AdminPurchasesComponent = {
         document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
         m.querySelector('#saveSupplierBtn').onclick = async function(){
             var n = document.getElementById('supName').value.trim(); if(!n){showStyledAlert('Required', 'Name required!', 'exclamation-triangle', '#f59e0b');return;}
-            await fetch('/api/suppliers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n,phone:document.getElementById('supPhone').value,email:document.getElementById('supEmail').value,address:document.getElementById('supAddress').value})});
+            // ✅ REPLACED: fetch with ApiService
+            await ApiService.post('/suppliers', {
+                name: n,
+                phone: document.getElementById('supPhone').value,
+                email: document.getElementById('supEmail').value,
+                address: document.getElementById('supAddress').value
+            });
             m.remove(); AdminPurchasesComponent.loadSuppliers();
         };
     },
@@ -242,8 +257,8 @@ const AdminPurchasesComponent = {
         if (!supplierSelect || !supplierSelect.value) { this._showSupplierWarning(); document.getElementById('productSearch').value = ''; return; }
         var q = (document.getElementById('productSearch').value || '').toLowerCase();
         var div = document.getElementById('productResults'); if(q.length < 1){div.style.display='none';return;} div.style.display = 'block';
-        fetch('/api/products/with-prices')
-            .then(function(r){return r.json();})
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/products/with-prices')
             .then(function(products){
                 var filtered = products.filter(function(p){return p.name.toLowerCase().includes(q) || (p.brand||'').toLowerCase().includes(q);});
                 var h = ''; if(filtered.length === 0){h='<p style="padding:1rem;color:#999;">No products found</p>';}
@@ -262,8 +277,8 @@ const AdminPurchasesComponent = {
         var supplierSelect = document.getElementById('supplierSelect');
         if (!supplierSelect || !supplierSelect.value) { this._showSupplierWarning(); return; }
         var self = this;
-        fetch('/api/products/with-prices')
-            .then(function(r){return r.json();})
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/products/with-prices')
             .then(function(products){
                 var p = products.find(function(x){return x.id == productId;}); if(!p)return;
                 var buyPrice = p.lastPrice || p.cost || 0;
@@ -314,8 +329,16 @@ const AdminPurchasesComponent = {
         var total = totalAfterItems - overallDiscount; var notes = document.getElementById('poNotes')?.value || '';
         var self = this; var btn = document.getElementById('submitPOBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...'; }
-        fetch('/api/purchase-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ supplierName: supplierName, supplierId: supplierSelect.value, items: this._poItems, notes: notes, total: total, createdBy: 'Admin' }) })
-        .then(function(r) { return r.json(); }).then(function(d) {
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.post('/purchase-orders', {
+            supplierName: supplierName,
+            supplierId: supplierSelect.value,
+            items: this._poItems,
+            notes: notes,
+            total: total,
+            createdBy: 'Admin'
+        })
+        .then(function(d) {
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Submit Purchase Order'; }
             if (d.success) {
                 self._poItems = []; self._renderPOItems(); document.getElementById('poNotes').value = ''; document.getElementById('poDiscount').value = '0';
@@ -327,7 +350,8 @@ const AdminPurchasesComponent = {
     },
 
     printExistingPO(poNumber) {
-        fetch('/api/purchase-orders').then(function(r){return r.json();}).then(function(pos){
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/purchase-orders').then(function(pos){
             var po = pos.find(function(p){return p.poNumber === poNumber;}); if(!po)return;
             var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;"><div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;"><img src="../assets/talaen02.jpg" style="width:50px;height:50px;border-radius:10px;"><br><strong>TALAEN INVESTMENT HARDWARE</strong><br><strong>PURCHASE ORDER</strong><br><strong>'+po.poNumber+'</strong></div><p><strong>Supplier:</strong> '+po.supplierName+'</p><p><strong>Status:</strong> '+po.status.toUpperCase()+'</p><table style="width:100%;border-collapse:collapse;"><tr style="border-bottom:2px solid #333;"><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr>';
             (po.items||[]).forEach(function(i){h+='<tr><td>'+i.productName+'</td><td>'+i.quantity+'</td><td>'+i.unitPrice.toLocaleString()+'</td><td>'+i.total.toLocaleString()+'</td></tr>';});
@@ -338,7 +362,8 @@ const AdminPurchasesComponent = {
 
     editPO(poId) {
         var self = this;
-        fetch('/api/purchase-orders').then(function(r){return r.json();}).then(function(pos){
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.get('/purchase-orders').then(function(pos){
             var po = pos.find(function(p){return p.id === poId;}); if (!po) return;
             self._poItems = [];
             (po.items || []).forEach(function(i) { self._poItems.push({ productName: i.productName, brand: i.brand||'', variant: i.variant||'', quantity: i.quantity, unitPrice: i.unitPrice, sellingPrice: i.sellingPrice||0, lastPrice: i.lastPrice||i.unitPrice, currentStock: i.currentStock||0, discount: i.discount || 0, total: i.total }); });
@@ -367,8 +392,15 @@ const AdminPurchasesComponent = {
         var total = totalAfterItems - overallDiscount; var notes = document.getElementById('poNotes')?.value || '';
         var supplierSelect = document.getElementById('supplierSelect'); var supplierName = supplierSelect.options[supplierSelect.selectedIndex].text;
         var btn = document.getElementById('submitPOBtn'); if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...'; }
-        fetch('/api/purchase-orders/' + this._editingPOId + '/update', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ supplierName: supplierName, supplierId: supplierSelect.value, items: this._poItems, notes: notes, total: total }) })
-        .then(function(r){return r.json();}).then(function(d){
+        // ✅ REPLACED: fetch with ApiService
+        ApiService.put('/purchase-orders/' + this._editingPOId + '/update', {
+            supplierName: supplierName,
+            supplierId: supplierSelect.value,
+            items: this._poItems,
+            notes: notes,
+            total: total
+        })
+        .then(function(d){
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Submit Purchase Order'; }
             var cancelBtn = document.getElementById('cancelEditBtn'); if (cancelBtn) cancelBtn.style.display = 'none';
             if (d.success) { 
@@ -382,8 +414,17 @@ const AdminPurchasesComponent = {
     receivePO(id) {
         var self = this;
         showConfirm('Receive Stock', 'Confirm receiving this Purchase Order? Stock will be updated!', async function() {
-            try { await fetch('/api/purchase-orders/'+id+'/receive',{method:'PUT'}); await ProductService._fetchFromAPI(); self.loadPOs(); showStyledAlert('Success', 'Stock received!', 'check-circle', '#10b981'); }
+            try {
+                // ✅ REPLACED: fetch with ApiService
+                await ApiService.put('/purchase-orders/'+id+'/receive');
+                await ProductService.refresh();
+                self.loadPOs();
+                showStyledAlert('Success', 'Stock received!', 'check-circle', '#10b981');
+            }
             catch(e) { showStyledAlert('Error', e.message, 'times-circle', '#ef4444'); }
         }, 'Receive', 'success');
     }
 };
+
+// Make globally available
+window.AdminPurchasesComponent = AdminPurchasesComponent;
