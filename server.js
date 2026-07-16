@@ -4,7 +4,6 @@ const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
-const fs = require('fs');
 const app = express();
 const PORT = process.env.PORT || 8080;
 
@@ -31,9 +30,11 @@ const loginLimiter = rateLimit({
 // ============================================
 
 // Using connection string from environment variable
+// Force IPv4 to avoid DNS issues on Render
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: { rejectUnauthorized: false }
+    ssl: { rejectUnauthorized: false },
+    family: 4
 });
 
 // Test connection
