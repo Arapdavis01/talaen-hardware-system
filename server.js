@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const rateLimit = require('express-rate-limit');
@@ -26,80 +26,253 @@ const loginLimiter = rateLimit({
     legacyHeaders: false,
 });
 
-// SSL Configuration for Aiven
-let sslConfig = false;
-if (process.env.MYSQL_SSL === 'true') {
-    let caCert = null;
-    try {
-        if (fs.existsSync('./ca.pem')) {
-            caCert = fs.readFileSync('./ca.pem', 'utf8');
-            console.log('✅ CA certificate loaded from ca.pem file');
-        }
-    } catch(e) {}
+// ============================================
+// ✅ POSTGRESQL CONNECTION (Supabase)
+// ============================================
 
-    if (!caCert && process.env.MYSQL_CA_CERT) {
-        caCert = process.env.MYSQL_CA_CERT;
-        console.log('✅ CA certificate loaded from MYSQL_CA_CERT environment variable');
-    }
-
-    if (!caCert) {
-        caCert = `-----BEGIN CERTIFICATE-----
-MIIERDCCAqygAwIBAgIUIKeTwDKnCJLjmrBkW4TiIkUqfqowDQYJKoZIhvcNAQEM
-BQAwOjE4MDYGA1UEAwwvZWZlNjM4MzctNDliMS00YzAwLTljODctZDNlMWJiNjZk
-YjBkIFByb2plY3QgQ0EwHhcNMjYwNzE1MDYzNjMzWhcNMzYwNzEyMDYzNjMzWjA6
-MTgwNgYDVQQDDC9lZmU2MzgzNy00OWIxLTRjMDAtOWM4Ny1kM2UxYmI2NmRiMGQg
-UHJvamVjdCBDQTCCAaIwDQYJKoZIhvcNAQEBBQADggGPADCCAYoCggGBAM2f7Xhz
-qdApd7QksyvTeHju1EmhKr1llwwg3xLitsMdLCI33DeqmujfVw1Vc0MNkIp7wMTL
-zxkm+LHbeSYZAPrFv+yinhSJr8EpXgNnBRjjVSqirBpiWa9aWBe9AHGTv0yW7Hm8
-FveEmzlzFWh+IAFGt9KEAaIFd1frCRcYXdxHnflxbuZs3TpGunxuI+CPvvJV51ST
-JuglGbT8/GICqvyF1dHDtXvYyIpf0YfJjMe50tfAmA3vmvw8Oy9T+vAo+WbDwOfl
-EJ0qJJygIJJv8ZcxFGfwI0k2O0MarKYLOoubzcvVVjG5jARmup2+lpeL4leQko4X
-78s3AtkGbRFHudgMGHxYsVKFdp7kGEOXkGM3zhOEYhh5ZvCjq6khkZXRDO33s81r
-nZ1Oz9vcXDGYD8lt7Q/gbRNRpoLxCwDzT07jXrkrcJ4u7UI8OQ0TNEat3z0E3pVD
-NbRfMIw7dMw9MsjVkUpL7hduxJ6WFLnWkWHwaBueLkgR04l5BY3jcOXh4QIDAQAB
-o0IwQDAdBgNVHQ4EFgQU92EtOMWMEea+CxU7Xb5ktWsxuHIwEgYDVR0TAQH/BAgw
-BgEB/wIBADALBgNVHQ8EBAMCAQYwDQYJKoZIhvcNAQEMBQADggGBAC5N0X7xqPRB
-y7ezWHMTvLAQM0i4CfCuZnvTg+vTrGxceXHUAkFmJAgntyODDGsDiPotOZIU4e3H
-+d5o4RZf3lNn4jE6xg0cGGgXug5r4UX9yJSi77hGRSSzWqUkkNvAMFfdnJg44Q/c
-l3pRSiNBfXUTReBRMbwznLSjaJ6W+Xhw5VirAXaDMH6sd0hhnk4X7ZI2cqcXgoGm
-0hxSlG7I37MYbrehk26mrcKdEBSgzLyjp5o0HHadzH+7tXarVJSk+2VJVYk57Nxm
-JL2wOYO2NMaZdjIXJu+TkiisNJLhO+qQmXqmn2uTlbraEsGayJMufm5w1yTxYDsq
-MmwCI7ajl2E4ffR6LYqPPkhEe1+iybEMWv/a04OuVXNwu5RKLwTpKcvNkOunw1XM
-InA1zmpHFdPnMkPG3x7SoLZxCErKtk0RuAdfksPk1PRX5r0nqGiTq2fEQo+r6s8G
-oLcFmnSVl63Ou1tioUB7ZLDi1UcUKK+/Uisml8r+601ATLYlxJxgRQ==
------END CERTIFICATE-----`;
-        console.log('✅ CA certificate loaded from hardcoded fallback');
-    }
-
-    sslConfig = {
-        ca: caCert,
-        rejectUnauthorized: true
-    };
-}
-
-// Database Connection
-const pool = mysql.createPool({
-    host: process.env.MYSQLHOST || 'localhost',
-    user: process.env.MYSQLUSER || 'root',
-    password: process.env.MYSQLPASSWORD || '',
-    database: process.env.MYSQLDATABASE || 'talaen_hardware',
-    port: process.env.MYSQLPORT || 3306,
-    waitForConnections: true,
-    connectionLimit: 10,
-    ssl: sslConfig
+// Using connection string from environment variable
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
 });
 
-// Helper Functions
+// Test connection
+pool.connect((err, client, release) => {
+    if (err) {
+        console.error('Error connecting to Supabase:', err.stack);
+    } else {
+        console.log('✅ Connected to Supabase PostgreSQL');
+        release();
+    }
+});
+
+// ============================================
+// INIT DATABASE - PostgreSQL Version
+// ============================================
+
+async function initDB() {
+    const queries = [
+        `CREATE TABLE IF NOT EXISTS users (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(255) UNIQUE NOT NULL,
+            password VARCHAR(255) NOT NULL,
+            role VARCHAR(50) DEFAULT 'cashier',
+            fullName VARCHAR(255) DEFAULT '',
+            isActive INT DEFAULT 1
+        )`,
+        `CREATE TABLE IF NOT EXISTS products (
+            id SERIAL PRIMARY KEY,
+            sku VARCHAR(50),
+            name VARCHAR(255) NOT NULL,
+            brand VARCHAR(255) DEFAULT '',
+            variant VARCHAR(255) DEFAULT '',
+            category VARCHAR(255) DEFAULT 'General',
+            price DECIMAL(10,2) NOT NULL,
+            cost DECIMAL(10,2) DEFAULT 0,
+            stock INT DEFAULT 0,
+            unit VARCHAR(50) DEFAULT 'pcs',
+            minStock INT DEFAULT 10,
+            isActive INT DEFAULT 1
+        )`,
+        `CREATE TABLE IF NOT EXISTS sales (
+            id SERIAL PRIMARY KEY,
+            receiptNo VARCHAR(50) NOT NULL,
+            customerName VARCHAR(255) DEFAULT 'Walk-in',
+            paymentMethod VARCHAR(50) DEFAULT 'cash',
+            subtotal DECIMAL(10,2),
+            tax DECIMAL(10,2),
+            discount DECIMAL(10,2) DEFAULT 0,
+            total DECIMAL(10,2),
+            transportCost DECIMAL(10,2) DEFAULT 0,
+            cashierId INT,
+            cashierName VARCHAR(255),
+            mpesaRef VARCHAR(100),
+            isCredit INT DEFAULT 0,
+            customerId INT,
+            debtPaid DECIMAL(10,2) DEFAULT 0,
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            isVoid INT DEFAULT 0,
+            is_returned INT DEFAULT 0,
+            return_type VARCHAR(20),
+            return_date TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS sale_items (
+            id SERIAL PRIMARY KEY,
+            saleId INT REFERENCES sales(id),
+            productId INT,
+            productName VARCHAR(255),
+            quantity INT,
+            price DECIMAL(10,2),
+            total DECIMAL(10,2)
+        )`,
+        `CREATE TABLE IF NOT EXISTS settings (
+            id SERIAL PRIMARY KEY DEFAULT 1,
+            adminPassword VARCHAR(255),
+            taxRate DECIMAL(10,2) DEFAULT 16,
+            announcement TEXT
+        )`,
+        `CREATE TABLE IF NOT EXISTS activity_log (
+            id SERIAL PRIMARY KEY,
+            userId INT,
+            userName VARCHAR(255),
+            action VARCHAR(100),
+            details TEXT,
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS suppliers (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255),
+            contact VARCHAR(255),
+            email VARCHAR(255),
+            phone VARCHAR(50),
+            address TEXT
+        )`,
+        `CREATE TABLE IF NOT EXISTS purchase_orders (
+            id SERIAL PRIMARY KEY,
+            poNumber VARCHAR(50),
+            supplierName VARCHAR(255),
+            supplierId INT,
+            status VARCHAR(50) DEFAULT 'pending',
+            notes TEXT,
+            total DECIMAL(10,2) DEFAULT 0,
+            createdBy VARCHAR(255),
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            receivedDate TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS po_items (
+            id SERIAL PRIMARY KEY,
+            poId INT REFERENCES purchase_orders(id),
+            productName VARCHAR(255),
+            brand VARCHAR(255),
+            variant VARCHAR(255),
+            quantity INT,
+            unitPrice DECIMAL(10,2),
+            sellingPrice DECIMAL(10,2) DEFAULT 0,
+            lastPrice DECIMAL(10,2) DEFAULT 0,
+            currentStock INT DEFAULT 0,
+            discount DECIMAL(10,2) DEFAULT 0,
+            total DECIMAL(10,2)
+        )`,
+        `CREATE TABLE IF NOT EXISTS credit_customers (
+            id SERIAL PRIMARY KEY,
+            name VARCHAR(255),
+            phone VARCHAR(50),
+            idNumber VARCHAR(50),
+            address TEXT,
+            debtLimit DECIMAL(10,2) DEFAULT 5000,
+            totalDebt DECIMAL(10,2) DEFAULT 0,
+            registeredBy VARCHAR(255),
+            registeredById INT,
+            dateRegistered TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            isActive INT DEFAULT 1
+        )`,
+        `CREATE TABLE IF NOT EXISTS debt_payments (
+            id SERIAL PRIMARY KEY,
+            customerId INT REFERENCES credit_customers(id),
+            customerName VARCHAR(255),
+            amount DECIMAL(10,2),
+            paymentMethod VARCHAR(50) DEFAULT 'cash',
+            saleId INT,
+            receivedBy VARCHAR(255),
+            receivedById INT,
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS credit_sales (
+            id SERIAL PRIMARY KEY,
+            saleId INT REFERENCES sales(id),
+            customerId INT REFERENCES credit_customers(id),
+            customerName VARCHAR(255),
+            amount DECIMAL(10,2),
+            debtBefore DECIMAL(10,2),
+            debtAfter DECIMAL(10,2),
+            cashierId INT,
+            cashierName VARCHAR(255),
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS returns_table (
+            id SERIAL PRIMARY KEY,
+            originalSaleId INT REFERENCES sales(id),
+            originalReceiptNo VARCHAR(50),
+            customerName VARCHAR(255),
+            returnType VARCHAR(50) DEFAULT 'return',
+            productId INT,
+            productName VARCHAR(255),
+            quantity INT,
+            returnAmount DECIMAL(10,2),
+            exchangeProductId INT,
+            exchangeProductName VARCHAR(255),
+            exchangeAmount DECIMAL(10,2),
+            refundAmount DECIMAL(10,2),
+            reason TEXT,
+            cashierName VARCHAR(255),
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS sessions (
+            id SERIAL PRIMARY KEY,
+            user_id INT REFERENCES users(id),
+            token VARCHAR(500),
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at TIMESTAMP,
+            ip_address VARCHAR(45),
+            user_agent TEXT
+        )`,
+        `CREATE TABLE IF NOT EXISTS login_attempts (
+            id SERIAL PRIMARY KEY,
+            username VARCHAR(255),
+            ip_address VARCHAR(45),
+            attempt_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            success INT DEFAULT 0
+        )`
+    ];
+
+    for (const query of queries) {
+        try {
+            await pool.query(query);
+        } catch (e) {
+            console.error('Error creating table:', e.message);
+        }
+    }
+
+    // Check if users exist
+    const [users] = await pool.query("SELECT COUNT(*) as c FROM users");
+    if (parseInt(users[0].c) === 0) {
+        const hashedAdmin = await bcrypt.hash('admin123', 10);
+        const hashedCashier = await bcrypt.hash('cashier123', 10);
+        
+        await pool.query(
+            "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6)",
+            [1, 'admin', hashedAdmin, 'admin', 'Administrator', 1]
+        );
+        await pool.query(
+            "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6)",
+            [2, 'cashier', hashedCashier, 'cashier', 'Cashier User', 1]
+        );
+        
+        const hashedSettingsAdmin = await bcrypt.hash('admin123', 10);
+        await pool.query(
+            "INSERT INTO settings (id, adminPassword, taxRate) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+            [1, hashedSettingsAdmin, 16]
+        );
+    }
+
+    console.log('✅ Database initialized (PostgreSQL/Supabase)');
+}
+
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
+
 function logActivity(userId, userName, action, details) {
-    pool.query("INSERT INTO activity_log (userId, userName, action, details, date) VALUES (?,?,?,?,NOW())", 
-        [userId||null, userName||'System', action, details]);
+    pool.query(
+        "INSERT INTO activity_log (userId, userName, action, details, date) VALUES ($1, $2, $3, $4, NOW())",
+        [userId || null, userName || 'System', action, details]
+    );
 }
 
 async function logLoginAttempt(username, ipAddress, success) {
     try {
         await pool.query(
-            `INSERT INTO login_attempts (username, ip_address, success, attempt_time) 
-             VALUES (?, ?, ?, NOW())`,
+            "INSERT INTO login_attempts (username, ip_address, success, attempt_time) VALUES ($1, $2, $3, NOW())",
             [username, ipAddress, success ? 1 : 0]
         );
     } catch (error) {
@@ -107,7 +280,6 @@ async function logLoginAttempt(username, ipAddress, success) {
     }
 }
 
-// JWT Middleware
 function verifyToken(req, res, next) {
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
@@ -140,157 +312,81 @@ function authorize(...roles) {
     };
 }
 
-// Initialize Database
-async function initDB() {
-    const tables = [
-        `CREATE TABLE IF NOT EXISTS products (id INT AUTO_INCREMENT PRIMARY KEY, sku VARCHAR(50), name VARCHAR(255), brand VARCHAR(255) DEFAULT '', variant VARCHAR(255) DEFAULT '', category VARCHAR(255) DEFAULT 'General', price DECIMAL(10,2), cost DECIMAL(10,2) DEFAULT 0, stock INT DEFAULT 0, unit VARCHAR(50) DEFAULT 'pcs', minStock INT DEFAULT 10, isActive INT DEFAULT 1)`,
-        `CREATE TABLE IF NOT EXISTS sales (id INT AUTO_INCREMENT PRIMARY KEY, receiptNo VARCHAR(50), customerName VARCHAR(255), paymentMethod VARCHAR(50), subtotal DECIMAL(10,2), tax DECIMAL(10,2), discount DECIMAL(10,2) DEFAULT 0, total DECIMAL(10,2), transportCost DECIMAL(10,2) DEFAULT 0, cashierId INT, cashierName VARCHAR(255), mpesaRef VARCHAR(100), isCredit INT DEFAULT 0, customerId INT, debtPaid DECIMAL(10,2) DEFAULT 0, date TEXT, isVoid INT DEFAULT 0, is_returned TINYINT DEFAULT 0, return_type VARCHAR(20) NULL, return_date DATETIME NULL)`,
-        `CREATE TABLE IF NOT EXISTS sale_items (id INT AUTO_INCREMENT PRIMARY KEY, saleId INT, productId INT, productName VARCHAR(255), quantity INT, price DECIMAL(10,2), total DECIMAL(10,2))`,
-        `CREATE TABLE IF NOT EXISTS users (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255) UNIQUE, password VARCHAR(255), role VARCHAR(50) DEFAULT 'cashier', fullName VARCHAR(255) DEFAULT '', isActive INT DEFAULT 1)`,
-        `CREATE TABLE IF NOT EXISTS settings (id INT PRIMARY KEY DEFAULT 1, adminPassword VARCHAR(255) DEFAULT 'admin123', taxRate DECIMAL(10,2) DEFAULT 16, announcement TEXT)`,
-        `CREATE TABLE IF NOT EXISTS activity_log (id INT AUTO_INCREMENT PRIMARY KEY, userId INT, userName VARCHAR(255), action VARCHAR(100), details TEXT, date TEXT)`,
-        `CREATE TABLE IF NOT EXISTS purchase_orders (id INT AUTO_INCREMENT PRIMARY KEY, poNumber VARCHAR(50), supplierName VARCHAR(255), supplierId INT, status VARCHAR(50) DEFAULT 'pending', notes TEXT, total DECIMAL(10,2) DEFAULT 0, createdBy VARCHAR(255), date TEXT, receivedDate TEXT)`,
-        `CREATE TABLE IF NOT EXISTS po_items (id INT AUTO_INCREMENT PRIMARY KEY, poId INT, productName VARCHAR(255), brand VARCHAR(255), variant VARCHAR(255), quantity INT, unitPrice DECIMAL(10,2), sellingPrice DECIMAL(10,2) DEFAULT 0, lastPrice DECIMAL(10,2) DEFAULT 0, currentStock INT DEFAULT 0, discount DECIMAL(10,2) DEFAULT 0, total DECIMAL(10,2))`,
-        `CREATE TABLE IF NOT EXISTS suppliers (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), contact VARCHAR(255), email VARCHAR(255), phone VARCHAR(50), address TEXT)`,
-        `CREATE TABLE IF NOT EXISTS daily_reports (id INT AUTO_INCREMENT PRIMARY KEY, reportDate VARCHAR(50) UNIQUE, totalSales DECIMAL(10,2), transactionCount INT, totalItemsSold INT, closingStock INT, stockAdded INT, stockSold INT, productsCount INT)`,
-        `CREATE TABLE IF NOT EXISTS mpesa_config (id INT PRIMARY KEY DEFAULT 1, consumerKey VARCHAR(255), consumerSecret VARCHAR(255), passkey VARCHAR(255), tillNumber VARCHAR(50), shortCode VARCHAR(50), environment VARCHAR(50) DEFAULT 'sandbox')`,
-        `CREATE TABLE IF NOT EXISTS mpesa_transactions (id INT AUTO_INCREMENT PRIMARY KEY, transactionType VARCHAR(50), saleId INT, phoneNumber VARCHAR(50), amount DECIMAL(10,2), accountReference VARCHAR(100), checkoutRequestID VARCHAR(100), merchantRequestID VARCHAR(100), resultCode INT, resultDesc TEXT, mpesaReceiptNumber VARCHAR(50), status VARCHAR(50) DEFAULT 'pending', date TEXT)`,
-        `CREATE TABLE IF NOT EXISTS credit_customers (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), phone VARCHAR(50), idNumber VARCHAR(50), address TEXT, debtLimit DECIMAL(10,2) DEFAULT 5000, totalDebt DECIMAL(10,2) DEFAULT 0, registeredBy VARCHAR(255), registeredById INT, dateRegistered TEXT, isActive INT DEFAULT 1)`,
-        `CREATE TABLE IF NOT EXISTS debt_payments (id INT AUTO_INCREMENT PRIMARY KEY, customerId INT, customerName VARCHAR(255), amount DECIMAL(10,2), paymentMethod VARCHAR(50) DEFAULT 'cash', saleId INT, receivedBy VARCHAR(255), receivedById INT, date TEXT)`,
-        `CREATE TABLE IF NOT EXISTS credit_sales (id INT AUTO_INCREMENT PRIMARY KEY, saleId INT, customerId INT, customerName VARCHAR(255), amount DECIMAL(10,2), debtBefore DECIMAL(10,2), debtAfter DECIMAL(10,2), cashierId INT, cashierName VARCHAR(255), date TEXT)`,
-        `CREATE TABLE IF NOT EXISTS returns_table (id INT AUTO_INCREMENT PRIMARY KEY, originalSaleId INT, originalReceiptNo VARCHAR(50), customerName VARCHAR(255), returnType VARCHAR(50) DEFAULT 'return', productId INT, productName VARCHAR(255), quantity INT, returnAmount DECIMAL(10,2), exchangeProductId INT, exchangeProductName VARCHAR(255), exchangeAmount DECIMAL(10,2), refundAmount DECIMAL(10,2), reason TEXT, cashierName VARCHAR(255), date TEXT)`,
-        `CREATE TABLE IF NOT EXISTS login_attempts (id INT AUTO_INCREMENT PRIMARY KEY, username VARCHAR(255), ip_address VARCHAR(45), attempt_time DATETIME DEFAULT CURRENT_TIMESTAMP, success TINYINT DEFAULT 0)`,
-        `CREATE TABLE IF NOT EXISTS sessions (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT, token VARCHAR(500), created_at DATETIME DEFAULT CURRENT_TIMESTAMP, expires_at DATETIME, ip_address VARCHAR(45), user_agent TEXT)`
-    ];
-    
-    for (const table of tables) { await pool.query(table); }
-    try { await pool.query("ALTER TABLE sales ADD COLUMN transportCost DECIMAL(10,2) DEFAULT 0"); } catch(e) {}
-    try { await pool.query("ALTER TABLE sales ADD COLUMN is_returned TINYINT DEFAULT 0"); } catch(e) {}
-    try { await pool.query("ALTER TABLE sales ADD COLUMN return_type VARCHAR(20) NULL"); } catch(e) {}
-    try { await pool.query("ALTER TABLE sales ADD COLUMN return_date DATETIME NULL"); } catch(e) {}
-    try { await pool.query("ALTER TABLE settings ADD COLUMN announcement TEXT"); } catch(e) {}
-
-    // Create default users with hashed passwords
-    const [users] = await pool.query("SELECT COUNT(*) as c FROM users");
-    if (users[0].c === 0) {
-        const hashedAdmin = await bcrypt.hash('admin123', 10);
-        const hashedCashier = await bcrypt.hash('cashier123', 10);
-        
-        await pool.query(
-            "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES (1, 'admin', ?, 'admin', 'Administrator', 1)",
-            [hashedAdmin]
-        );
-        await pool.query(
-            "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES (2, 'cashier', ?, 'cashier', 'Cashier User', 1)",
-            [hashedCashier]
-        );
-        
-        const hashedSettingsAdmin = await bcrypt.hash('admin123', 10);
-        await pool.query(
-            "INSERT IGNORE INTO settings (id, adminPassword, taxRate) VALUES (1, ?, 16)",
-            [hashedSettingsAdmin]
-        );
-    }
-    
-    const [mpesa] = await pool.query("SELECT COUNT(*) as c FROM mpesa_config");
-    if (mpesa[0].c === 0) { await pool.query("INSERT INTO mpesa_config (id, environment) VALUES (1, 'sandbox')"); }
-    console.log('✅ Database initialized (MySQL)');
-}
-
 // ============================================
-// 🔐 AUTHENTICATION ENDPOINTS
+// AUTH ENDPOINTS
 // ============================================
 
-// 🔥 LOGIN
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
     const { username, password } = req.body;
     const ipAddress = req.ip || req.connection.remoteAddress;
-    const userAgent = req.headers['user-agent'] || 'Unknown';
     
     if (!username || !password) {
         return res.json({ success: false, message: 'Username and password are required' });
     }
 
     try {
-        // Check if account is locked
         const [lockCheck] = await pool.query(
-            `SELECT COUNT(*) as failed_count FROM login_attempts 
-             WHERE username = ? AND success = 0 
-             AND attempt_time > DATE_SUB(NOW(), INTERVAL 15 MINUTE)`,
+            "SELECT COUNT(*) as failed_count FROM login_attempts WHERE username = $1 AND success = 0 AND attempt_time > NOW() - INTERVAL '15 minutes'",
             [username]
         );
         
-        if (lockCheck[0].failed_count >= MAX_LOGIN_ATTEMPTS) {
+        if (parseInt(lockCheck[0].failed_count) >= MAX_LOGIN_ATTEMPTS) {
             return res.json({
                 success: false,
                 message: 'Account temporarily locked. Too many failed attempts. Please try again later.'
             });
         }
 
-        // Get user
-        const [user] = await pool.query(
-            "SELECT * FROM users WHERE username = ?",
-            [username]
-        );
+        const [user] = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
 
         if (user.length === 0) {
             await logLoginAttempt(username, ipAddress, false);
             return res.json({ success: false, message: 'Invalid credentials' });
         }
 
-        // Check if account is active
-        if (user[0].isActive !== 1) {
+        if (user[0].isactive !== 1) {
             await logLoginAttempt(username, ipAddress, false);
             return res.json({ success: false, message: 'Account is deactivated. Contact administrator.' });
         }
 
-        // Verify password
         const isMatch = await bcrypt.compare(password, user[0].password);
         
         if (!isMatch) {
             await logLoginAttempt(username, ipAddress, false);
             const [attemptCount] = await pool.query(
-                `SELECT COUNT(*) as count FROM login_attempts 
-                 WHERE username = ? AND success = 0 
-                 AND attempt_time > DATE_SUB(NOW(), INTERVAL 15 MINUTE)`,
+                "SELECT COUNT(*) as count FROM login_attempts WHERE username = $1 AND success = 0 AND attempt_time > NOW() - INTERVAL '15 minutes'",
                 [username]
             );
-            const remainingAttempts = MAX_LOGIN_ATTEMPTS - attemptCount[0].count;
+            const remainingAttempts = MAX_LOGIN_ATTEMPTS - parseInt(attemptCount[0].count);
             return res.json({ 
                 success: false, 
                 message: `Invalid credentials. ${remainingAttempts} attempts remaining before lockout.`
             });
         }
 
-        // SUCCESS!
         await logLoginAttempt(username, ipAddress, true);
 
-        // Generate JWT Token
         const token = jwt.sign(
             { 
                 id: user[0].id, 
                 username: user[0].username, 
                 role: user[0].role,
-                fullName: user[0].fullName
+                fullName: user[0].fullname
             },
             JWT_SECRET,
             { expiresIn: JWT_EXPIRY }
         );
 
-        // Store session
         const expiresAt = new Date();
         expiresAt.setHours(expiresAt.getHours() + 24);
         
         await pool.query(
-            `INSERT INTO sessions (user_id, token, expires_at, ip_address, user_agent) 
-             VALUES (?, ?, ?, ?, ?)`,
-            [user[0].id, token, expiresAt, ipAddress, userAgent]
+            "INSERT INTO sessions (user_id, token, expires_at) VALUES ($1, $2, $3)",
+            [user[0].id, token, expiresAt]
         );
 
-        // Clear failed attempts
-        await pool.query("DELETE FROM login_attempts WHERE username = ?", [username]);
-
-        logActivity(user[0].id, user[0].fullName, 'login', 'Logged in successfully');
+        await pool.query("DELETE FROM login_attempts WHERE username = $1", [username]);
+        logActivity(user[0].id, user[0].fullname, 'login', 'Logged in successfully');
 
         return res.json({
             success: true,
@@ -301,7 +397,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
                 id: user[0].id,
                 username: user[0].username,
                 role: user[0].role,
-                fullName: user[0].fullName
+                fullName: user[0].fullname
             }
         });
 
@@ -311,15 +407,12 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 });
 
-// 🔥 LOGOUT
 app.post('/api/auth/logout', verifyToken, async (req, res) => {
     try {
         const authHeader = req.headers['authorization'];
         const token = authHeader && authHeader.split(' ')[1];
-        
-        await pool.query("DELETE FROM sessions WHERE token = ?", [token]);
+        await pool.query("DELETE FROM sessions WHERE token = $1", [token]);
         logActivity(req.user.id, req.user.fullName, 'logout', 'Logged out');
-        
         res.json({ success: true, message: 'Logged out successfully' });
     } catch (error) {
         console.error('Logout error:', error);
@@ -327,21 +420,17 @@ app.post('/api/auth/logout', verifyToken, async (req, res) => {
     }
 });
 
-// 🔥 VERIFY SESSION
 app.get('/api/auth/verify', verifyToken, async (req, res) => {
     try {
         const authHeader = req.headers['authorization'];
         const token = authHeader && authHeader.split(' ')[1];
-        
         const [session] = await pool.query(
-            "SELECT * FROM sessions WHERE token = ? AND expires_at > NOW()",
+            "SELECT * FROM sessions WHERE token = $1 AND expires_at > NOW()",
             [token]
         );
-        
         if (session.length === 0) {
             return res.status(401).json({ success: false, message: 'Session invalid or expired' });
         }
-        
         res.json({ success: true, user: req.user });
     } catch (error) {
         console.error('Verify error:', error);
@@ -350,26 +439,12 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// 👤 USER MANAGEMENT ENDPOINTS
+// USER ENDPOINTS
 // ============================================
 
-// 🔥 GET ALL USERS - ADMIN sees ALL including passwords (hashed)
-// Cashier sees only their own password
-app.get('/api/users', verifyToken, async (req, res) => {
+app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        let query;
-        let params = [];
-        
-        if (req.user.role === 'admin') {
-            // ✅ Admin sees ALL users with passwords (hashed)
-            query = "SELECT id, username, password, role, fullName, isActive FROM users ORDER BY id";
-        } else {
-            // ✅ Cashier sees only their own data with password
-            query = "SELECT id, username, password, role, fullName, isActive FROM users WHERE id = ?";
-            params = [req.user.id];
-        }
-        
-        const [r] = await pool.query(query, params);
+        const [r] = await pool.query("SELECT id, username, role, fullName, isActive FROM users ORDER BY id");
         res.json(r);
     } catch (error) {
         console.error('Get users error:', error);
@@ -377,32 +452,25 @@ app.get('/api/users', verifyToken, async (req, res) => {
     }
 });
 
-// 🔥 GET SINGLE USER - Admin sees any user with password, Cashier sees only self
-app.get('/api/users/:id', verifyToken, async (req, res) => {
+app.get('/api/users/profile', verifyToken, async (req, res) => {
     try {
-        let query;
-        let params = [req.params.id];
-        
-        if (req.user.role === 'admin') {
-            // ✅ Admin sees any user with password
-            query = "SELECT id, username, password, role, fullName, isActive FROM users WHERE id = ?";
-        } else {
-            // ✅ Cashier can only see themselves
-            if (req.params.id != req.user.id) {
-                return res.status(403).json({ 
-                    success: false, 
-                    message: 'You can only view your own profile' 
-                });
-            }
-            query = "SELECT id, username, password, role, fullName, isActive FROM users WHERE id = ?";
-        }
-        
-        const [user] = await pool.query(query, params);
-        
+        const [user] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [req.user.id]);
         if (user.length === 0) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
-        
+        res.json(user[0]);
+    } catch (error) {
+        console.error('Get profile error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching profile' });
+    }
+});
+
+app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [user] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [req.params.id]);
+        if (user.length === 0) {
+            return res.status(404).json({ success: false, message: 'User not found' });
+        }
         res.json(user[0]);
     } catch (error) {
         console.error('Get user error:', error);
@@ -410,32 +478,22 @@ app.get('/api/users/:id', verifyToken, async (req, res) => {
     }
 });
 
-// 🔥 CREATE USER (ADMIN ONLY)
 app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     const { username, password, role, fullName } = req.body;
-    
     try {
         if (!password || password.length < 6) {
             return res.json({ success: false, message: 'Password must be at least 6 characters' });
         }
-        
         const hashedPassword = await bcrypt.hash(password, 10);
         const [r] = await pool.query(
-            "INSERT INTO users (username, password, role, fullName, isActive) VALUES (?,?,?,?,1)",
+            "INSERT INTO users (username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, 1) RETURNING id",
             [username, hashedPassword, role || 'cashier', fullName]
         );
-        
         logActivity(req.user.id, req.user.fullName, 'add_user', 'Added: ' + fullName);
-        
-        const [newUser] = await pool.query(
-            "SELECT id, username, password, role, fullName, isActive FROM users WHERE id = ?",
-            [r.insertId]
-        );
-        
+        const [newUser] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [r[0].id]);
         res.json({ success: true, message: 'User created successfully', user: newUser[0] });
-        
     } catch(e) {
-        if (e.code === 'ER_DUP_ENTRY') {
+        if (e.code === '23505') {
             res.json({ success: false, message: 'Username already exists' });
         } else {
             console.error('Create user error:', e);
@@ -444,65 +502,49 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// 🔥 ADMIN UPDATES USER (Excluding password field)
 app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { isActive, fullName, username, role } = req.body;
-    
     try {
-        const [user] = await pool.query("SELECT * FROM users WHERE id = ?", [userId]);
+        const [user] = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
         if (!user.length) {
             return res.json({ success: false, message: 'User not found' });
         }
-        
-        // Prevent admin from deactivating themselves
         if (isActive === 0 && userId == req.user.id) {
             return res.json({ success: false, message: 'You cannot deactivate your own account' });
         }
-        
-        // Prevent changing admin role
         if (role && user[0].role === 'admin' && role !== 'admin') {
             return res.json({ success: false, message: 'Cannot change admin role' });
         }
-        
         const updates = [];
         const values = [];
-        
+        let paramCount = 1;
         if (fullName !== undefined) {
-            updates.push('fullName = ?');
+            updates.push('fullName = $' + paramCount++);
             values.push(fullName);
         }
         if (username !== undefined) {
-            updates.push('username = ?');
+            updates.push('username = $' + paramCount++);
             values.push(username);
         }
         if (isActive !== undefined) {
-            updates.push('isActive = ?');
+            updates.push('isActive = $' + paramCount++);
             values.push(isActive);
         }
         if (role !== undefined && user[0].role !== 'admin') {
-            updates.push('role = ?');
+            updates.push('role = $' + paramCount++);
             values.push(role);
         }
-        
         if (updates.length === 0) {
             return res.json({ success: false, message: 'No updates provided' });
         }
-        
         values.push(userId);
-        await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, values);
-        
-        const [updatedUser] = await pool.query(
-            "SELECT id, username, password, role, fullName, isActive FROM users WHERE id = ?",
-            [userId]
-        );
-        
+        await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${paramCount}`, values);
+        const [updatedUser] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [userId]);
         logActivity(req.user.id, req.user.fullName, 'update_user', 'Updated: ' + (updatedUser[0].fullName || updatedUser[0].username));
-        
         res.json({ success: true, message: 'User updated successfully', user: updatedUser[0] });
-        
     } catch(e) {
-        if (e.code === 'ER_DUP_ENTRY') {
+        if (e.code === '23505') {
             res.json({ success: false, message: 'Username already exists' });
         } else {
             console.error('Update user error:', e);
@@ -511,117 +553,59 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// 🔥 ADMIN RESETS USER PASSWORD (Without knowing current password)
 app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { newPassword } = req.body;
-    
     try {
         if (!newPassword || newPassword.length < 6) {
             return res.json({ success: false, message: 'New password must be at least 6 characters' });
         }
-        
-        const [user] = await pool.query("SELECT * FROM users WHERE id = ?", [userId]);
+        const [user] = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
         if (!user.length) {
             return res.json({ success: false, message: 'User not found' });
         }
-        
-        // Prevent admin from resetting their own password here (use profile update instead)
         if (userId == req.user.id) {
-            return res.json({ 
-                success: false, 
-                message: 'Use profile update to change your own password' 
-            });
+            return res.json({ success: false, message: 'Use profile update to change your own password' });
         }
-        
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await pool.query("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, userId]);
-        
-        logActivity(req.user.id, req.user.fullName, 'password_reset', 
-            'Reset password for: ' + (user[0].fullName || user[0].username));
-        
-        res.json({ 
-            success: true, 
-            message: `Password reset successfully for ${user[0].fullName || user[0].username}` 
-        });
-        
+        await pool.query("UPDATE users SET password = $1 WHERE id = $2", [hashedPassword, userId]);
+        logActivity(req.user.id, req.user.fullName, 'password_reset', 'Reset password for: ' + (user[0].fullName || user[0].username));
+        res.json({ success: true, message: 'Password reset successfully for ' + (user[0].fullName || user[0].username) });
     } catch (error) {
         console.error('Password reset error:', error);
         res.status(500).json({ success: false, message: 'Error resetting password' });
     }
 });
 
-// 🔥 USER UPDATES OWN PASSWORD (Requires current password)
-app.put('/api/users/profile/password', verifyToken, async (req, res) => {
+app.put('/api/users/profile', verifyToken, async (req, res) => {
     const userId = req.user.id;
-    const { currentPassword, newPassword } = req.body;
-    
+    const { fullName, currentPassword, newPassword } = req.body;
     try {
-        const [user] = await pool.query("SELECT * FROM users WHERE id = ?", [userId]);
+        const [user] = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
         if (!user.length) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
-        
-        if (!currentPassword) {
-            return res.json({ success: false, message: 'Current password is required' });
+        if (newPassword) {
+            if (!currentPassword) {
+                return res.json({ success: false, message: 'Current password is required' });
+            }
+            const isMatch = await bcrypt.compare(currentPassword, user[0].password);
+            if (!isMatch) {
+                return res.json({ success: false, message: 'Current password is incorrect' });
+            }
+            if (newPassword.length < 6) {
+                return res.json({ success: false, message: 'New password must be at least 6 characters' });
+            }
+            const hashedPassword = await bcrypt.hash(newPassword, 10);
+            await pool.query("UPDATE users SET password = $1 WHERE id = $2", [hashedPassword, userId]);
+            logActivity(userId, req.user.fullName, 'password_change', 'User changed their own password');
         }
-        
-        const isMatch = await bcrypt.compare(currentPassword, user[0].password);
-        if (!isMatch) {
-            return res.json({ success: false, message: 'Current password is incorrect' });
-        }
-        
-        if (!newPassword || newPassword.length < 6) {
-            return res.json({ success: false, message: 'New password must be at least 6 characters' });
-        }
-        
-        const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await pool.query("UPDATE users SET password = ? WHERE id = ?", [hashedPassword, userId]);
-        
-        logActivity(userId, req.user.fullName, 'password_change', 'User changed their own password');
-        
-        // Get updated user with password
-        const [updatedUser] = await pool.query(
-            "SELECT id, username, password, role, fullName, isActive FROM users WHERE id = ?",
-            [userId]
-        );
-        
-        res.json({ 
-            success: true, 
-            message: 'Password changed successfully',
-            user: updatedUser[0]
-        });
-        
-    } catch (error) {
-        console.error('Password change error:', error);
-        res.status(500).json({ success: false, message: 'Error changing password' });
-    }
-});
-
-// 🔥 USER UPDATES OWN PROFILE (FullName only)
-app.put('/api/users/profile', verifyToken, async (req, res) => {
-    const userId = req.user.id;
-    const { fullName } = req.body;
-    
-    try {
         if (fullName !== undefined) {
-            await pool.query("UPDATE users SET fullName = ? WHERE id = ?", [fullName, userId]);
+            await pool.query("UPDATE users SET fullName = $1 WHERE id = $2", [fullName, userId]);
+            req.user.fullName = fullName;
         }
-        
-        const [updatedUser] = await pool.query(
-            "SELECT id, username, password, role, fullName, isActive FROM users WHERE id = ?",
-            [userId]
-        );
-        
-        // Update token user info
-        req.user.fullName = updatedUser[0].fullName;
-        
-        res.json({ 
-            success: true, 
-            message: 'Profile updated successfully',
-            user: updatedUser[0]
-        });
-        
+        const [updatedUser] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [userId]);
+        res.json({ success: true, message: 'Profile updated successfully', user: updatedUser[0] });
     } catch (error) {
         console.error('Profile update error:', error);
         res.status(500).json({ success: false, message: 'Error updating profile' });
@@ -629,15 +613,78 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// 📦 PRODUCTS ENDPOINTS (With Authentication)
+// PRODUCTS ENDPOINTS
 // ============================================
 
 app.get('/api/products', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name,brand");
+        const [r] = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name, brand");
         res.json(r);
     } catch (error) {
         console.error('Get products error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching products' });
+    }
+});
+
+app.get('/api/products/paginated', verifyToken, async (req, res) => {
+    try {
+        var page = parseInt(req.query.page) || 1;
+        var limit = parseInt(req.query.limit) || 25;
+        var search = req.query.search || '';
+        var category = req.query.category || '';
+        var stockFilter = req.query.stock || '';
+        var offset = (page - 1) * limit;
+        var whereClause = 'WHERE isActive = 1';
+        var params = [];
+        var paramCount = 1;
+        if (search) {
+            whereClause += ' AND (name ILIKE $' + paramCount + ' OR brand ILIKE $' + (paramCount + 1) + ' OR variant ILIKE $' + (paramCount + 2) + ' OR category ILIKE $' + (paramCount + 3) + ')';
+            var q = '%' + search + '%';
+            params.push(q, q, q, q);
+            paramCount += 4;
+        }
+        if (category) {
+            whereClause += ' AND category = $' + paramCount;
+            params.push(category);
+            paramCount++;
+        }
+        if (stockFilter === 'out') {
+            whereClause += ' AND stock = 0';
+        } else if (stockFilter === 'low') {
+            whereClause += ' AND stock > 0 AND stock <= minStock';
+        } else if (stockFilter === 'ok') {
+            whereClause += ' AND stock > minStock';
+        }
+        var [countResult] = await pool.query('SELECT COUNT(*) as total FROM products ' + whereClause, params);
+        var total = parseInt(countResult[0].total);
+        params.push(limit, offset);
+        var [products] = await pool.query('SELECT * FROM products ' + whereClause + ' ORDER BY name, brand LIMIT $' + params.length + ' OFFSET $' + (params.length + 1), params);
+        res.json({ products: products, pagination: { page: page, limit: limit, total: total, totalPages: Math.ceil(total / limit), hasNext: offset + limit < total, hasPrev: page > 1 } });
+    } catch(e) {
+        console.error('Paginated products error:', e);
+        res.json({ products: [], pagination: { page: 1, limit: 25, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+    }
+});
+
+app.get('/api/products/categories', verifyToken, async (req, res) => {
+    try {
+        var [categories] = await pool.query("SELECT DISTINCT category FROM products WHERE isActive = 1 AND category != '' ORDER BY category");
+        res.json(categories.map(function(c) { return c.category; }));
+    } catch(e) {
+        res.json([]);
+    }
+});
+
+app.get('/api/products/with-prices', verifyToken, async (req, res) => {
+    try {
+        const [products] = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name,brand");
+        for (let p of products) {
+            const [lastPO] = await pool.query("SELECT pi.unitPrice, pi.sellingPrice FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE pi.productName=$1 AND pi.brand=$2 AND pi.variant=$3 ORDER BY po.date DESC LIMIT 1", [p.name, p.brand, p.variant]);
+            p.lastPrice = lastPO.length ? lastPO[0].unitprice : p.cost;
+        }
+        res.json(products);
+    } catch(e) {
+        console.error('Products with prices error:', e);
         res.status(500).json({ success: false, message: 'Error fetching products' });
     }
 });
@@ -647,11 +694,11 @@ app.post('/api/products', verifyToken, authorize('admin'), async (req, res) => {
     const sku = Date.now().toString(36).toUpperCase();
     try {
         const [r] = await pool.query(
-            "INSERT INTO products (sku,name,brand,variant,category,price,cost,stock,unit) VALUES (?,?,?,?,?,?,?,?,?)",
-            [sku, name, brand, variant, category, price, cost||0, stock||0, unit||'pcs']
+            "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
+            [sku, name, brand, variant, category, price, cost || 0, stock || 0, unit || 'pcs']
         );
-        logActivity(req.user.id, req.user.fullName, 'add_product', 'Added: ' + (brand||'') + ' ' + name);
-        res.json({ success: true, id: r.insertId });
+        logActivity(req.user.id, req.user.fullName, 'add_product', 'Added: ' + (brand || '') + ' ' + name);
+        res.json({ success: true, id: r[0].id });
     } catch (error) {
         console.error('Add product error:', error);
         res.status(500).json({ success: false, message: 'Error adding product' });
@@ -662,8 +709,8 @@ app.put('/api/products/:id', verifyToken, authorize('admin'), async (req, res) =
     const { name, brand, variant, price, cost, stock, unit } = req.body;
     try {
         await pool.query(
-            "UPDATE products SET name=?,brand=?,variant=?,price=?,cost=?,stock=?,unit=? WHERE id=?",
-            [name,brand,variant,price,cost,stock,unit,req.params.id]
+            "UPDATE products SET name=$1, brand=$2, variant=$3, price=$4, cost=$5, stock=$6, unit=$7 WHERE id=$8",
+            [name, brand, variant, price, cost, stock, unit, req.params.id]
         );
         res.json({ success: true });
     } catch (error) {
@@ -674,7 +721,7 @@ app.put('/api/products/:id', verifyToken, authorize('admin'), async (req, res) =
 
 app.delete('/api/products/:id', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        await pool.query("UPDATE products SET isActive=0 WHERE id=?", [req.params.id]);
+        await pool.query("UPDATE products SET isActive=0 WHERE id=$1", [req.params.id]);
         res.json({ success: true });
     } catch (error) {
         console.error('Delete product error:', error);
@@ -682,15 +729,39 @@ app.delete('/api/products/:id', verifyToken, authorize('admin'), async (req, res
     }
 });
 
+app.put('/api/products/:id/stock', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        await pool.query("UPDATE products SET stock = stock + $1 WHERE id = $2", [req.body.quantity, req.params.id]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Update stock error:', error);
+        res.status(500).json({ success: false, message: 'Error updating stock' });
+    }
+});
+
+app.get('/api/products/search', verifyToken, async (req, res) => {
+    const q = '%' + (req.query.q || '') + '%';
+    try {
+        const [products] = await pool.query(
+            "SELECT id, name, brand, variant, price, stock, unit FROM products WHERE isActive=1 AND (name ILIKE $1 OR brand ILIKE $2 OR variant ILIKE $3) AND stock > 0 ORDER BY name LIMIT 20",
+            [q, q, q]
+        );
+        res.json(products);
+    } catch (error) {
+        console.error('Search products error:', error);
+        res.status(500).json({ success: false, message: 'Error searching products' });
+    }
+});
+
 // ============================================
-// 📊 SALES ENDPOINTS (With Authentication)
+// SALES ENDPOINTS
 // ============================================
 
 app.get('/api/sales', verifyToken, async (req, res) => {
     try {
         const [sales] = await pool.query("SELECT * FROM sales ORDER BY date DESC");
         for (let s of sales) {
-            const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = ?", [s.id]);
+            const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [s.id]);
             s.items = items;
         }
         res.json(sales);
@@ -700,24 +771,67 @@ app.get('/api/sales', verifyToken, async (req, res) => {
     }
 });
 
+app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [cashiers] = await pool.query("SELECT id, fullName, username FROM users WHERE role='cashier' AND isActive=1");
+        const today = new Date().toISOString().split('T')[0];
+        const result = [];
+        for (let c of cashiers) {
+            const [sales] = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0", [c.id]);
+            const todaySales = sales.filter(s => s.date && s.date.startsWith(today));
+            result.push({
+                id: c.id,
+                name: c.fullname,
+                username: c.username,
+                totalAll: sales.reduce((s, sale) => s + Number(sale.total), 0),
+                totalToday: todaySales.reduce((s, sale) => s + Number(sale.total), 0),
+                countAll: sales.length,
+                countToday: todaySales.length
+            });
+        }
+        res.json(result);
+    } catch (error) {
+        console.error('Cashiers summary error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching cashiers summary' });
+    }
+});
+
+app.get('/api/sales/cashier/:id', verifyToken, async (req, res) => {
+    try {
+        const [sales] = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0 ORDER BY date DESC", [req.params.id]);
+        const today = new Date().toISOString().split('T')[0];
+        const todaySales = sales.filter(s => s.date && s.date.startsWith(today));
+        res.json({
+            all: sales,
+            today: todaySales,
+            totalAll: sales.reduce((s, sale) => s + Number(sale.total), 0),
+            totalToday: todaySales.reduce((s, sale) => s + Number(sale.total), 0),
+            countAll: sales.length,
+            countToday: todaySales.length
+        });
+    } catch (error) {
+        console.error('Get cashier sales error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching cashier sales' });
+    }
+});
+
 app.post('/api/sales', verifyToken, async (req, res) => {
     const { customerName, items, paymentMethod, subtotal, tax, discount, total, cashierId, cashierName, mpesaRef, isCredit, customerId, debtPaid, transportCost } = req.body;
     const rn = 'TIH-' + Date.now().toString(36).toUpperCase();
     try {
         const [s] = await pool.query(
-            `INSERT INTO sales (receiptNo,customerName,paymentMethod,subtotal,tax,discount,total,transportCost,cashierId,cashierName,mpesaRef,isCredit,customerId,debtPaid,date) 
-             VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,NOW())`,
-            [rn, customerName, paymentMethod, subtotal, tax, discount||0, total, transportCost||0, cashierId||null, cashierName||null, mpesaRef||null, isCredit||0, customerId||null, debtPaid||0]
+            "INSERT INTO sales (receiptNo, customerName, paymentMethod, subtotal, tax, discount, total, transportCost, cashierId, cashierName, mpesaRef, isCredit, customerId, debtPaid, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW()) RETURNING id",
+            [rn, customerName, paymentMethod, subtotal, tax, discount || 0, total, transportCost || 0, cashierId || null, cashierName || null, mpesaRef || null, isCredit || 0, customerId || null, debtPaid || 0]
         );
-        const saleId = s.insertId;
+        const saleId = s[0].id;
         for (let i of items) {
             await pool.query(
-                "INSERT INTO sale_items (saleId,productId,productName,quantity,price,total) VALUES (?,?,?,?,?,?)",
-                [saleId, i.productId, i.productName, i.quantity, i.price, i.quantity*i.price]
+                "INSERT INTO sale_items (saleId, productId, productName, quantity, price, total) VALUES ($1, $2, $3, $4, $5, $6)",
+                [saleId, i.productId, i.productName, i.quantity, i.price, i.quantity * i.price]
             );
-            await pool.query("UPDATE products SET stock=stock-? WHERE id=?", [i.quantity, i.productId]);
+            await pool.query("UPDATE products SET stock = stock - $1 WHERE id = $2", [i.quantity, i.productId]);
         }
-        logActivity(req.user.id, req.user.fullName, 'sale', 'Sale: ' + rn + ' - KES ' + (total||0).toLocaleString());
+        logActivity(cashierId, cashierName, 'sale', 'Sale: ' + rn + ' - KES ' + (total || 0).toLocaleString());
         res.json({ success: true, receiptNo: rn, saleId: saleId });
     } catch (error) {
         console.error('Create sale error:', error);
@@ -726,20 +840,353 @@ app.post('/api/sales', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// ⚙️ SETTINGS ENDPOINTS
+// RETURN ENDPOINTS
+// ============================================
+
+app.post('/api/returns', verifyToken, async (req, res) => {
+    const { originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnAmount, exchangeProductId, exchangeProductName, exchangeAmount, refundAmount, reason, cashierName } = req.body;
+    try {
+        await pool.query(
+            "INSERT INTO returns_table (originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnAmount, exchangeProductId, exchangeProductName, exchangeAmount, refundAmount, reason, cashierName, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())",
+            [originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnAmount, exchangeProductId || null, exchangeProductName || null, exchangeAmount || 0, refundAmount || 0, reason, cashierName]
+        );
+        await pool.query("UPDATE products SET stock = stock + $1 WHERE id = $2", [quantity, productId]);
+        if (exchangeProductId) {
+            await pool.query("UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0", [exchangeProductId]);
+        }
+        const [originalSale] = await pool.query("SELECT * FROM sales WHERE id = $1", [originalSaleId]);
+        if (originalSale.length && originalSale[0].iscredit == 1 && originalSale[0].customerid) {
+            await pool.query("UPDATE credit_customers SET totalDebt = GREATEST(0, totalDebt - $1) WHERE id = $2", [returnAmount, originalSale[0].customerid]);
+        }
+        await pool.query("UPDATE sales SET is_returned = 1, return_type = $1, return_date = NOW() WHERE id = $2", [returnType, originalSaleId]);
+        logActivity(null, cashierName, 'return', 'Return: ' + originalReceiptNo + ' - ' + productName);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Create return error:', error);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+app.get('/api/returns', verifyToken, async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM returns_table ORDER BY date DESC LIMIT 100");
+        res.json(r);
+    } catch (error) {
+        console.error('Get returns error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching returns' });
+    }
+});
+
+app.get('/api/returns/receipt/:receiptNo', verifyToken, async (req, res) => {
+    try {
+        const [returns] = await pool.query("SELECT productId, quantity, returnType, date FROM returns_table WHERE originalReceiptNo = $1 ORDER BY date DESC", [req.params.receiptNo]);
+        res.json(returns);
+    } catch (error) {
+        console.error('Get returns by receipt error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching returns' });
+    }
+});
+
+app.get('/api/returns/summary', verifyToken, async (req, res) => {
+    try {
+        var [totalReturns] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='return'");
+        var [totalExchanges] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='exchange'");
+        var [totalRefunded] = await pool.query("SELECT SUM(refundAmount) as total FROM returns_table");
+        var today = new Date().toISOString().split('T')[0] + '%';
+        var [todayReturns] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE date::text LIKE $1", [today]);
+        res.json({
+            totalReturns: parseInt(totalReturns[0].count) || 0,
+            totalExchanges: parseInt(totalExchanges[0].count) || 0,
+            totalRefunded: parseFloat(totalRefunded[0].total) || 0,
+            todayReturns: parseInt(todayReturns[0].count) || 0
+        });
+    } catch(e) {
+        console.error('Returns summary error:', e);
+        res.json({ totalReturns: 0, totalExchanges: 0, totalRefunded: 0, todayReturns: 0 });
+    }
+});
+
+app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
+    try {
+        const [sale] = await pool.query("SELECT * FROM sales WHERE receiptNo = $1", [req.params.receiptNo]);
+        if (sale.length) {
+            const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [sale[0].id]);
+            sale[0].items = items;
+            res.json(sale[0]);
+        } else {
+            res.json({ error: 'Sale not found' });
+        }
+    } catch (error) {
+        console.error('Search sale error:', error);
+        res.status(500).json({ error: 'Error searching sale' });
+    }
+});
+
+// ============================================
+// PURCHASE ORDERS
+// ============================================
+
+app.get('/api/purchase-orders', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [pos] = await pool.query("SELECT * FROM purchase_orders ORDER BY date DESC");
+        for (let po of pos) {
+            const [items] = await pool.query("SELECT * FROM po_items WHERE poId = $1", [po.id]);
+            po.items = items;
+        }
+        res.json(pos);
+    } catch (error) {
+        console.error('Get purchase orders error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching purchase orders' });
+    }
+});
+
+app.post('/api/purchase-orders', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const d = req.body;
+        const poNumber = 'PO-' + Date.now().toString(36).toUpperCase();
+        const [po] = await pool.query(
+            "INSERT INTO purchase_orders (poNumber, supplierName, supplierId, notes, total, createdBy, date) VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING id",
+            [poNumber, d.supplierName, d.supplierId || null, d.notes, d.total, d.createdBy]
+        );
+        const poId = po[0].id;
+        if (d.items) {
+            for (let i of d.items) {
+                await pool.query(
+                    "INSERT INTO po_items (poId, productName, brand, variant, quantity, unitPrice, sellingPrice, lastPrice, currentStock, discount, total) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
+                    [poId, i.productName, i.brand || '', i.variant || '', i.quantity, i.unitPrice, i.sellingPrice || 0, i.lastPrice || 0, i.currentStock || 0, i.discount || 0, i.total]
+                );
+            }
+        }
+        logActivity(null, 'Admin', 'purchase_order', 'PO: ' + poNumber);
+        res.json({ success: true, poNumber: poNumber });
+    } catch(e) {
+        console.error('Create purchase order error:', e);
+        res.json({ success: false, message: e.message });
+    }
+});
+
+app.put('/api/purchase-orders/:id/receive', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [po] = await pool.query("SELECT * FROM purchase_orders WHERE id = $1", [req.params.id]);
+        if (!po.length) return res.json({ success: false });
+        const [items] = await pool.query("SELECT * FROM po_items WHERE poId = $1", [req.params.id]);
+        for (let i of items) {
+            const [p] = await pool.query("SELECT * FROM products WHERE name=$1 AND brand=$2 AND variant=$3 AND isActive=1", [i.productname, i.brand, i.variant]);
+            if (p.length) {
+                await pool.query("UPDATE products SET stock = stock + $1, cost = $2 WHERE id = $3", [i.quantity, i.unitprice, p[0].id]);
+            }
+        }
+        await pool.query("UPDATE purchase_orders SET status = 'received', receivedDate = NOW() WHERE id = $1", [req.params.id]);
+        logActivity(null, 'Admin', 'po_received', 'PO received: ' + po[0].ponumber);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Receive PO error:', error);
+        res.status(500).json({ success: false, message: 'Error receiving purchase order' });
+    }
+});
+
+// ============================================
+// SUPPLIERS
+// ============================================
+
+app.get('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM suppliers ORDER BY name");
+        res.json(r);
+    } catch (error) {
+        console.error('Get suppliers error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching suppliers' });
+    }
+});
+
+app.post('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => {
+    const { name, phone, email, address } = req.body;
+    try {
+        const [r] = await pool.query("INSERT INTO suppliers (name, phone, email, address) VALUES ($1, $2, $3, $4) RETURNING id", [name, phone, email, address]);
+        res.json({ success: true, id: r[0].id });
+    } catch (error) {
+        console.error('Create supplier error:', error);
+        res.status(500).json({ success: false, message: 'Error creating supplier' });
+    }
+});
+
+// ============================================
+// CREDIT CUSTOMERS
+// ============================================
+
+app.get('/api/credit-customers', verifyToken, async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM credit_customers WHERE isActive=1 ORDER BY name");
+        res.json(r);
+    } catch (error) {
+        console.error('Get credit customers error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching credit customers' });
+    }
+});
+
+app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
+    try {
+        const [c] = await pool.query("SELECT * FROM credit_customers WHERE id = $1", [req.params.id]);
+        if (c.length) {
+            const [sales] = await pool.query("SELECT * FROM credit_sales WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
+            const [payments] = await pool.query("SELECT * FROM debt_payments WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
+            c[0].recentSales = sales;
+            c[0].payments = payments;
+        }
+        res.json(c[0] || {});
+    } catch (error) {
+        console.error('Get credit customer error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching credit customer' });
+    }
+});
+
+app.post('/api/credit-customers', verifyToken, async (req, res) => {
+    const { name, phone, idNumber, address, debtLimit, cashierId, cashierName } = req.body;
+    try {
+        const [r] = await pool.query(
+            "INSERT INTO credit_customers (name, phone, idNumber, address, debtLimit, registeredBy, registeredById, dateRegistered) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING id",
+            [name, phone, idNumber, address, debtLimit || 5000, cashierName || 'Admin', cashierId || null]
+        );
+        res.json({ success: true, id: r[0].id });
+    } catch (error) {
+        console.error('Create credit customer error:', error);
+        res.status(500).json({ success: false, message: 'Error creating credit customer' });
+    }
+});
+
+app.put('/api/credit-customers/:id', verifyToken, async (req, res) => {
+    const { name, phone, idNumber, address, debtLimit, isActive } = req.body;
+    try {
+        await pool.query(
+            "UPDATE credit_customers SET name=$1, phone=$2, idNumber=$3, address=$4, debtLimit=$5 WHERE id=$6",
+            [name, phone, idNumber, address, debtLimit, req.params.id]
+        );
+        if (isActive !== undefined) {
+            await pool.query("UPDATE credit_customers SET isActive=$1 WHERE id=$2", [isActive, req.params.id]);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Update credit customer error:', error);
+        res.status(500).json({ success: false, message: 'Error updating credit customer' });
+    }
+});
+
+app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => {
+    const q = '%' + req.params.query + '%';
+    try {
+        const [r] = await pool.query("SELECT * FROM credit_customers WHERE isActive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idNumber ILIKE $3) LIMIT 10", [q, q, q]);
+        res.json(r);
+    } catch (error) {
+        console.error('Search credit customers error:', error);
+        res.status(500).json({ success: false, message: 'Error searching credit customers' });
+    }
+});
+
+// ============================================
+// DEBT PAYMENTS
+// ============================================
+
+app.post('/api/debt-payments', verifyToken, async (req, res) => {
+    const { customerId, customerName, amount, paymentMethod, receivedBy, receivedById } = req.body;
+    try {
+        await pool.query(
+            "INSERT INTO debt_payments (customerId, customerName, amount, paymentMethod, receivedBy, receivedById, date) VALUES ($1, $2, $3, $4, $5, $6, NOW())",
+            [customerId, customerName, amount, paymentMethod || 'cash', receivedBy, receivedById]
+        );
+        await pool.query("UPDATE credit_customers SET totalDebt = GREATEST(0, totalDebt - $1) WHERE id = $2", [amount, customerId]);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Create debt payment error:', error);
+        res.status(500).json({ success: false, message: 'Error creating debt payment' });
+    }
+});
+
+app.get('/api/debt-payments/:customerId', verifyToken, async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM debt_payments WHERE customerId = $1 ORDER BY date DESC", [req.params.customerId]);
+        res.json(r);
+    } catch (error) {
+        console.error('Get debt payments error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching debt payments' });
+    }
+});
+
+app.delete('/api/debt-payments/:id', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [payment] = await pool.query("SELECT * FROM debt_payments WHERE id = $1", [req.params.id]);
+        if (!payment.length) return res.json({ success: false });
+        await pool.query("UPDATE credit_customers SET totalDebt = totalDebt + $1 WHERE id = $2", [payment[0].amount, payment[0].customerid]);
+        await pool.query("DELETE FROM debt_payments WHERE id = $1", [req.params.id]);
+        logActivity(null, 'Admin', 'delete_payment', 'Deleted payment: ' + payment[0].customername + ' - KES ' + Number(payment[0].amount).toLocaleString());
+        res.json({ success: true });
+    } catch(e) {
+        console.error('Delete debt payment error:', e);
+        res.json({ success: false, message: e.message });
+    }
+});
+
+// ============================================
+// CREDIT SALES
+// ============================================
+
+app.post('/api/credit-sales', verifyToken, async (req, res) => {
+    const { saleId, customerId, customerName, amount, cashierId, cashierName } = req.body;
+    try {
+        const [c] = await pool.query("SELECT * FROM credit_customers WHERE id = $1", [customerId]);
+        if (!c.length) return res.json({ success: false });
+        const debtBefore = Number(c[0].totaldebt);
+        const debtAfter = debtBefore + amount;
+        if (debtAfter > c[0].debtlimit) return res.json({ success: false, message: 'Debt limit exceeded!' });
+        await pool.query(
+            "INSERT INTO credit_sales (saleId, customerId, customerName, amount, debtBefore, debtAfter, cashierId, cashierName, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())",
+            [saleId, customerId, customerName, amount, debtBefore, debtAfter, cashierId, cashierName]
+        );
+        await pool.query("UPDATE credit_customers SET totalDebt = totalDebt + $1 WHERE id = $2", [amount, customerId]);
+        await pool.query("UPDATE sales SET isCredit=1, customerId=$1 WHERE id=$2", [customerId, saleId]);
+        res.json({ success: true, debtBefore, debtAfter });
+    } catch (error) {
+        console.error('Create credit sale error:', error);
+        res.status(500).json({ success: false, message: 'Error creating credit sale' });
+    }
+});
+
+app.get('/api/credit-sales', verifyToken, async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM credit_sales ORDER BY date DESC LIMIT 100");
+        res.json(r);
+    } catch (error) {
+        console.error('Get credit sales error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching credit sales' });
+    }
+});
+
+app.get('/api/credit-summary', verifyToken, async (req, res) => {
+    try {
+        const [td] = await pool.query("SELECT SUM(totalDebt) as total FROM credit_customers WHERE isActive=1");
+        const [ac] = await pool.query("SELECT COUNT(*) as count FROM credit_customers WHERE isActive=1 AND totalDebt > 0");
+        const today = new Date().toISOString().split('T')[0] + '%';
+        const [ts] = await pool.query("SELECT SUM(amount) as total FROM credit_sales WHERE date::text LIKE $1", [today]);
+        const [tp] = await pool.query("SELECT SUM(amount) as total FROM debt_payments WHERE date::text LIKE $1", [today]);
+        res.json({
+            totalDebt: Number(td[0].total || 0),
+            activeCustomers: parseInt(ac[0].count || 0),
+            todayCreditSales: Number(ts[0].total || 0),
+            todayPayments: Number(tp[0].total || 0)
+        });
+    } catch (error) {
+        console.error('Credit summary error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching credit summary' });
+    }
+});
+
+// ============================================
+// SETTINGS
 // ============================================
 
 app.get('/api/settings', verifyToken, async (req, res) => {
     try {
         const [r] = await pool.query("SELECT * FROM settings WHERE id=1");
-        // Return admin password if user is admin
-        if (req.user.role === 'admin') {
-            res.json(r[0] || { adminPassword: 'admin123' });
-        } else {
-            // Cashier sees settings without admin password
-            const { adminPassword, ...settings } = r[0] || {};
-            res.json(settings);
-        }
+        res.json(r[0] || { adminPassword: 'admin123' });
     } catch (error) {
         console.error('Get settings error:', error);
         res.status(500).json({ success: false, message: 'Error fetching settings' });
@@ -750,10 +1197,10 @@ app.put('/api/settings', verifyToken, authorize('admin'), async (req, res) => {
     try {
         if (req.body.adminPassword) {
             const hashedPassword = await bcrypt.hash(req.body.adminPassword, 10);
-            await pool.query("UPDATE settings SET adminPassword=? WHERE id=1", [hashedPassword]);
+            await pool.query("UPDATE settings SET adminPassword=$1 WHERE id=1", [hashedPassword]);
         }
         if (req.body.announcement !== undefined) {
-            await pool.query("UPDATE settings SET announcement=? WHERE id=1", [req.body.announcement]);
+            await pool.query("UPDATE settings SET announcement=$1 WHERE id=1", [req.body.announcement]);
         }
         res.json({ success: true });
     } catch (error) {
@@ -763,15 +1210,169 @@ app.put('/api/settings', verifyToken, authorize('admin'), async (req, res) => {
 });
 
 // ============================================
-// 🏠 FRONTEND ROUTE
+// ACTIVITY LOG
 // ============================================
 
-app.all('/{*splat}', (req, res) => {
+app.get('/api/activity', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM activity_log ORDER BY date DESC LIMIT 100");
+        res.json(r);
+    } catch (error) {
+        console.error('Get activity log error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching activity log' });
+    }
+});
+
+app.delete('/api/activity', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        await pool.query("DELETE FROM activity_log");
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Clear activity log error:', error);
+        res.status(500).json({ success: false, message: 'Error clearing activity log' });
+    }
+});
+
+// ============================================
+// M-PESA ENDPOINTS
+// ============================================
+
+app.get('/api/mpesa/config', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [c] = await pool.query("SELECT * FROM mpesa_config WHERE id=1");
+        const config = c[0] || {};
+        res.json({
+            tillNumber: config.tillnumber || '',
+            shortCode: config.shortcode || '',
+            environment: config.environment || 'sandbox',
+            configured: !!(config.consumerkey && config.consumersecret && config.passkey)
+        });
+    } catch (error) {
+        console.error('Get M-Pesa config error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching M-Pesa config' });
+    }
+});
+
+app.put('/api/mpesa/config', verifyToken, authorize('admin'), async (req, res) => {
+    const { consumerKey, consumerSecret, passkey, tillNumber, shortCode, environment } = req.body;
+    try {
+        await pool.query(
+            "UPDATE mpesa_config SET consumerKey=$1, consumerSecret=$2, passkey=$3, tillNumber=$4, shortCode=$5, environment=$6 WHERE id=1",
+            [consumerKey, consumerSecret, passkey, tillNumber, shortCode, environment || 'sandbox']
+        );
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Update M-Pesa config error:', error);
+        res.status(500).json({ success: false, message: 'Error updating M-Pesa config' });
+    }
+});
+
+app.post('/api/mpesa/till-payment', verifyToken, async (req, res) => {
+    const { saleId, mpesaReceiptNumber, phoneNumber, amount } = req.body;
+    try {
+        await pool.query(
+            "INSERT INTO mpesa_transactions (transactionType, saleId, phoneNumber, amount, mpesaReceiptNumber, status, date) VALUES ('till_payment', $1, $2, $3, $4, 'completed', NOW())",
+            [saleId, phoneNumber, amount, mpesaReceiptNumber]
+        );
+        if (saleId) {
+            await pool.query("UPDATE sales SET paymentMethod='M-Pesa', mpesaRef=$1 WHERE id=$2", [mpesaReceiptNumber, saleId]);
+        }
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Till payment error:', error);
+        res.status(500).json({ success: false, message: 'Error processing till payment' });
+    }
+});
+
+app.get('/api/mpesa/transactions', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM mpesa_transactions ORDER BY date DESC LIMIT 100");
+        res.json(r);
+    } catch (error) {
+        console.error('Get M-Pesa transactions error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching M-Pesa transactions' });
+    }
+});
+
+app.get('/api/mpesa/transaction/:checkoutRequestID', verifyToken, async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM mpesa_transactions WHERE checkoutRequestID=$1", [req.params.checkoutRequestID]);
+        res.json(r[0] || { status: 'not_found' });
+    } catch (error) {
+        console.error('Get M-Pesa transaction error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching M-Pesa transaction' });
+    }
+});
+
+// ============================================
+// DAILY REPORTS
+// ============================================
+
+app.get('/api/daily-reports', verifyToken, async (req, res) => {
+    try {
+        const [r] = await pool.query("SELECT * FROM daily_reports ORDER BY reportDate DESC LIMIT 30");
+        res.json(r);
+    } catch (error) {
+        console.error('Get daily reports error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching daily reports' });
+    }
+});
+
+app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
+    try {
+        var today = new Date().toISOString().split('T')[0];
+        var [report] = await pool.query("SELECT * FROM daily_reports WHERE reportDate = $1", [today]);
+        if (!report.length) {
+            var [sales] = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
+            var [itemsSold] = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+            var [stockAdded] = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
+            var [stockSold] = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+            var [products] = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
+            var totalSales = sales.reduce(function(s, sale) { return Number(s) + Number(sale.total || 0); }, 0);
+            await pool.query(
+                "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                [today, totalSales, sales.length, itemsSold[0]?.total || 0, products[0]?.totalstock || 0, stockAdded[0]?.total || 0, stockSold[0]?.total || 0, products[0]?.count || 0]
+            );
+            var [newReport] = await pool.query("SELECT * FROM daily_reports WHERE reportDate = $1", [today]);
+            report = newReport;
+        }
+        res.json(report[0] || {});
+    } catch (error) {
+        console.error('Get today report error:', error);
+        res.status(500).json({ success: false, message: 'Error fetching today report' });
+    }
+});
+
+app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        var today = new Date().toISOString().split('T')[0];
+        var [sales] = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
+        var [itemsSold] = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+        var [stockAdded] = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
+        var [stockSold] = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+        var [products] = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
+        var totalSales = sales.reduce(function(s, sale) { return Number(s) + Number(sale.total || 0); }, 0);
+        await pool.query(
+            "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (reportDate) DO UPDATE SET totalSales=$2, transactionCount=$3, totalItemsSold=$4, closingStock=$5, stockAdded=$6, stockSold=$7, productsCount=$8",
+            [today, totalSales, sales.length, itemsSold[0]?.total || 0, products[0]?.totalstock || 0, stockAdded[0]?.total || 0, stockSold[0]?.total || 0, products[0]?.count || 0]
+        );
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Generate daily report error:', error);
+        res.status(500).json({ success: false, message: 'Error generating daily report' });
+    }
+});
+
+// ============================================
+// FRONTEND ROUTE
+// ============================================
+
+app.all('/*', (req, res) => {
     res.sendFile(path.join(__dirname, 'frontend', 'public', 'index.html'));
 });
 
 // ============================================
-// 🚀 START SERVER
+// START SERVER
 // ============================================
 
 initDB().then(() => {
@@ -779,7 +1380,9 @@ initDB().then(() => {
         console.log('========================================');
         console.log('  TALAEN HARDWARE SYSTEM');
         console.log('  Server: http://localhost:' + PORT);
-        console.log('  Network: http://YOUR-IP:' + PORT);
+        console.log('  Database: Supabase PostgreSQL');
         console.log('========================================');
     });
-}).catch(err => { console.error('DB init error:', err); });
+}).catch(err => {
+    console.error('DB init error:', err);
+});
