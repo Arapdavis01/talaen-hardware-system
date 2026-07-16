@@ -26,23 +26,21 @@ const loginLimiter = rateLimit({
 });
 
 // ============================================
-// POSTGRESQL CONNECTION (Supabase - IPv4 Fix)
+// POSTGRESQL CONNECTION (Supabase)
 // ============================================
 
-// Using direct host and port from Supabase Transaction Pooler
 const pool = new Pool({
-    host: 'aws-0-eu-west-1.pooler.supabase.com',
-    port: 6543,
-    user: 'postgres.rpgmehnxtztpnmsjtiyc',
+    host: process.env.PGHOST || 'aws-0-eu-west-1.pooler.supabase.com',
+    port: parseInt(process.env.PGPORT) || 6543,
+    user: process.env.PGUSER || 'postgres.rpgmehnxtztpnmsjtiyc',
     password: process.env.PGPASSWORD || 'Arapdavis@1954',
-    database: 'postgres',
+    database: process.env.PGDATABASE || 'postgres',
     ssl: { rejectUnauthorized: false },
-    family: 4,  // Force IPv4
+    family: 4,
     connectionTimeoutMillis: 10000,
     keepAlive: true
 });
 
-// Test connection
 pool.connect((err, client, release) => {
     if (err) {
         console.error('Error connecting to Supabase:', err.stack);
@@ -112,7 +110,7 @@ async function initDB() {
             total DECIMAL(10,2)
         )`,
         `CREATE TABLE IF NOT EXISTS settings (
-            id SERIAL PRIMARY KEY DEFAULT 1,
+            id SERIAL PRIMARY KEY,
             adminPassword VARCHAR(255),
             taxRate DECIMAL(10,2) DEFAULT 16,
             announcement TEXT
@@ -239,26 +237,31 @@ async function initDB() {
         }
     }
 
-    // Check if users exist
-    const [users] = await pool.query("SELECT COUNT(*) as c FROM users");
-    if (parseInt(users[0].c) === 0) {
-        const hashedAdmin = await bcrypt.hash('admin123', 10);
-        const hashedCashier = await bcrypt.hash('cashier123', 10);
+    try {
+        const usersResult = await pool.query("SELECT COUNT(*) as c FROM users");
+        const userCount = parseInt(usersResult.rows[0].c);
         
-        await pool.query(
-            "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6)",
-            [1, 'admin', hashedAdmin, 'admin', 'Administrator', 1]
-        );
-        await pool.query(
-            "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6)",
-            [2, 'cashier', hashedCashier, 'cashier', 'Cashier User', 1]
-        );
-        
-        const hashedSettingsAdmin = await bcrypt.hash('admin123', 10);
-        await pool.query(
-            "INSERT INTO settings (id, adminPassword, taxRate) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
-            [1, hashedSettingsAdmin, 16]
-        );
+        if (userCount === 0) {
+            const hashedAdmin = await bcrypt.hash('admin123', 10);
+            const hashedCashier = await bcrypt.hash('cashier123', 10);
+            
+            await pool.query(
+                "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6)",
+                [1, 'admin', hashedAdmin, 'admin', 'Administrator', 1]
+            );
+            await pool.query(
+                "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6)",
+                [2, 'cashier', hashedCashier, 'cashier', 'Cashier User', 1]
+            );
+            
+            const hashedSettingsAdmin = await bcrypt.hash('admin123', 10);
+            await pool.query(
+                "INSERT INTO settings (id, adminPassword, taxRate) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+                [1, hashedSettingsAdmin, 16]
+            );
+        }
+    } catch (error) {
+        console.error('Error checking/creating users:', error.message);
     }
 
     console.log('Database initialized (PostgreSQL/Supabase)');
