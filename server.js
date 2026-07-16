@@ -27,7 +27,7 @@ const loginLimiter = rateLimit({
 });
 
 // ============================================
-// ✅ POSTGRESQL CONNECTION (Supabase)
+// POSTGRESQL CONNECTION (Supabase)
 // ============================================
 
 // Using connection string from environment variable
@@ -41,7 +41,7 @@ pool.connect((err, client, release) => {
     if (err) {
         console.error('Error connecting to Supabase:', err.stack);
     } else {
-        console.log('✅ Connected to Supabase PostgreSQL');
+        console.log('Connected to Supabase PostgreSQL');
         release();
     }
 });
@@ -255,7 +255,7 @@ async function initDB() {
         );
     }
 
-    console.log('✅ Database initialized (PostgreSQL/Supabase)');
+    console.log('Database initialized (PostgreSQL/Supabase)');
 }
 
 // ============================================
@@ -360,7 +360,7 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
             const remainingAttempts = MAX_LOGIN_ATTEMPTS - parseInt(attemptCount[0].count);
             return res.json({ 
                 success: false, 
-                message: `Invalid credentials. ${remainingAttempts} attempts remaining before lockout.`
+                message: 'Invalid credentials. ' + remainingAttempts + ' attempts remaining before lockout.'
             });
         }
 
@@ -539,7 +539,7 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
             return res.json({ success: false, message: 'No updates provided' });
         }
         values.push(userId);
-        await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${paramCount}`, values);
+        await pool.query('UPDATE users SET ' + updates.join(', ') + ' WHERE id = $' + paramCount, values);
         const [updatedUser] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [userId]);
         logActivity(req.user.id, req.user.fullName, 'update_user', 'Updated: ' + (updatedUser[0].fullName || updatedUser[0].username));
         res.json({ success: true, message: 'User updated successfully', user: updatedUser[0] });
@@ -1364,10 +1364,11 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
 });
 
 // ============================================
-// FRONTEND ROUTE
+// FRONTEND ROUTE - FIXED
 // ============================================
 
-app.all('/*', (req, res) => {
+// ✅ Fixed: Changed '/*' to '*' for Express v5 compatibility
+app.all('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'frontend', 'public', 'index.html'));
 });
 
