@@ -1364,11 +1364,11 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
 });
 
 // ============================================
-// FRONTEND ROUTE - FIXED
+// FRONTEND ROUTE - FIXED FOR Express v5
 // ============================================
 
-// ✅ Fixed: Changed '/*' to '*' for Express v5 compatibility
-app.all('*', (req, res) => {
+// ✅ Fixed: Using '/*splat' for Express v5 compatibility
+app.all('/*splat', (req, res) => {
     res.sendFile(path.join(__dirname, 'frontend', 'public', 'index.html'));
 });
 
