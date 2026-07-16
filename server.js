@@ -26,15 +26,20 @@ const loginLimiter = rateLimit({
 });
 
 // ============================================
-// POSTGRESQL CONNECTION (Supabase)
+// POSTGRESQL CONNECTION (Supabase - IPv4 Fix)
 // ============================================
 
-// Using connection string from environment variable
-// Force IPv4 to avoid DNS issues on Render
+// Using direct host and port from Supabase Transaction Pooler
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
+    host: 'aws-0-eu-west-1.pooler.supabase.com',
+    port: 6543,
+    user: 'postgres.rpgmehnxtztpnmsjtiyc',
+    password: process.env.PGPASSWORD || 'Arapdavis@1954',
+    database: 'postgres',
     ssl: { rejectUnauthorized: false },
-    family: 4
+    family: 4,  // Force IPv4
+    connectionTimeoutMillis: 10000,
+    keepAlive: true
 });
 
 // Test connection
