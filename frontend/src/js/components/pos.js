@@ -819,7 +819,7 @@ const POSComponent = {
         }, 'Confirm & Print Receipt', 'success');
     },
 
-    // ========== RETURN/EXCHANGE METHODS (unchanged) ==========
+    // ========== RETURN/EXCHANGE METHODS ==========
     showReturnExchange() {
         var m = document.createElement('div'); m.className = 'modal-overlay';
         m.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-exchange-alt"></i> Return / Exchange</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Receipt No</label><div style="display:flex;gap:0.5rem;"><input type="text" id="returnReceiptInput" class="form-control" placeholder="e.g., TIH-XXXXXX" style="flex:1;"><button class="btn btn-primary" id="returnSearchBtn"><i class="fas fa-search"></i> Search</button></div><div id="returnReceiptResult"></div></div><div id="returnProcessArea" style="display:none;margin-top:1rem;"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
@@ -829,7 +829,7 @@ const POSComponent = {
         m.querySelector('#returnReceiptInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { self._searchReceipt(m); } });
     },
 
-          _searchReceipt(m) {
+    _searchReceipt(m) {
         var q = m.querySelector('#returnReceiptInput').value.trim();
         if (!q) { this._showMessage('Enter a receipt number!', 'warning'); return; }
         var self = this;
@@ -877,7 +877,7 @@ const POSComponent = {
                 html += '<button class="btn btn-success" id="processReturnBtn" style="width:100%;margin-top:1rem;"><i class="fas fa-check"></i> Process Return/Exchange</button>';
                 html += '</div>';
                 
-                // 🔥 FIX: Put HTML in resultDiv, then attach event handlers using document.getElementById
+                // Put HTML in resultDiv
                 resultDiv.innerHTML = html; 
                 processDiv.style.display = 'block';
                 
@@ -918,7 +918,7 @@ const POSComponent = {
 
     _processReturn(sale, modal) {
         var self = this;
-        // 🔥 FIX: Use document.getElementById since HTML is in resultDiv, not processDiv
+        // Use document.getElementById since HTML is in resultDiv
         var returnType = document.getElementById('returnTypeSelect').value;
         var itemSelect = document.getElementById('returnItemSelect');
         var selected = itemSelect.value.split('|');
@@ -941,78 +941,6 @@ const POSComponent = {
             exchangeProductName = exchangeSearch.value;
             exchangeAmount = exchangePrice * exchangeQty;
         }
-        var returnData = {
-            originalSaleId: sale.id,
-            originalReceiptNo: sale.receiptNo || sale.receiptno,
-            customerName: sale.customerName || sale.customername || 'Walk-in',
-            returnType: returnType,
-            productId: productId,
-            productName: productName,
-            quantity: qty,
-            returnAmount: refundAmount,
-            returnedInUnit: soldInUnit,
-            conversionFactor: conversionFactor,
-            exchangeProductId: exchangeProductId,
-            exchangeProductName: exchangeProductName,
-            exchangeAmount: exchangeAmount,
-            refundAmount: returnType === 'return' ? refundAmount : 0,
-            reason: reason,
-            cashierName: this._getCurrentUser()?.fullName || 'Cashier'
-        };
-        var msg = '<div style="text-align:center;"><h3>' + (returnType === 'return' ? 'Return' : 'Exchange') + '</h3><p><strong>Product:</strong> ' + productName + '</p><p><strong>Quantity:</strong> ' + qty + (soldInUnit ? ' ' + soldInUnit : '') + '</p>';
-        if (returnType === 'return') msg += '<p><strong>Refund Amount:</strong> KES ' + refundAmount.toLocaleString() + '</p>';
-        else msg += '<p><strong>Exchange Product:</strong> ' + exchangeProductName + ' x ' + exchangeQty + '</p>';
-        msg += '</div>';
-        this._showConfirm('Process ' + (returnType === 'return' ? 'Return' : 'Exchange'), msg, function(){
-            ApiService.post('/returns', returnData).then(function(){
-                self._showMessage('✅ ' + (returnType === 'return' ? 'Return' : 'Exchange') + ' processed successfully!', 'success');
-                modal.remove();
-                if (typeof CashierDashboardComponent !== 'undefined' && CashierDashboardComponent._currentView === 'returns') {
-                    CashierDashboardComponent._loadMyReturns();
-                }
-            }).catch(function(e){ self._showMessage('Error: ' + e.message, 'danger'); });
-        }, 'Confirm', 'success');
-    },
-    _searchExchangeProduct(query) {
-        var resultsDiv = document.getElementById('exchangeResults');
-        if (!resultsDiv) return;
-        if (!query || query.length < 2) { resultsDiv.innerHTML = ''; return; }
-        ApiService.get('/products/search?q=' + encodeURIComponent(query)).then(function(products){
-            if (!products || products.length === 0) { resultsDiv.innerHTML = '<div style="padding:0.5rem;color:#999;">No products found</div>'; return; }
-            var h = ''; 
-            products.forEach(function(p){ 
-                var stockDisplay = typeof ProductService !== 'undefined' ? ProductService.getStockDisplay(p) : (p.stock + ' ' + (p.unit || 'pcs'));
-                h += '<div style="padding:0.5rem;border-bottom:1px solid #eee;cursor:pointer;" onclick="document.getElementById(\'exchangeProductSearch\').value=\'' + p.name + '\';document.getElementById(\'exchangeProductSearch\').dataset.id=\'' + p.id + '\';document.getElementById(\'exchangeProductSearch\').dataset.price=\'' + p.price + '\';resultsDiv.innerHTML=\'\';">' + p.name + ' - KES ' + p.price.toLocaleString() + ' (' + stockDisplay + ')</div>'; 
-            });
-            resultsDiv.innerHTML = h;
-        });
-    },
-
-       _processReturn(sale, modal) {
-        var self = this;
-        var returnType = modal.querySelector('#returnTypeSelect').value;
-        var itemSelect = modal.querySelector('#returnItemSelect');
-        var selected = itemSelect.value.split('|');
-        if (selected.length < 4) { this._showMessage('Select a valid item!', 'warning'); return; }
-        var productId = parseInt(selected[0]), productName = selected[1], price = parseFloat(selected[2]), maxQty = parseInt(selected[3]);
-        var soldInUnit = selected[4] || null;
-        var conversionFactor = parseInt(selected[5]) || 0;
-        var qty = parseInt(modal.querySelector('#returnQty').value) || 1;
-        if (qty < 1 || qty > maxQty) { this._showMessage('Invalid quantity! Max available: ' + maxQty, 'warning'); return; }
-        var reason = modal.querySelector('#returnReason').value || 'No reason provided';
-        var refundAmount = returnType === 'return' ? (price * qty) : 0;
-        var exchangeProductId = null, exchangeProductName = null, exchangeAmount = 0;
-        if (returnType === 'exchange') {
-            var exchangeSearch = modal.querySelector('#exchangeProductSearch');
-            var exchangeId = exchangeSearch?.dataset?.id;
-            var exchangePrice = parseFloat(exchangeSearch?.dataset?.price) || 0;
-            var exchangeQty = parseInt(modal.querySelector('#exchangeQty').value) || 1;
-            if (!exchangeId) { this._showMessage('Select an exchange product!', 'warning'); return; }
-            exchangeProductId = parseInt(exchangeId);
-            exchangeProductName = exchangeSearch.value;
-            exchangeAmount = exchangePrice * exchangeQty;
-        }
-        // 🔥 FIX: Handle lowercase DB column names for sale object
         var returnData = {
             originalSaleId: sale.id,
             originalReceiptNo: sale.receiptNo || sale.receiptno,
