@@ -23,6 +23,15 @@ const loginLimiter = rateLimit({
     message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false,
+    // Fix for X-Forwarded-For header warning
+    skip: function(req) {
+        // Skip rate limiting for local requests if needed
+        return false;
+    },
+    keyGenerator: function(req) {
+        // Use IP address from request
+        return req.ip || req.connection.remoteAddress;
+    }
 });
 
 // ============================================
@@ -323,7 +332,7 @@ function authorize(...roles) {
 }
 
 // ============================================
-// AUTH ENDPOINTS
+// AUTH LOGIN - FIXED for pg library
 // ============================================
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
@@ -335,47 +344,55 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 
     try {
-        const [lockCheck] = await pool.query(
+        // Check if account is locked
+        const lockCheckResult = await pool.query(
             "SELECT COUNT(*) as failed_count FROM login_attempts WHERE username = $1 AND success = 0 AND attempt_time > NOW() - INTERVAL '15 minutes'",
             [username]
         );
+        const failedCount = parseInt(lockCheckResult.rows[0].failed_count);
         
-        if (parseInt(lockCheck[0].failed_count) >= MAX_LOGIN_ATTEMPTS) {
+        if (failedCount >= MAX_LOGIN_ATTEMPTS) {
             return res.json({
                 success: false,
                 message: 'Account temporarily locked. Too many failed attempts. Please try again later.'
             });
         }
 
-        const [user] = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+        // Get user
+        const userResult = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
+        const user = userResult.rows;
 
         if (user.length === 0) {
             await logLoginAttempt(username, ipAddress, false);
             return res.json({ success: false, message: 'Invalid credentials' });
         }
 
+        // Check if account is active
         if (user[0].isactive !== 1) {
             await logLoginAttempt(username, ipAddress, false);
             return res.json({ success: false, message: 'Account is deactivated. Contact administrator.' });
         }
 
+        // Verify password
         const isMatch = await bcrypt.compare(password, user[0].password);
         
         if (!isMatch) {
             await logLoginAttempt(username, ipAddress, false);
-            const [attemptCount] = await pool.query(
+            const attemptCountResult = await pool.query(
                 "SELECT COUNT(*) as count FROM login_attempts WHERE username = $1 AND success = 0 AND attempt_time > NOW() - INTERVAL '15 minutes'",
                 [username]
             );
-            const remainingAttempts = MAX_LOGIN_ATTEMPTS - parseInt(attemptCount[0].count);
+            const remainingAttempts = MAX_LOGIN_ATTEMPTS - parseInt(attemptCountResult.rows[0].count);
             return res.json({ 
                 success: false, 
                 message: 'Invalid credentials. ' + remainingAttempts + ' attempts remaining before lockout.'
             });
         }
 
+        // SUCCESS!
         await logLoginAttempt(username, ipAddress, true);
 
+        // Generate JWT token
         const token = jwt.sign(
             { 
                 id: user[0].id, 
@@ -434,10 +451,11 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
     try {
         const authHeader = req.headers['authorization'];
         const token = authHeader && authHeader.split(' ')[1];
-        const [session] = await pool.query(
+        const sessionResult = await pool.query(
             "SELECT * FROM sessions WHERE token = $1 AND expires_at > NOW()",
             [token]
         );
+        const session = sessionResult.rows;
         if (session.length === 0) {
             return res.status(401).json({ success: false, message: 'Session invalid or expired' });
         }
@@ -455,10 +473,10 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
 // 🔥 ADMIN: Get all users - shows actual passwords
 app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [r] = await pool.query(
+        const r = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users ORDER BY id"
         );
-        res.json(r);
+        res.json(r.rows);
     } catch (error) {
         console.error('Get users error:', error);
         res.status(500).json({ success: false, message: 'Error fetching users' });
@@ -468,10 +486,11 @@ app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
 // 🔥 USER: Get own profile - shows own password
 app.get('/api/users/profile', verifyToken, async (req, res) => {
     try {
-        const [user] = await pool.query(
+        const userResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [req.user.id]
         );
+        const user = userResult.rows;
         if (user.length === 0) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
@@ -485,10 +504,11 @@ app.get('/api/users/profile', verifyToken, async (req, res) => {
 // 🔥 ADMIN: Get single user - shows actual password
 app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [user] = await pool.query(
+        const userResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [req.params.id]
         );
+        const user = userResult.rows;
         if (user.length === 0) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
@@ -507,16 +527,17 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
             return res.json({ success: false, message: 'Password must be at least 6 characters' });
         }
         const hashedPassword = await bcrypt.hash(password, 10);
-        const [r] = await pool.query(
+        const r = await pool.query(
             "INSERT INTO users (username, password, plain_password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, 1) RETURNING id",
             [username, hashedPassword, password, role || 'cashier', fullName]
         );
+        const newUserId = r.rows[0].id;
         logActivity(req.user.id, req.user.fullName, 'add_user', 'Added: ' + fullName);
-        const [newUser] = await pool.query(
+        const newUserResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
-            [r[0].id]
+            [newUserId]
         );
-        res.json({ success: true, message: 'User created successfully', user: newUser[0] });
+        res.json({ success: true, message: 'User created successfully', user: newUserResult.rows[0] });
     } catch(e) {
         if (e.code === '23505') {
             res.json({ success: false, message: 'Username already exists' });
@@ -532,7 +553,8 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { isActive, fullName, username, role } = req.body;
     try {
-        const [user] = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+        const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+        const user = userResult.rows;
         if (!user.length) {
             return res.json({ success: false, message: 'User not found' });
         }
@@ -566,12 +588,12 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
         }
         values.push(userId);
         await pool.query('UPDATE users SET ' + updates.join(', ') + ' WHERE id = $' + paramCount, values);
-        const [updatedUser] = await pool.query(
+        const updatedUserResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [userId]
         );
-        logActivity(req.user.id, req.user.fullName, 'update_user', 'Updated: ' + (updatedUser[0].fullName || updatedUser[0].username));
-        res.json({ success: true, message: 'User updated successfully', user: updatedUser[0] });
+        logActivity(req.user.id, req.user.fullName, 'update_user', 'Updated: ' + (updatedUserResult.rows[0].fullName || updatedUserResult.rows[0].username));
+        res.json({ success: true, message: 'User updated successfully', user: updatedUserResult.rows[0] });
     } catch(e) {
         if (e.code === '23505') {
             res.json({ success: false, message: 'Username already exists' });
@@ -590,7 +612,8 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
         if (!newPassword || newPassword.length < 6) {
             return res.json({ success: false, message: 'New password must be at least 6 characters' });
         }
-        const [user] = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+        const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+        const user = userResult.rows;
         if (!user.length) {
             return res.json({ success: false, message: 'User not found' });
         }
@@ -615,7 +638,8 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { fullName, currentPassword, newPassword } = req.body;
     try {
-        const [user] = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+        const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
+        const user = userResult.rows;
         if (!user.length) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
@@ -641,11 +665,11 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
             await pool.query("UPDATE users SET fullName = $1 WHERE id = $2", [fullName, userId]);
             req.user.fullName = fullName;
         }
-        const [updatedUser] = await pool.query(
+        const updatedUserResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [userId]
         );
-        res.json({ success: true, message: 'Profile updated successfully', user: updatedUser[0] });
+        res.json({ success: true, message: 'Profile updated successfully', user: updatedUserResult.rows[0] });
     } catch (error) {
         console.error('Profile update error:', error);
         res.status(500).json({ success: false, message: 'Error updating profile' });
@@ -658,8 +682,8 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
 
 app.get('/api/products', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name, brand");
-        res.json(r);
+        const r = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name, brand");
+        res.json(r.rows);
     } catch (error) {
         console.error('Get products error:', error);
         res.status(500).json({ success: false, message: 'Error fetching products' });
@@ -695,11 +719,11 @@ app.get('/api/products/paginated', verifyToken, async (req, res) => {
         } else if (stockFilter === 'ok') {
             whereClause += ' AND stock > minStock';
         }
-        var [countResult] = await pool.query('SELECT COUNT(*) as total FROM products ' + whereClause, params);
-        var total = parseInt(countResult[0].total);
+        var countResult = await pool.query('SELECT COUNT(*) as total FROM products ' + whereClause, params);
+        var total = parseInt(countResult.rows[0].total);
         params.push(limit, offset);
-        var [products] = await pool.query('SELECT * FROM products ' + whereClause + ' ORDER BY name, brand LIMIT $' + params.length + ' OFFSET $' + (params.length + 1), params);
-        res.json({ products: products, pagination: { page: page, limit: limit, total: total, totalPages: Math.ceil(total / limit), hasNext: offset + limit < total, hasPrev: page > 1 } });
+        var productsResult = await pool.query('SELECT * FROM products ' + whereClause + ' ORDER BY name, brand LIMIT $' + params.length + ' OFFSET $' + (params.length + 1), params);
+        res.json({ products: productsResult.rows, pagination: { page: page, limit: limit, total: total, totalPages: Math.ceil(total / limit), hasNext: offset + limit < total, hasPrev: page > 1 } });
     } catch(e) {
         console.error('Paginated products error:', e);
         res.json({ products: [], pagination: { page: 1, limit: 25, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
@@ -708,8 +732,8 @@ app.get('/api/products/paginated', verifyToken, async (req, res) => {
 
 app.get('/api/products/categories', verifyToken, async (req, res) => {
     try {
-        var [categories] = await pool.query("SELECT DISTINCT category FROM products WHERE isActive = 1 AND category != '' ORDER BY category");
-        res.json(categories.map(function(c) { return c.category; }));
+        var categoriesResult = await pool.query("SELECT DISTINCT category FROM products WHERE isActive = 1 AND category != '' ORDER BY category");
+        res.json(categoriesResult.rows.map(function(c) { return c.category; }));
     } catch(e) {
         res.json([]);
     }
@@ -717,10 +741,14 @@ app.get('/api/products/categories', verifyToken, async (req, res) => {
 
 app.get('/api/products/with-prices', verifyToken, async (req, res) => {
     try {
-        const [products] = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name,brand");
+        const productsResult = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name,brand");
+        const products = productsResult.rows;
         for (let p of products) {
-            const [lastPO] = await pool.query("SELECT pi.unitPrice, pi.sellingPrice FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE pi.productName=$1 AND pi.brand=$2 AND pi.variant=$3 ORDER BY po.date DESC LIMIT 1", [p.name, p.brand, p.variant]);
-            p.lastPrice = lastPO.length ? lastPO[0].unitprice : p.cost;
+            const lastPOResult = await pool.query(
+                "SELECT pi.unitPrice, pi.sellingPrice FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE pi.productName=$1 AND pi.brand=$2 AND pi.variant=$3 ORDER BY po.date DESC LIMIT 1",
+                [p.name, p.brand, p.variant]
+            );
+            p.lastPrice = lastPOResult.rows.length ? lastPOResult.rows[0].unitprice : p.cost;
         }
         res.json(products);
     } catch(e) {
@@ -733,12 +761,12 @@ app.post('/api/products', verifyToken, authorize('admin'), async (req, res) => {
     const { name, brand, variant, category, price, cost, stock, unit } = req.body;
     const sku = Date.now().toString(36).toUpperCase();
     try {
-        const [r] = await pool.query(
+        const r = await pool.query(
             "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
             [sku, name, brand, variant, category, price, cost || 0, stock || 0, unit || 'pcs']
         );
         logActivity(req.user.id, req.user.fullName, 'add_product', 'Added: ' + (brand || '') + ' ' + name);
-        res.json({ success: true, id: r[0].id });
+        res.json({ success: true, id: r.rows[0].id });
     } catch (error) {
         console.error('Add product error:', error);
         res.status(500).json({ success: false, message: 'Error adding product' });
@@ -782,11 +810,11 @@ app.put('/api/products/:id/stock', verifyToken, authorize('admin'), async (req, 
 app.get('/api/products/search', verifyToken, async (req, res) => {
     const q = '%' + (req.query.q || '') + '%';
     try {
-        const [products] = await pool.query(
+        const productsResult = await pool.query(
             "SELECT id, name, brand, variant, price, stock, unit FROM products WHERE isActive=1 AND (name ILIKE $1 OR brand ILIKE $2 OR variant ILIKE $3) AND stock > 0 ORDER BY name LIMIT 20",
             [q, q, q]
         );
-        res.json(products);
+        res.json(productsResult.rows);
     } catch (error) {
         console.error('Search products error:', error);
         res.status(500).json({ success: false, message: 'Error searching products' });
@@ -799,10 +827,11 @@ app.get('/api/products/search', verifyToken, async (req, res) => {
 
 app.get('/api/sales', verifyToken, async (req, res) => {
     try {
-        const [sales] = await pool.query("SELECT * FROM sales ORDER BY date DESC");
+        const salesResult = await pool.query("SELECT * FROM sales ORDER BY date DESC");
+        const sales = salesResult.rows;
         for (let s of sales) {
-            const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [s.id]);
-            s.items = items;
+            const itemsResult = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [s.id]);
+            s.items = itemsResult.rows;
         }
         res.json(sales);
     } catch (error) {
@@ -813,18 +842,20 @@ app.get('/api/sales', verifyToken, async (req, res) => {
 
 app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [cashiers] = await pool.query("SELECT id, fullName, username FROM users WHERE role='cashier' AND isActive=1");
+        const cashiersResult = await pool.query("SELECT id, fullName, username FROM users WHERE role='cashier' AND isActive=1");
+        const cashiers = cashiersResult.rows;
         const today = new Date().toISOString().split('T')[0];
         const result = [];
         for (let c of cashiers) {
-            const [sales] = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0", [c.id]);
-            const todaySales = sales.filter(s => s.date && s.date.startsWith(today));
+            const salesResult = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0", [c.id]);
+            const sales = salesResult.rows;
+            const todaySales = sales.filter(function(s) { return s.date && s.date.startsWith(today); });
             result.push({
                 id: c.id,
                 name: c.fullname,
                 username: c.username,
-                totalAll: sales.reduce((s, sale) => s + Number(sale.total), 0),
-                totalToday: todaySales.reduce((s, sale) => s + Number(sale.total), 0),
+                totalAll: sales.reduce(function(s, sale) { return s + Number(sale.total); }, 0),
+                totalToday: todaySales.reduce(function(s, sale) { return s + Number(sale.total); }, 0),
                 countAll: sales.length,
                 countToday: todaySales.length
             });
@@ -838,14 +869,15 @@ app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (r
 
 app.get('/api/sales/cashier/:id', verifyToken, async (req, res) => {
     try {
-        const [sales] = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0 ORDER BY date DESC", [req.params.id]);
+        const salesResult = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0 ORDER BY date DESC", [req.params.id]);
+        const sales = salesResult.rows;
         const today = new Date().toISOString().split('T')[0];
-        const todaySales = sales.filter(s => s.date && s.date.startsWith(today));
+        const todaySales = sales.filter(function(s) { return s.date && s.date.startsWith(today); });
         res.json({
             all: sales,
             today: todaySales,
-            totalAll: sales.reduce((s, sale) => s + Number(sale.total), 0),
-            totalToday: todaySales.reduce((s, sale) => s + Number(sale.total), 0),
+            totalAll: sales.reduce(function(s, sale) { return s + Number(sale.total); }, 0),
+            totalToday: todaySales.reduce(function(s, sale) { return s + Number(sale.total); }, 0),
             countAll: sales.length,
             countToday: todaySales.length
         });
@@ -859,11 +891,11 @@ app.post('/api/sales', verifyToken, async (req, res) => {
     const { customerName, items, paymentMethod, subtotal, tax, discount, total, cashierId, cashierName, mpesaRef, isCredit, customerId, debtPaid, transportCost } = req.body;
     const rn = 'TIH-' + Date.now().toString(36).toUpperCase();
     try {
-        const [s] = await pool.query(
+        const s = await pool.query(
             "INSERT INTO sales (receiptNo, customerName, paymentMethod, subtotal, tax, discount, total, transportCost, cashierId, cashierName, mpesaRef, isCredit, customerId, debtPaid, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW()) RETURNING id",
             [rn, customerName, paymentMethod, subtotal, tax, discount || 0, total, transportCost || 0, cashierId || null, cashierName || null, mpesaRef || null, isCredit || 0, customerId || null, debtPaid || 0]
         );
-        const saleId = s[0].id;
+        const saleId = s.rows[0].id;
         for (let i of items) {
             await pool.query(
                 "INSERT INTO sale_items (saleId, productId, productName, quantity, price, total) VALUES ($1, $2, $3, $4, $5, $6)",
@@ -894,7 +926,8 @@ app.post('/api/returns', verifyToken, async (req, res) => {
         if (exchangeProductId) {
             await pool.query("UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0", [exchangeProductId]);
         }
-        const [originalSale] = await pool.query("SELECT * FROM sales WHERE id = $1", [originalSaleId]);
+        const originalSaleResult = await pool.query("SELECT * FROM sales WHERE id = $1", [originalSaleId]);
+        const originalSale = originalSaleResult.rows;
         if (originalSale.length && originalSale[0].iscredit == 1 && originalSale[0].customerid) {
             await pool.query("UPDATE credit_customers SET totalDebt = GREATEST(0, totalDebt - $1) WHERE id = $2", [returnAmount, originalSale[0].customerid]);
         }
@@ -909,8 +942,8 @@ app.post('/api/returns', verifyToken, async (req, res) => {
 
 app.get('/api/returns', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM returns_table ORDER BY date DESC LIMIT 100");
-        res.json(r);
+        const r = await pool.query("SELECT * FROM returns_table ORDER BY date DESC LIMIT 100");
+        res.json(r.rows);
     } catch (error) {
         console.error('Get returns error:', error);
         res.status(500).json({ success: false, message: 'Error fetching returns' });
@@ -919,8 +952,8 @@ app.get('/api/returns', verifyToken, async (req, res) => {
 
 app.get('/api/returns/receipt/:receiptNo', verifyToken, async (req, res) => {
     try {
-        const [returns] = await pool.query("SELECT productId, quantity, returnType, date FROM returns_table WHERE originalReceiptNo = $1 ORDER BY date DESC", [req.params.receiptNo]);
-        res.json(returns);
+        const returnsResult = await pool.query("SELECT productId, quantity, returnType, date FROM returns_table WHERE originalReceiptNo = $1 ORDER BY date DESC", [req.params.receiptNo]);
+        res.json(returnsResult.rows);
     } catch (error) {
         console.error('Get returns by receipt error:', error);
         res.status(500).json({ success: false, message: 'Error fetching returns' });
@@ -929,16 +962,16 @@ app.get('/api/returns/receipt/:receiptNo', verifyToken, async (req, res) => {
 
 app.get('/api/returns/summary', verifyToken, async (req, res) => {
     try {
-        var [totalReturns] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='return'");
-        var [totalExchanges] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='exchange'");
-        var [totalRefunded] = await pool.query("SELECT SUM(refundAmount) as total FROM returns_table");
+        var totalReturnsResult = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='return'");
+        var totalExchangesResult = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='exchange'");
+        var totalRefundedResult = await pool.query("SELECT SUM(refundAmount) as total FROM returns_table");
         var today = new Date().toISOString().split('T')[0] + '%';
-        var [todayReturns] = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE date::text LIKE $1", [today]);
+        var todayReturnsResult = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE date::text LIKE $1", [today]);
         res.json({
-            totalReturns: parseInt(totalReturns[0].count) || 0,
-            totalExchanges: parseInt(totalExchanges[0].count) || 0,
-            totalRefunded: parseFloat(totalRefunded[0].total) || 0,
-            todayReturns: parseInt(todayReturns[0].count) || 0
+            totalReturns: parseInt(totalReturnsResult.rows[0].count) || 0,
+            totalExchanges: parseInt(totalExchangesResult.rows[0].count) || 0,
+            totalRefunded: parseFloat(totalRefundedResult.rows[0].total) || 0,
+            todayReturns: parseInt(todayReturnsResult.rows[0].count) || 0
         });
     } catch(e) {
         console.error('Returns summary error:', e);
@@ -948,10 +981,11 @@ app.get('/api/returns/summary', verifyToken, async (req, res) => {
 
 app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
     try {
-        const [sale] = await pool.query("SELECT * FROM sales WHERE receiptNo = $1", [req.params.receiptNo]);
+        const saleResult = await pool.query("SELECT * FROM sales WHERE receiptNo = $1", [req.params.receiptNo]);
+        const sale = saleResult.rows;
         if (sale.length) {
-            const [items] = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [sale[0].id]);
-            sale[0].items = items;
+            const itemsResult = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [sale[0].id]);
+            sale[0].items = itemsResult.rows;
             res.json(sale[0]);
         } else {
             res.json({ error: 'Sale not found' });
@@ -968,10 +1002,11 @@ app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
 
 app.get('/api/purchase-orders', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [pos] = await pool.query("SELECT * FROM purchase_orders ORDER BY date DESC");
+        const posResult = await pool.query("SELECT * FROM purchase_orders ORDER BY date DESC");
+        const pos = posResult.rows;
         for (let po of pos) {
-            const [items] = await pool.query("SELECT * FROM po_items WHERE poId = $1", [po.id]);
-            po.items = items;
+            const itemsResult = await pool.query("SELECT * FROM po_items WHERE poId = $1", [po.id]);
+            po.items = itemsResult.rows;
         }
         res.json(pos);
     } catch (error) {
@@ -984,11 +1019,11 @@ app.post('/api/purchase-orders', verifyToken, authorize('admin'), async (req, re
     try {
         const d = req.body;
         const poNumber = 'PO-' + Date.now().toString(36).toUpperCase();
-        const [po] = await pool.query(
+        const po = await pool.query(
             "INSERT INTO purchase_orders (poNumber, supplierName, supplierId, notes, total, createdBy, date) VALUES ($1, $2, $3, $4, $5, $6, NOW()) RETURNING id",
             [poNumber, d.supplierName, d.supplierId || null, d.notes, d.total, d.createdBy]
         );
-        const poId = po[0].id;
+        const poId = po.rows[0].id;
         if (d.items) {
             for (let i of d.items) {
                 await pool.query(
@@ -1007,11 +1042,14 @@ app.post('/api/purchase-orders', verifyToken, authorize('admin'), async (req, re
 
 app.put('/api/purchase-orders/:id/receive', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [po] = await pool.query("SELECT * FROM purchase_orders WHERE id = $1", [req.params.id]);
+        const poResult = await pool.query("SELECT * FROM purchase_orders WHERE id = $1", [req.params.id]);
+        const po = poResult.rows;
         if (!po.length) return res.json({ success: false });
-        const [items] = await pool.query("SELECT * FROM po_items WHERE poId = $1", [req.params.id]);
+        const itemsResult = await pool.query("SELECT * FROM po_items WHERE poId = $1", [req.params.id]);
+        const items = itemsResult.rows;
         for (let i of items) {
-            const [p] = await pool.query("SELECT * FROM products WHERE name=$1 AND brand=$2 AND variant=$3 AND isActive=1", [i.productname, i.brand, i.variant]);
+            const pResult = await pool.query("SELECT * FROM products WHERE name=$1 AND brand=$2 AND variant=$3 AND isActive=1", [i.productname, i.brand, i.variant]);
+            const p = pResult.rows;
             if (p.length) {
                 await pool.query("UPDATE products SET stock = stock + $1, cost = $2 WHERE id = $3", [i.quantity, i.unitprice, p[0].id]);
             }
@@ -1031,8 +1069,8 @@ app.put('/api/purchase-orders/:id/receive', verifyToken, authorize('admin'), asy
 
 app.get('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM suppliers ORDER BY name");
-        res.json(r);
+        const r = await pool.query("SELECT * FROM suppliers ORDER BY name");
+        res.json(r.rows);
     } catch (error) {
         console.error('Get suppliers error:', error);
         res.status(500).json({ success: false, message: 'Error fetching suppliers' });
@@ -1042,8 +1080,8 @@ app.get('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => {
 app.post('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => {
     const { name, phone, email, address } = req.body;
     try {
-        const [r] = await pool.query("INSERT INTO suppliers (name, phone, email, address) VALUES ($1, $2, $3, $4) RETURNING id", [name, phone, email, address]);
-        res.json({ success: true, id: r[0].id });
+        const r = await pool.query("INSERT INTO suppliers (name, phone, email, address) VALUES ($1, $2, $3, $4) RETURNING id", [name, phone, email, address]);
+        res.json({ success: true, id: r.rows[0].id });
     } catch (error) {
         console.error('Create supplier error:', error);
         res.status(500).json({ success: false, message: 'Error creating supplier' });
@@ -1056,8 +1094,8 @@ app.post('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => 
 
 app.get('/api/credit-customers', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM credit_customers WHERE isActive=1 ORDER BY name");
-        res.json(r);
+        const r = await pool.query("SELECT * FROM credit_customers WHERE isActive=1 ORDER BY name");
+        res.json(r.rows);
     } catch (error) {
         console.error('Get credit customers error:', error);
         res.status(500).json({ success: false, message: 'Error fetching credit customers' });
@@ -1066,12 +1104,13 @@ app.get('/api/credit-customers', verifyToken, async (req, res) => {
 
 app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
     try {
-        const [c] = await pool.query("SELECT * FROM credit_customers WHERE id = $1", [req.params.id]);
+        const cResult = await pool.query("SELECT * FROM credit_customers WHERE id = $1", [req.params.id]);
+        const c = cResult.rows;
         if (c.length) {
-            const [sales] = await pool.query("SELECT * FROM credit_sales WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
-            const [payments] = await pool.query("SELECT * FROM debt_payments WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
-            c[0].recentSales = sales;
-            c[0].payments = payments;
+            const salesResult = await pool.query("SELECT * FROM credit_sales WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
+            const paymentsResult = await pool.query("SELECT * FROM debt_payments WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
+            c[0].recentSales = salesResult.rows;
+            c[0].payments = paymentsResult.rows;
         }
         res.json(c[0] || {});
     } catch (error) {
@@ -1083,11 +1122,11 @@ app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
 app.post('/api/credit-customers', verifyToken, async (req, res) => {
     const { name, phone, idNumber, address, debtLimit, cashierId, cashierName } = req.body;
     try {
-        const [r] = await pool.query(
+        const r = await pool.query(
             "INSERT INTO credit_customers (name, phone, idNumber, address, debtLimit, registeredBy, registeredById, dateRegistered) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING id",
             [name, phone, idNumber, address, debtLimit || 5000, cashierName || 'Admin', cashierId || null]
         );
-        res.json({ success: true, id: r[0].id });
+        res.json({ success: true, id: r.rows[0].id });
     } catch (error) {
         console.error('Create credit customer error:', error);
         res.status(500).json({ success: false, message: 'Error creating credit customer' });
@@ -1114,8 +1153,8 @@ app.put('/api/credit-customers/:id', verifyToken, async (req, res) => {
 app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => {
     const q = '%' + req.params.query + '%';
     try {
-        const [r] = await pool.query("SELECT * FROM credit_customers WHERE isActive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idNumber ILIKE $3) LIMIT 10", [q, q, q]);
-        res.json(r);
+        const r = await pool.query("SELECT * FROM credit_customers WHERE isActive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idNumber ILIKE $3) LIMIT 10", [q, q, q]);
+        res.json(r.rows);
     } catch (error) {
         console.error('Search credit customers error:', error);
         res.status(500).json({ success: false, message: 'Error searching credit customers' });
@@ -1143,8 +1182,8 @@ app.post('/api/debt-payments', verifyToken, async (req, res) => {
 
 app.get('/api/debt-payments/:customerId', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM debt_payments WHERE customerId = $1 ORDER BY date DESC", [req.params.customerId]);
-        res.json(r);
+        const r = await pool.query("SELECT * FROM debt_payments WHERE customerId = $1 ORDER BY date DESC", [req.params.customerId]);
+        res.json(r.rows);
     } catch (error) {
         console.error('Get debt payments error:', error);
         res.status(500).json({ success: false, message: 'Error fetching debt payments' });
@@ -1153,7 +1192,8 @@ app.get('/api/debt-payments/:customerId', verifyToken, async (req, res) => {
 
 app.delete('/api/debt-payments/:id', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [payment] = await pool.query("SELECT * FROM debt_payments WHERE id = $1", [req.params.id]);
+        const paymentResult = await pool.query("SELECT * FROM debt_payments WHERE id = $1", [req.params.id]);
+        const payment = paymentResult.rows;
         if (!payment.length) return res.json({ success: false });
         await pool.query("UPDATE credit_customers SET totalDebt = totalDebt + $1 WHERE id = $2", [payment[0].amount, payment[0].customerid]);
         await pool.query("DELETE FROM debt_payments WHERE id = $1", [req.params.id]);
@@ -1172,7 +1212,8 @@ app.delete('/api/debt-payments/:id', verifyToken, authorize('admin'), async (req
 app.post('/api/credit-sales', verifyToken, async (req, res) => {
     const { saleId, customerId, customerName, amount, cashierId, cashierName } = req.body;
     try {
-        const [c] = await pool.query("SELECT * FROM credit_customers WHERE id = $1", [customerId]);
+        const cResult = await pool.query("SELECT * FROM credit_customers WHERE id = $1", [customerId]);
+        const c = cResult.rows;
         if (!c.length) return res.json({ success: false });
         const debtBefore = Number(c[0].totaldebt);
         const debtAfter = debtBefore + amount;
@@ -1192,8 +1233,8 @@ app.post('/api/credit-sales', verifyToken, async (req, res) => {
 
 app.get('/api/credit-sales', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM credit_sales ORDER BY date DESC LIMIT 100");
-        res.json(r);
+        const r = await pool.query("SELECT * FROM credit_sales ORDER BY date DESC LIMIT 100");
+        res.json(r.rows);
     } catch (error) {
         console.error('Get credit sales error:', error);
         res.status(500).json({ success: false, message: 'Error fetching credit sales' });
@@ -1202,16 +1243,16 @@ app.get('/api/credit-sales', verifyToken, async (req, res) => {
 
 app.get('/api/credit-summary', verifyToken, async (req, res) => {
     try {
-        const [td] = await pool.query("SELECT SUM(totalDebt) as total FROM credit_customers WHERE isActive=1");
-        const [ac] = await pool.query("SELECT COUNT(*) as count FROM credit_customers WHERE isActive=1 AND totalDebt > 0");
+        const tdResult = await pool.query("SELECT SUM(totalDebt) as total FROM credit_customers WHERE isActive=1");
+        const acResult = await pool.query("SELECT COUNT(*) as count FROM credit_customers WHERE isActive=1 AND totalDebt > 0");
         const today = new Date().toISOString().split('T')[0] + '%';
-        const [ts] = await pool.query("SELECT SUM(amount) as total FROM credit_sales WHERE date::text LIKE $1", [today]);
-        const [tp] = await pool.query("SELECT SUM(amount) as total FROM debt_payments WHERE date::text LIKE $1", [today]);
+        const tsResult = await pool.query("SELECT SUM(amount) as total FROM credit_sales WHERE date::text LIKE $1", [today]);
+        const tpResult = await pool.query("SELECT SUM(amount) as total FROM debt_payments WHERE date::text LIKE $1", [today]);
         res.json({
-            totalDebt: Number(td[0].total || 0),
-            activeCustomers: parseInt(ac[0].count || 0),
-            todayCreditSales: Number(ts[0].total || 0),
-            todayPayments: Number(tp[0].total || 0)
+            totalDebt: Number(tdResult.rows[0].total || 0),
+            activeCustomers: parseInt(acResult.rows[0].count || 0),
+            todayCreditSales: Number(tsResult.rows[0].total || 0),
+            todayPayments: Number(tpResult.rows[0].total || 0)
         });
     } catch (error) {
         console.error('Credit summary error:', error);
@@ -1225,8 +1266,8 @@ app.get('/api/credit-summary', verifyToken, async (req, res) => {
 
 app.get('/api/settings', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM settings WHERE id=1");
-        res.json(r[0] || { adminPassword: 'admin123' });
+        const r = await pool.query("SELECT * FROM settings WHERE id=1");
+        res.json(r.rows[0] || { adminPassword: 'admin123' });
     } catch (error) {
         console.error('Get settings error:', error);
         res.status(500).json({ success: false, message: 'Error fetching settings' });
@@ -1255,8 +1296,8 @@ app.put('/api/settings', verifyToken, authorize('admin'), async (req, res) => {
 
 app.get('/api/activity', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM activity_log ORDER BY date DESC LIMIT 100");
-        res.json(r);
+        const r = await pool.query("SELECT * FROM activity_log ORDER BY date DESC LIMIT 100");
+        res.json(r.rows);
     } catch (error) {
         console.error('Get activity log error:', error);
         res.status(500).json({ success: false, message: 'Error fetching activity log' });
@@ -1279,8 +1320,8 @@ app.delete('/api/activity', verifyToken, authorize('admin'), async (req, res) =>
 
 app.get('/api/mpesa/config', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [c] = await pool.query("SELECT * FROM mpesa_config WHERE id=1");
-        const config = c[0] || {};
+        const cResult = await pool.query("SELECT * FROM mpesa_config WHERE id=1");
+        const config = cResult.rows[0] || {};
         res.json({
             tillNumber: config.tillnumber || '',
             shortCode: config.shortcode || '',
@@ -1326,8 +1367,8 @@ app.post('/api/mpesa/till-payment', verifyToken, async (req, res) => {
 
 app.get('/api/mpesa/transactions', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM mpesa_transactions ORDER BY date DESC LIMIT 100");
-        res.json(r);
+        const r = await pool.query("SELECT * FROM mpesa_transactions ORDER BY date DESC LIMIT 100");
+        res.json(r.rows);
     } catch (error) {
         console.error('Get M-Pesa transactions error:', error);
         res.status(500).json({ success: false, message: 'Error fetching M-Pesa transactions' });
@@ -1336,8 +1377,8 @@ app.get('/api/mpesa/transactions', verifyToken, authorize('admin'), async (req, 
 
 app.get('/api/mpesa/transaction/:checkoutRequestID', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM mpesa_transactions WHERE checkoutRequestID=$1", [req.params.checkoutRequestID]);
-        res.json(r[0] || { status: 'not_found' });
+        const r = await pool.query("SELECT * FROM mpesa_transactions WHERE checkoutRequestID=$1", [req.params.checkoutRequestID]);
+        res.json(r.rows[0] || { status: 'not_found' });
     } catch (error) {
         console.error('Get M-Pesa transaction error:', error);
         res.status(500).json({ success: false, message: 'Error fetching M-Pesa transaction' });
@@ -1350,8 +1391,8 @@ app.get('/api/mpesa/transaction/:checkoutRequestID', verifyToken, async (req, re
 
 app.get('/api/daily-reports', verifyToken, async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT * FROM daily_reports ORDER BY reportDate DESC LIMIT 30");
-        res.json(r);
+        const r = await pool.query("SELECT * FROM daily_reports ORDER BY reportDate DESC LIMIT 30");
+        res.json(r.rows);
     } catch (error) {
         console.error('Get daily reports error:', error);
         res.status(500).json({ success: false, message: 'Error fetching daily reports' });
@@ -1361,20 +1402,22 @@ app.get('/api/daily-reports', verifyToken, async (req, res) => {
 app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
     try {
         var today = new Date().toISOString().split('T')[0];
-        var [report] = await pool.query("SELECT * FROM daily_reports WHERE reportDate = $1", [today]);
+        var reportResult = await pool.query("SELECT * FROM daily_reports WHERE reportDate = $1", [today]);
+        var report = reportResult.rows;
         if (!report.length) {
-            var [sales] = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
-            var [itemsSold] = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
-            var [stockAdded] = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
-            var [stockSold] = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
-            var [products] = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
+            var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
+            var sales = salesResult.rows;
+            var itemsSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+            var stockAddedResult = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
+            var stockSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+            var productsResult = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
             var totalSales = sales.reduce(function(s, sale) { return Number(s) + Number(sale.total || 0); }, 0);
             await pool.query(
                 "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                [today, totalSales, sales.length, itemsSold[0]?.total || 0, products[0]?.totalstock || 0, stockAdded[0]?.total || 0, stockSold[0]?.total || 0, products[0]?.count || 0]
+                [today, totalSales, sales.length, itemsSoldResult.rows[0]?.total || 0, productsResult.rows[0]?.totalstock || 0, stockAddedResult.rows[0]?.total || 0, stockSoldResult.rows[0]?.total || 0, productsResult.rows[0]?.count || 0]
             );
-            var [newReport] = await pool.query("SELECT * FROM daily_reports WHERE reportDate = $1", [today]);
-            report = newReport;
+            var newReportResult = await pool.query("SELECT * FROM daily_reports WHERE reportDate = $1", [today]);
+            report = newReportResult.rows;
         }
         res.json(report[0] || {});
     } catch (error) {
@@ -1386,15 +1429,16 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
 app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (req, res) => {
     try {
         var today = new Date().toISOString().split('T')[0];
-        var [sales] = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
-        var [itemsSold] = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
-        var [stockAdded] = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
-        var [stockSold] = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
-        var [products] = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
+        var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
+        var sales = salesResult.rows;
+        var itemsSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+        var stockAddedResult = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
+        var stockSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+        var productsResult = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
         var totalSales = sales.reduce(function(s, sale) { return Number(s) + Number(sale.total || 0); }, 0);
         await pool.query(
             "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (reportDate) DO UPDATE SET totalSales=$2, transactionCount=$3, totalItemsSold=$4, closingStock=$5, stockAdded=$6, stockSold=$7, productsCount=$8",
-            [today, totalSales, sales.length, itemsSold[0]?.total || 0, products[0]?.totalstock || 0, stockAdded[0]?.total || 0, stockSold[0]?.total || 0, products[0]?.count || 0]
+            [today, totalSales, sales.length, itemsSoldResult.rows[0]?.total || 0, productsResult.rows[0]?.totalstock || 0, stockAddedResult.rows[0]?.total || 0, stockSoldResult.rows[0]?.total || 0, productsResult.rows[0]?.count || 0]
         );
         res.json({ success: true });
     } catch (error) {
