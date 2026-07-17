@@ -79,6 +79,8 @@ async function initDB() {
             cost DECIMAL(10,2) DEFAULT 0,
             stock INT DEFAULT 0,
             unit VARCHAR(50) DEFAULT 'pcs',
+            salesUnit VARCHAR(50),
+            conversionFactor INT DEFAULT 0,
             minStock INT DEFAULT 10,
             isActive INT DEFAULT 1
         )`,
@@ -290,14 +292,14 @@ async function initDB() {
         const productsCount = await pool.query("SELECT COUNT(*) as c FROM products");
         if (parseInt(productsCount.rows[0].c) === 0) {
             const seedProducts = [
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU001', 'Cement', 'Bamburi', '50kg', 'Building Materials', 750.00, 650.00, 100, 'bags', 20)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU002', 'Cement', 'Mombasa', '50kg', 'Building Materials', 720.00, 620.00, 80, 'bags', 20)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU003', 'Steel Bars', 'Doshi', '12mm', 'Construction', 450.00, 380.00, 200, 'pcs', 50)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU004', 'Paint', 'Crown', 'White 20L', 'Paints', 3500.00, 3000.00, 50, 'cans', 10)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU005', 'Timber', 'Local', '2x4', 'Wood', 250.00, 200.00, 500, 'pcs', 100)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU006', 'Nails', 'Generic', '3-inch', 'Hardware', 150.00, 120.00, 1000, 'kg', 200)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU007', 'Sand', 'River', 'Fine', 'Building Materials', 2500.00, 2000.00, 30, 'tonnes', 5)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU008', 'Ballast', 'Quarry', '3/4 inch', 'Building Materials', 3000.00, 2500.00, 25, 'tonnes', 5)"
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU001', 'Cement', 'Bamburi', '50kg', 'Building Materials', 750.00, 650.00, 100, 'bags', NULL, 0, 20)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU002', 'Cement', 'Mombasa', '50kg', 'Building Materials', 720.00, 620.00, 80, 'bags', NULL, 0, 20)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU003', 'Steel Bars', 'Doshi', '12mm', 'Construction', 450.00, 380.00, 200, 'pcs', NULL, 0, 50)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU004', 'Paint', 'Crown', 'White 20L', 'Paints', 3500.00, 3000.00, 50, 'cans', NULL, 0, 10)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU005', 'Timber', 'Local', '2x4', 'Wood', 250.00, 200.00, 500, 'pcs', NULL, 0, 100)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU006', 'Nails', 'Generic', '3-inch', 'Hardware', 150.00, 120.00, 1000, 'kg', NULL, 0, 200)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU007', 'Sand', 'River', 'Fine', 'Building Materials', 2500.00, 2000.00, 30, 'tonnes', NULL, 0, 5)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU008', 'Ballast', 'Quarry', '3/4 inch', 'Building Materials', 3000.00, 2500.00, 25, 'tonnes', NULL, 0, 5)"
             ];
             for (const seedQuery of seedProducts) {
                 await pool.query(seedQuery);
@@ -952,12 +954,12 @@ app.get('/api/products/with-prices', verifyToken, async (req, res) => {
 });
 
 app.post('/api/products', verifyToken, authorize('admin'), async (req, res) => {
-    const { name, brand, variant, category, price, cost, stock, unit } = req.body;
+    const { name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor } = req.body;
     const sku = Date.now().toString(36).toUpperCase();
     try {
         const r = await pool.query(
-            "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
-            [sku, name, brand, variant, category, price, cost || 0, stock || 0, unit || 'pcs']
+            "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING id",
+            [sku, name, brand, variant, category, price, cost || 0, stock || 0, unit || 'pcs', salesUnit || null, parseInt(conversionFactor) || 0]
         );
         logActivity(req.user.id, req.user.fullName, 'add_product', 'Added: ' + (brand || '') + ' ' + name);
         res.json({ success: true, id: r.rows[0].id });
@@ -968,11 +970,11 @@ app.post('/api/products', verifyToken, authorize('admin'), async (req, res) => {
 });
 
 app.put('/api/products/:id', verifyToken, authorize('admin'), async (req, res) => {
-    const { name, brand, variant, price, cost, stock, unit } = req.body;
+    const { name, brand, variant, price, cost, stock, unit, salesUnit, conversionFactor } = req.body;
     try {
         await pool.query(
-            "UPDATE products SET name=$1, brand=$2, variant=$3, price=$4, cost=$5, stock=$6, unit=$7 WHERE id=$8",
-            [name, brand, variant, price, cost, stock, unit, req.params.id]
+            "UPDATE products SET name=$1, brand=$2, variant=$3, price=$4, cost=$5, stock=$6, unit=$7, salesUnit=$8, conversionFactor=$9 WHERE id=$10",
+            [name, brand, variant, price, cost, stock, unit, salesUnit || null, parseInt(conversionFactor) || 0, req.params.id]
         );
         res.json({ success: true });
     } catch (error) {
@@ -1005,7 +1007,7 @@ app.get('/api/products/search', verifyToken, async (req, res) => {
     const q = '%' + (req.query.q || '') + '%';
     try {
         const productsResult = await pool.query(
-            "SELECT id, name, brand, variant, price, stock, unit FROM products WHERE isActive=1 AND (name ILIKE $1 OR brand ILIKE $2 OR variant ILIKE $3) AND stock > 0 ORDER BY name LIMIT 20",
+            "SELECT id, name, brand, variant, price, stock, unit, salesUnit, conversionFactor FROM products WHERE isActive=1 AND (name ILIKE $1 OR brand ILIKE $2 OR variant ILIKE $3) AND stock > 0 ORDER BY name LIMIT 20",
             [q, q, q]
         );
         res.json(productsResult.rows);
