@@ -329,7 +329,7 @@ function authorize(...roles) {
 }
 
 // ============================================
-// AUTH LOGIN - FIXED for pg library
+// AUTH LOGIN
 // ============================================
 
 app.post('/api/auth/login', loginLimiter, async (req, res) => {
@@ -461,7 +461,7 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
 // USER ENDPOINTS - FULLY FIXED
 // ============================================
 
-// GET ALL USERS - Admin only
+// GET ALL USERS - Admin only - Shows plain password
 app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const r = await pool.query(
@@ -470,7 +470,7 @@ app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
         const users = r.rows.map(user => ({
             id: user.id,
             username: user.username,
-            password: user.password,
+            password: user.password || 'N/A',
             role: user.role,
             fullName: user.fullname,
             isActive: user.isactive
@@ -496,7 +496,7 @@ app.get('/api/users/profile', verifyToken, async (req, res) => {
         res.json({
             id: user.id,
             username: user.username,
-            password: user.password,
+            password: user.password || 'N/A',
             role: user.role,
             fullName: user.fullname,
             isActive: user.isactive
@@ -521,7 +521,7 @@ app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
         res.json({
             id: user.id,
             username: user.username,
-            password: user.password,
+            password: user.password || 'N/A',
             role: user.role,
             fullName: user.fullname,
             isActive: user.isactive
@@ -565,7 +565,7 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
             user: {
                 id: newUser.id,
                 username: newUser.username,
-                password: newUser.password,
+                password: newUser.password || 'N/A',
                 role: newUser.role,
                 fullName: newUser.fullname,
                 isActive: newUser.isactive
@@ -596,12 +596,9 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
         
         // Handle toggle (activate/deactivate)
         if (toggle !== undefined) {
-            // Prevent deactivating admin
             if (user[0].role === 'admin') {
                 return res.json({ success: false, message: 'Cannot deactivate admin account' });
             }
-            
-            // Prevent deactivating self
             if (parseInt(userId) === req.user.id) {
                 return res.json({ success: false, message: 'You cannot deactivate your own account' });
             }
@@ -624,7 +621,7 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
                 user: {
                     id: updatedUser.id,
                     username: updatedUser.username,
-                    password: updatedUser.password,
+                    password: updatedUser.password || 'N/A',
                     role: updatedUser.role,
                     fullName: updatedUser.fullname,
                     isActive: updatedUser.isactive
@@ -686,7 +683,7 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
             user: {
                 id: updatedUser.id,
                 username: updatedUser.username,
-                password: updatedUser.password,
+                password: updatedUser.password || 'N/A',
                 role: updatedUser.role,
                 fullName: updatedUser.fullname,
                 isActive: updatedUser.isactive
@@ -702,7 +699,7 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// RESET USER PASSWORD - Admin only (UPDATED: also updates plain_password)
+// RESET USER PASSWORD - Admin only
 app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { newPassword } = req.body;
@@ -744,7 +741,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
             user: {
                 id: updatedUser.id,
                 username: updatedUser.username,
-                password: updatedUser.password,  // ✅ Shows the new plain password
+                password: updatedUser.password || 'N/A',
                 role: updatedUser.role,
                 fullName: updatedUser.fullname,
                 isActive: updatedUser.isactive
@@ -756,7 +753,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
     }
 });
 
-// CHANGE OWN PASSWORD - Self (UPDATED: also updates plain_password)
+// CHANGE OWN PASSWORD - Self
 app.put('/api/users/profile', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { fullName, currentPassword, newPassword } = req.body;
@@ -778,7 +775,6 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
                 return res.json({ success: false, message: 'New password must be at least 6 characters' });
             }
             const hashedPassword = await bcrypt.hash(newPassword, 10);
-            // ✅ Update both hashed and plain password
             await pool.query(
                 "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
                 [hashedPassword, newPassword, userId]
@@ -800,7 +796,7 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
             user: {
                 id: updatedUser.id,
                 username: updatedUser.username,
-                password: updatedUser.password,  // ✅ Shows the new plain password
+                password: updatedUser.password || 'N/A',
                 role: updatedUser.role,
                 fullName: updatedUser.fullname,
                 isActive: updatedUser.isactive
@@ -1587,7 +1583,6 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
 // FRONTEND ROUTE - FIXED FOR Express v5
 // ============================================
 
-// ✅ Fixed: Using '/*splat' for Express v5 compatibility
 app.all('/*splat', (req, res) => {
     res.sendFile(path.join(__dirname, 'frontend', 'public', 'index.html'));
 });
