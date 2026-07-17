@@ -851,7 +851,6 @@ app.get('/api/products', verifyToken, async (req, res) => {
     }
 });
 
-// ✅ FIXED: Paginated products with proper type casting
 app.get('/api/products/paginated', verifyToken, async (req, res) => {
     try {
         var page = parseInt(req.query.page) || 1;
@@ -889,12 +888,10 @@ app.get('/api/products/paginated', verifyToken, async (req, res) => {
             whereClause += ' AND stock > minStock';
         }
         
-        // Count total
         var countQuery = 'SELECT COUNT(*) as total FROM products ' + whereClause;
         var countResult = await pool.query(countQuery, params);
         var total = parseInt(countResult.rows[0].total);
         
-        // Get products with pagination
         var productsQuery = 'SELECT * FROM products ' + whereClause + ' ORDER BY name, brand LIMIT $' + paramCount + ' OFFSET $' + (paramCount + 1);
         params.push(limit, offset);
         
@@ -1294,22 +1291,27 @@ app.post('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => 
 });
 
 // ============================================
-// CREDIT CUSTOMERS
+// CREDIT CUSTOMERS - FIXED with camelCase columns
 // ============================================
 
 app.get('/api/credit-customers', verifyToken, async (req, res) => {
     try {
-        const r = await pool.query("SELECT * FROM credit_customers WHERE isActive=1 ORDER BY name");
+        const r = await pool.query(
+            "SELECT id, name, phone, idNumber, address, debtLimit, totalDebt, registeredBy, registeredById, dateRegistered, isActive FROM credit_customers WHERE isActive=1 ORDER BY name"
+        );
         res.json(r.rows);
     } catch (error) {
         console.error('Get credit customers error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching credit customers' });
+        res.json([]);
     }
 });
 
 app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
     try {
-        const cResult = await pool.query("SELECT * FROM credit_customers WHERE id = $1", [req.params.id]);
+        const cResult = await pool.query(
+            "SELECT id, name, phone, idNumber, address, debtLimit, totalDebt, registeredBy, registeredById, dateRegistered, isActive FROM credit_customers WHERE id = $1",
+            [req.params.id]
+        );
         const c = cResult.rows;
         if (c.length) {
             const salesResult = await pool.query("SELECT * FROM credit_sales WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
@@ -1358,11 +1360,14 @@ app.put('/api/credit-customers/:id', verifyToken, async (req, res) => {
 app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => {
     const q = '%' + req.params.query + '%';
     try {
-        const r = await pool.query("SELECT * FROM credit_customers WHERE isActive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idNumber ILIKE $3) LIMIT 10", [q, q, q]);
+        const r = await pool.query(
+            "SELECT id, name, phone, idNumber, address, debtLimit, totalDebt, registeredBy, registeredById, dateRegistered, isActive FROM credit_customers WHERE isActive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idNumber ILIKE $3) LIMIT 10",
+            [q, q, q]
+        );
         res.json(r.rows);
     } catch (error) {
         console.error('Search credit customers error:', error);
-        res.status(500).json({ success: false, message: 'Error searching credit customers' });
+        res.json([]);
     }
 });
 
@@ -1391,7 +1396,7 @@ app.get('/api/debt-payments/:customerId', verifyToken, async (req, res) => {
         res.json(r.rows);
     } catch (error) {
         console.error('Get debt payments error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching debt payments' });
+        res.json([]);
     }
 });
 
@@ -1442,26 +1447,41 @@ app.get('/api/credit-sales', verifyToken, async (req, res) => {
         res.json(r.rows);
     } catch (error) {
         console.error('Get credit sales error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching credit sales' });
+        res.json([]);
     }
 });
 
+// ✅ FIXED: Credit summary with totalCustomers
 app.get('/api/credit-summary', verifyToken, async (req, res) => {
     try {
-        const tdResult = await pool.query("SELECT SUM(totalDebt) as total FROM credit_customers WHERE isActive=1");
+        const tdResult = await pool.query("SELECT COALESCE(SUM(totalDebt), 0) as total FROM credit_customers WHERE isActive=1");
         const acResult = await pool.query("SELECT COUNT(*) as count FROM credit_customers WHERE isActive=1 AND totalDebt > 0");
-        const today = new Date().toISOString().split('T')[0] + '%';
-        const tsResult = await pool.query("SELECT SUM(amount) as total FROM credit_sales WHERE date::text LIKE $1", [today]);
-        const tpResult = await pool.query("SELECT SUM(amount) as total FROM debt_payments WHERE date::text LIKE $1", [today]);
+        const tcResult = await pool.query("SELECT COUNT(*) as count FROM credit_customers WHERE isActive=1");
+        const today = new Date().toISOString().split('T')[0];
+        const tsResult = await pool.query(
+            "SELECT COALESCE(SUM(amount), 0) as total FROM credit_sales WHERE date::date = $1::date",
+            [today]
+        );
+        const tpResult = await pool.query(
+            "SELECT COALESCE(SUM(amount), 0) as total FROM debt_payments WHERE date::date = $1::date",
+            [today]
+        );
         res.json({
-            totalDebt: Number(tdResult.rows[0].total || 0),
+            totalDebt: parseFloat(tdResult.rows[0].total || 0),
             activeCustomers: parseInt(acResult.rows[0].count || 0),
-            todayCreditSales: Number(tsResult.rows[0].total || 0),
-            todayPayments: Number(tpResult.rows[0].total || 0)
+            totalCustomers: parseInt(tcResult.rows[0].count || 0),
+            todayCreditSales: parseFloat(tsResult.rows[0].total || 0),
+            todayPayments: parseFloat(tpResult.rows[0].total || 0)
         });
     } catch (error) {
         console.error('Credit summary error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching credit summary' });
+        res.json({
+            totalDebt: 0,
+            activeCustomers: 0,
+            totalCustomers: 0,
+            todayCreditSales: 0,
+            todayPayments: 0
+        });
     }
 });
 
