@@ -1291,13 +1291,13 @@ app.post('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => 
 });
 
 // ============================================
-// CREDIT CUSTOMERS - FIXED with camelCase columns
+// CREDIT CUSTOMERS - lowercase DB → camelCase JSON
 // ============================================
 
 app.get('/api/credit-customers', verifyToken, async (req, res) => {
     try {
         const r = await pool.query(
-            "SELECT id, name, phone, idNumber, address, debtLimit, totalDebt, registeredBy, registeredById, dateRegistered, isActive FROM credit_customers WHERE isActive=1 ORDER BY name"
+            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE isactive=1 ORDER BY name"
         );
         res.json(r.rows);
     } catch (error) {
@@ -1309,7 +1309,7 @@ app.get('/api/credit-customers', verifyToken, async (req, res) => {
 app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
     try {
         const cResult = await pool.query(
-            "SELECT id, name, phone, idNumber, address, debtLimit, totalDebt, registeredBy, registeredById, dateRegistered, isActive FROM credit_customers WHERE id = $1",
+            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE id = $1",
             [req.params.id]
         );
         const c = cResult.rows;
@@ -1361,7 +1361,7 @@ app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => 
     const q = '%' + req.params.query + '%';
     try {
         const r = await pool.query(
-            "SELECT id, name, phone, idNumber, address, debtLimit, totalDebt, registeredBy, registeredById, dateRegistered, isActive FROM credit_customers WHERE isActive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idNumber ILIKE $3) LIMIT 10",
+            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE isactive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idnumber ILIKE $3) LIMIT 10",
             [q, q, q]
         );
         res.json(r.rows);
@@ -1370,7 +1370,6 @@ app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => 
         res.json([]);
     }
 });
-
 // ============================================
 // DEBT PAYMENTS
 // ============================================
