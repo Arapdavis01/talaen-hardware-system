@@ -233,6 +233,40 @@ async function initDB() {
             ip_address VARCHAR(45),
             attempt_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             success INT DEFAULT 0
+        )`,
+        `CREATE TABLE IF NOT EXISTS mpesa_config (
+            id SERIAL PRIMARY KEY,
+            consumerKey VARCHAR(255),
+            consumerSecret VARCHAR(255),
+            passkey VARCHAR(255),
+            tillNumber VARCHAR(50),
+            shortCode VARCHAR(50),
+            environment VARCHAR(20) DEFAULT 'sandbox'
+        )`,
+        `CREATE TABLE IF NOT EXISTS mpesa_transactions (
+            id SERIAL PRIMARY KEY,
+            transactionType VARCHAR(50),
+            saleId INT,
+            phoneNumber VARCHAR(20),
+            amount DECIMAL(10,2),
+            mpesaReceiptNumber VARCHAR(50),
+            checkoutRequestID VARCHAR(100),
+            merchantRequestID VARCHAR(100),
+            resultCode INT,
+            resultDesc TEXT,
+            status VARCHAR(50) DEFAULT 'pending',
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE TABLE IF NOT EXISTS daily_reports (
+            id SERIAL PRIMARY KEY,
+            reportDate DATE UNIQUE,
+            totalSales DECIMAL(10,2) DEFAULT 0,
+            transactionCount INT DEFAULT 0,
+            totalItemsSold INT DEFAULT 0,
+            closingStock INT DEFAULT 0,
+            stockAdded INT DEFAULT 0,
+            stockSold INT DEFAULT 0,
+            productsCount INT DEFAULT 0
         )`
     ];
 
@@ -242,6 +276,16 @@ async function initDB() {
         } catch (e) {
             console.error('Error creating table:', e.message);
         }
+    }
+
+    // Initialize mpesa_config if empty
+    try {
+        const mpesaConfigResult = await pool.query("SELECT COUNT(*) as c FROM mpesa_config");
+        if (parseInt(mpesaConfigResult.rows[0].c) === 0) {
+            await pool.query("INSERT INTO mpesa_config (id) VALUES (1)");
+        }
+    } catch (error) {
+        console.error('Error initializing mpesa_config:', error.message);
     }
 
     try {
@@ -282,7 +326,7 @@ function logActivity(userId, userName, action, details) {
     pool.query(
         "INSERT INTO activity_log (userId, userName, action, details, date) VALUES ($1, $2, $3, $4, NOW())",
         [userId || null, userName || 'System', action, details]
-    );
+    ).catch(err => console.error('Log activity error:', err.message));
 }
 
 async function logLoginAttempt(username, ipAddress, success) {
@@ -325,6 +369,18 @@ function authorize(...roles) {
             return res.status(403).json({ success: false, message: 'Insufficient permissions.' });
         }
         next();
+    };
+}
+
+// Helper function to format user response consistently
+function formatUserResponse(user) {
+    return {
+        id: user.id,
+        username: user.username,
+        password: user.password || '',  // Returns empty string instead of 'N/A'
+        role: user.role,
+        fullName: user.fullname,
+        isActive: user.isactive
     };
 }
 
@@ -458,23 +514,16 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// USER ENDPOINTS - FULLY FIXED
+// USER ENDPOINTS - FULLY FIXED (plain_password always updated)
 // ============================================
 
-// GET ALL USERS - Admin only - Shows plain password
+// GET ALL USERS - Admin only
 app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const r = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users ORDER BY id"
         );
-        const users = r.rows.map(user => ({
-            id: user.id,
-            username: user.username,
-            password: user.password || 'N/A',
-            role: user.role,
-            fullName: user.fullname,
-            isActive: user.isactive
-        }));
+        const users = r.rows.map(user => formatUserResponse(user));
         res.json(users);
     } catch (error) {
         console.error('Get users error:', error);
@@ -493,14 +542,7 @@ app.get('/api/users/profile', verifyToken, async (req, res) => {
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
-        res.json({
-            id: user.id,
-            username: user.username,
-            password: user.password || 'N/A',
-            role: user.role,
-            fullName: user.fullname,
-            isActive: user.isactive
-        });
+        res.json(formatUserResponse(user));
     } catch (error) {
         console.error('Get profile error:', error);
         res.status(500).json({ success: false, message: 'Error fetching profile' });
@@ -518,14 +560,7 @@ app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
         if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
-        res.json({
-            id: user.id,
-            username: user.username,
-            password: user.password || 'N/A',
-            role: user.role,
-            fullName: user.fullname,
-            isActive: user.isactive
-        });
+        res.json(formatUserResponse(user));
     } catch (error) {
         console.error('Get user error:', error);
         res.status(500).json({ success: false, message: 'Error fetching user' });
@@ -562,14 +597,7 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
         res.json({ 
             success: true, 
             message: 'User created successfully',
-            user: {
-                id: newUser.id,
-                username: newUser.username,
-                password: newUser.password || 'N/A',
-                role: newUser.role,
-                fullName: newUser.fullname,
-                isActive: newUser.isactive
-            }
+            user: formatUserResponse(newUser)
         });
     } catch(e) {
         console.error('Create user error:', e);
@@ -581,10 +609,10 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// UPDATE USER - Admin only (with toggle support)
+// UPDATE USER - Admin only (with toggle, password, and regular updates)
 app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
-    const { isActive, fullName, username, role, toggle } = req.body;
+    const { isActive, fullName, username, role, toggle, password } = req.body;
     
     try {
         const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
@@ -618,18 +646,39 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
             return res.json({ 
                 success: true, 
                 message: 'User ' + action + ' successfully',
-                user: {
-                    id: updatedUser.id,
-                    username: updatedUser.username,
-                    password: updatedUser.password || 'N/A',
-                    role: updatedUser.role,
-                    fullName: updatedUser.fullname,
-                    isActive: updatedUser.isactive
-                }
+                user: formatUserResponse(updatedUser)
             });
         }
         
-        // Regular update (without toggle)
+        // ✅ Handle password update (admin changing their own password via settings)
+        if (password !== undefined) {
+            if (password.length < 6) {
+                return res.json({ success: false, message: 'Password must be at least 6 characters' });
+            }
+            
+            // ✅ Update BOTH password (hashed) AND plain_password (plain text)
+            const hashedPassword = await bcrypt.hash(password, 10);
+            await pool.query(
+                "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
+                [hashedPassword, password, userId]
+            );
+            
+            logActivity(req.user.id, req.user.fullName, 'password_change', 'Changed password for: ' + (user[0].fullname || user[0].username));
+            
+            const updatedUserResult = await pool.query(
+                "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
+                [userId]
+            );
+            const updatedUser = updatedUserResult.rows[0];
+            
+            return res.json({ 
+                success: true, 
+                message: 'Password updated successfully',
+                user: formatUserResponse(updatedUser)
+            });
+        }
+        
+        // Regular update (without toggle or password)
         if (isActive === 0 && parseInt(userId) === req.user.id) {
             return res.json({ success: false, message: 'You cannot deactivate your own account' });
         }
@@ -680,14 +729,7 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
         res.json({ 
             success: true, 
             message: 'User updated successfully',
-            user: {
-                id: updatedUser.id,
-                username: updatedUser.username,
-                password: updatedUser.password || 'N/A',
-                role: updatedUser.role,
-                fullName: updatedUser.fullname,
-                isActive: updatedUser.isactive
-            }
+            user: formatUserResponse(updatedUser)
         });
     } catch(e) {
         console.error('Update user error:', e);
@@ -699,7 +741,7 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// RESET USER PASSWORD - Admin only
+// ✅ RESET USER PASSWORD - Admin only - Updates BOTH password AND plain_password
 app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { newPassword } = req.body;
@@ -720,7 +762,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
             return res.json({ success: false, message: 'Use profile update to change your own password' });
         }
         
-        // ✅ Update both hashed password and plain_password
+        // ✅ CRITICAL FIX: Update BOTH password (hashed) AND plain_password (plain text)
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await pool.query(
             "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
@@ -729,6 +771,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
         
         logActivity(req.user.id, req.user.fullName, 'password_reset', 'Reset password for: ' + (user[0].fullname || user[0].username));
         
+        // Fetch updated user to return the actual plain password
         const updatedUserResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [userId]
@@ -738,14 +781,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
         res.json({ 
             success: true, 
             message: 'Password reset successfully for ' + (user[0].fullname || user[0].username),
-            user: {
-                id: updatedUser.id,
-                username: updatedUser.username,
-                password: updatedUser.password || 'N/A',
-                role: updatedUser.role,
-                fullName: updatedUser.fullname,
-                isActive: updatedUser.isactive
-            }
+            user: formatUserResponse(updatedUser)
         });
     } catch (error) {
         console.error('Password reset error:', error);
@@ -753,7 +789,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
     }
 });
 
-// CHANGE OWN PASSWORD - Self
+// ✅ CHANGE OWN PASSWORD - Self - Updates BOTH password AND plain_password
 app.put('/api/users/profile', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { fullName, currentPassword, newPassword } = req.body;
@@ -774,6 +810,7 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
             if (newPassword.length < 6) {
                 return res.json({ success: false, message: 'New password must be at least 6 characters' });
             }
+            // ✅ Update BOTH password AND plain_password
             const hashedPassword = await bcrypt.hash(newPassword, 10);
             await pool.query(
                 "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
@@ -793,14 +830,7 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
         res.json({ 
             success: true, 
             message: 'Profile updated successfully',
-            user: {
-                id: updatedUser.id,
-                username: updatedUser.username,
-                password: updatedUser.password || 'N/A',
-                role: updatedUser.role,
-                fullName: updatedUser.fullname,
-                isActive: updatedUser.isactive
-            }
+            user: formatUserResponse(updatedUser)
         });
     } catch (error) {
         console.error('Profile update error:', error);
@@ -981,7 +1011,7 @@ app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (r
         for (let c of cashiers) {
             const salesResult = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0", [c.id]);
             const sales = salesResult.rows;
-            const todaySales = sales.filter(function(s) { return s.date && s.date.startsWith(today); });
+            const todaySales = sales.filter(function(s) { return s.date && s.date.toISOString().startsWith(today); });
             result.push({
                 id: c.id,
                 name: c.fullname,
@@ -1004,7 +1034,7 @@ app.get('/api/sales/cashier/:id', verifyToken, async (req, res) => {
         const salesResult = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0 ORDER BY date DESC", [req.params.id]);
         const sales = salesResult.rows;
         const today = new Date().toISOString().split('T')[0];
-        const todaySales = sales.filter(function(s) { return s.date && s.date.startsWith(today); });
+        const todaySales = sales.filter(function(s) { return s.date && s.date.toISOString().startsWith(today); });
         res.json({
             all: sales,
             today: todaySales,
@@ -1040,6 +1070,23 @@ app.post('/api/sales', verifyToken, async (req, res) => {
     } catch (error) {
         console.error('Create sale error:', error);
         res.status(500).json({ success: false, message: 'Error creating sale' });
+    }
+});
+
+app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
+    try {
+        const saleResult = await pool.query("SELECT * FROM sales WHERE receiptNo = $1", [req.params.receiptNo]);
+        const sale = saleResult.rows;
+        if (sale.length) {
+            const itemsResult = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [sale[0].id]);
+            sale[0].items = itemsResult.rows;
+            res.json(sale[0]);
+        } else {
+            res.json({ error: 'Sale not found' });
+        }
+    } catch (error) {
+        console.error('Search sale error:', error);
+        res.status(500).json({ error: 'Error searching sale' });
     }
 });
 
@@ -1108,23 +1155,6 @@ app.get('/api/returns/summary', verifyToken, async (req, res) => {
     } catch(e) {
         console.error('Returns summary error:', e);
         res.json({ totalReturns: 0, totalExchanges: 0, totalRefunded: 0, todayReturns: 0 });
-    }
-});
-
-app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
-    try {
-        const saleResult = await pool.query("SELECT * FROM sales WHERE receiptNo = $1", [req.params.receiptNo]);
-        const sale = saleResult.rows;
-        if (sale.length) {
-            const itemsResult = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [sale[0].id]);
-            sale[0].items = itemsResult.rows;
-            res.json(sale[0]);
-        } else {
-            res.json({ error: 'Sale not found' });
-        }
-    } catch (error) {
-        console.error('Search sale error:', error);
-        res.status(500).json({ error: 'Error searching sale' });
     }
 });
 
@@ -1580,7 +1610,7 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
 });
 
 // ============================================
-// FRONTEND ROUTE - FIXED FOR Express v5
+// FRONTEND ROUTE
 // ============================================
 
 app.all('/*splat', (req, res) => {
