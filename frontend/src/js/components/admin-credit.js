@@ -4,22 +4,33 @@
 
 const AdminCreditComponent = {
     _allPayments: [],
+    _allCustomers: [],
+    _customerFilter: '',
 
     render() {
         var h = '';
         h += '<div class="welcome-banner"><h2><i class="fas fa-credit-card"></i> Credit Management</h2><p>Manage customer credit accounts, debt limits, and payments</p></div>';
         
-        h += '<div class="stats-grid" id="creditSummary">';
-        h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES 0</div><div class="stat-sub">All customers</div></div>';
-        h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">0</div><div class="stat-sub">Active debtors</div></div>';
-        h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-file-invoice"></i></div><div class="stat-label">Today Credit Sales</div><div class="stat-value">KES 0</div><div class="stat-sub">0 transactions</div></div>';
+        // 5 cards in a row
+        h += '<div class="stats-grid" id="creditSummary" style="grid-template-columns: repeat(5, 1fr);">';
+        h += '<div class="stat-card" id="totalCustomersCard" onclick="AdminCreditComponent.filterByAll()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Total Customers</div><div class="stat-value" style="color:#3b82f6;">0</div><div class="stat-sub">All registered</div></div>';
+        h += '<div class="stat-card" onclick="AdminCreditComponent.filterByDebt()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES 0</div><div class="stat-sub">All customers</div></div>';
+        h += '<div class="stat-card" onclick="AdminCreditComponent.filterByDebt()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-user-clock"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">0</div><div class="stat-sub">Active debtors</div></div>';
+        h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-file-invoice"></i></div><div class="stat-label">Today Credit Sales</div><div class="stat-value">KES 0</div><div class="stat-sub">Today</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES 0</div><div class="stat-sub">Received today</div></div>';
         h += '</div>';
         
-        h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-users"></i> All Credit Customers</h3><button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showRegisterCustomer()" style="float:right;"><i class="fas fa-user-plus"></i> Register New</button></div><div class="card-body"><div id="allCustomersTable">Loading...</div></div></div>';
+        // Customer list with search bar
+        h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-users"></i> All Credit Customers</h3><div style="display:flex;gap:0.5rem;align-items:center;">';
+        h += '<div style="position:relative;flex:1;max-width:300px;"><i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#999;"></i><input type="text" id="customerSearchInput" class="form-control" placeholder="Search name, phone, or ID..." oninput="AdminCreditComponent.filterCustomers()" style="padding-left:30px;"></div>';
+        h += '<span id="customerCountBadge" style="font-size:0.85rem;color:#666;">0 customers</span>';
+        h += '<button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showRegisterCustomer()"><i class="fas fa-user-plus"></i> Register New</button>';
+        h += '</div></div><div class="card-body"><div id="allCustomersTable">Loading...</div></div></div>';
         
+        // Recent credit sales
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-shopping-cart"></i> Recent Credit Sales <span style="font-size:0.8rem;color:#999;">(Active Debtors Only)</span></h3></div><div class="card-body"><div id="recentCreditSales">Loading...</div></div></div>';
         
+        // Recent payments
         h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-money-bill"></i> Recent Debt Payments</h3></div><div class="card-body"><div id="recentPayments">Loading...</div></div></div>';
         
         setTimeout(function() { AdminCreditComponent.loadAll(); }, 200);
@@ -37,15 +48,17 @@ const AdminCreditComponent = {
         }
     },
 
-    // ✅ FIXED: Safe data access
+    // ✅ Updated: 5 cards with totalCustomers
     async loadSummary() {
         try {
             const data = await ApiService.get('/credit-summary');
             var div = document.getElementById('creditSummary');
             if (div && data) {
+                div.style.gridTemplateColumns = 'repeat(5, 1fr)';
                 div.innerHTML = 
-                    '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES ' + (Number(data.totalDebt || 0)).toLocaleString() + '</div><div class="stat-sub">All customers</div></div>' +
-                    '<div class="stat-card"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">' + (data.activeCustomers || 0) + '</div><div class="stat-sub">Active debtors</div></div>' +
+                    '<div class="stat-card" onclick="AdminCreditComponent.filterByAll()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Total Customers</div><div class="stat-value" style="color:#3b82f6;">' + (data.totalCustomers || 0) + '</div><div class="stat-sub">All registered</div></div>' +
+                    '<div class="stat-card" onclick="AdminCreditComponent.filterByDebt()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES ' + (Number(data.totalDebt || 0)).toLocaleString() + '</div><div class="stat-sub">All customers</div></div>' +
+                    '<div class="stat-card" onclick="AdminCreditComponent.filterByDebt()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-user-clock"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">' + (data.activeCustomers || 0) + '</div><div class="stat-sub">Active debtors</div></div>' +
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-file-invoice"></i></div><div class="stat-label">Today Credit Sales</div><div class="stat-value">KES ' + (Number(data.todayCreditSales || 0)).toLocaleString() + '</div><div class="stat-sub">Today</div></div>' +
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES ' + (Number(data.todayPayments || 0)).toLocaleString() + '</div><div class="stat-sub">Received today</div></div>';
             }
@@ -54,45 +67,12 @@ const AdminCreditComponent = {
         }
     },
 
+    // ✅ Updated: Stores all customers, supports filtering
     async loadCustomers() {
         try {
             const customers = await ApiService.get('/credit-customers');
-            var div = document.getElementById('allCustomersTable');
-            if (!div) return;
-            
-            if (!customers || !customers.length) {
-                div.innerHTML = '<p style="text-align:center;color:#999;">No credit customers registered yet.</p>';
-            } else {
-                var h = '<table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>ID Number</th><th>Debt Limit</th><th>Total Debt</th><th>Available</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
-                customers.forEach(function(c) {
-                    var pct = c.debtLimit > 0 ? Math.round((Number(c.totalDebt) / Number(c.debtLimit)) * 100) : 0;
-                    var color = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#10b981';
-                    var statusBadge = c.isActive === 0 ? '<span class="badge badge-danger">Inactive</span>' : Number(c.totalDebt) > 0 ? '<span class="badge badge-warning">Owing</span>' : '<span class="badge badge-success">Clear</span>';
-                    
-                    h += '<tr style="' + (c.isActive === 0 ? 'opacity:0.5;' : '') + '">';
-                    h += '<td><strong>' + (c.name || '-') + '</strong>' + (c.isActive === 0 ? ' <small style="color:#ef4444;">(Inactive)</small>' : '') + '</td>';
-                    h += '<td>' + (c.phone || '-') + '</td>';
-                    h += '<td>' + (c.idNumber || '-') + '</td>';
-                    h += '<td>KES ' + Number(c.debtLimit || 0).toLocaleString() + '</td>';
-                    h += '<td style="color:' + (Number(c.totalDebt) > 0 ? '#ef4444' : '#10b981') + ';font-weight:700;">KES ' + Number(c.totalDebt || 0).toLocaleString() + '</td>';
-                    h += '<td>KES ' + (Number(c.debtLimit || 0) - Number(c.totalDebt || 0)).toLocaleString() + '</td>';
-                    h += '<td><div style="width:80px;height:6px;background:#eee;border-radius:3px;"><div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:3px;"></div></div><small>' + pct + '%</small></td>';
-                    h += '<td>' + statusBadge + '</td>';
-                    h += '<td style="white-space:nowrap;">';
-                    h += '<button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewProducts(' + c.id + ')" title="View Products"><i class="fas fa-box"></i></button> ';
-                    h += '<button class="btn btn-sm btn-info" onclick="AdminCreditComponent.viewHistory(' + c.id + ')" title="History"><i class="fas fa-history"></i></button> ';
-                    h += '<button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showPayment(' + c.id + ')" title="Record Payment"><i class="fas fa-money-bill"></i></button> ';
-                    h += '<button class="btn btn-sm btn-warning" onclick="AdminCreditComponent.editCustomer(' + c.id + ')" title="Edit"><i class="fas fa-edit"></i></button> ';
-                    if (c.isActive === 1) {
-                        h += '<button class="btn btn-sm btn-danger" onclick="AdminCreditComponent.deactivateCustomer(' + c.id + ',\'' + (c.name || '').replace(/'/g, "\\'") + '\')" title="Deactivate"><i class="fas fa-user-slash"></i></button>';
-                    } else {
-                        h += '<button class="btn btn-sm btn-outline-success" onclick="AdminCreditComponent.activateCustomer(' + c.id + ',\'' + (c.name || '').replace(/'/g, "\\'") + '\')" title="Activate"><i class="fas fa-user-check"></i></button>';
-                    }
-                    h += '</td></tr>';
-                });
-                h += '</tbody></table>';
-                div.innerHTML = h;
-            }
+            this._allCustomers = customers || [];
+            this.renderCustomerTable(this._allCustomers);
         } catch(e) {
             console.error('Error loading customers:', e);
             var div = document.getElementById('allCustomersTable');
@@ -100,10 +80,91 @@ const AdminCreditComponent = {
         }
     },
 
+    // ✅ Filter customers by search input
+    filterCustomers() {
+        var searchInput = document.getElementById('customerSearchInput');
+        var search = searchInput ? searchInput.value.toLowerCase().trim() : '';
+        this._customerFilter = search;
+        
+        var filtered = this._allCustomers;
+        if (search) {
+            filtered = this._allCustomers.filter(function(c) {
+                return (c.name || '').toLowerCase().indexOf(search) > -1 ||
+                       (c.phone || '').toLowerCase().indexOf(search) > -1 ||
+                       (c.idNumber || '').toLowerCase().indexOf(search) > -1;
+            });
+        }
+        this.renderCustomerTable(filtered);
+    },
+
+    // ✅ Click card to show only customers with debt
+    filterByDebt() {
+        var searchInput = document.getElementById('customerSearchInput');
+        if (searchInput) searchInput.value = '';
+        this._customerFilter = '';
+        var filtered = this._allCustomers.filter(function(c) { return Number(c.totalDebt || 0) > 0; });
+        this.renderCustomerTable(filtered);
+    },
+
+    // ✅ Click card to show all customers
+    filterByAll() {
+        var searchInput = document.getElementById('customerSearchInput');
+        if (searchInput) searchInput.value = '';
+        this._customerFilter = '';
+        this.renderCustomerTable(this._allCustomers);
+    },
+
+    // ✅ Renders the customer table
+    renderCustomerTable(customers) {
+        var div = document.getElementById('allCustomersTable');
+        var countBadge = document.getElementById('customerCountBadge');
+        
+        if (countBadge) {
+            countBadge.textContent = (customers ? customers.length : 0) + ' customers';
+        }
+        
+        if (!div) return;
+        
+        if (!customers || !customers.length) {
+            div.innerHTML = '<p style="text-align:center;color:#999;">No customers found.</p>';
+            return;
+        }
+        
+        var h = '<table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>ID Number</th><th>Debt Limit</th><th>Total Debt</th><th>Available</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+        customers.forEach(function(c) {
+            var pct = Number(c.debtLimit) > 0 ? Math.round((Number(c.totalDebt) / Number(c.debtLimit)) * 100) : 0;
+            var color = pct > 80 ? '#ef4444' : pct > 50 ? '#f59e0b' : '#10b981';
+            var statusBadge = Number(c.isActive) === 0 ? '<span class="badge badge-danger">Inactive</span>' : Number(c.totalDebt) > 0 ? '<span class="badge badge-warning">Owing</span>' : '<span class="badge badge-success">Clear</span>';
+            
+            h += '<tr style="' + (Number(c.isActive) === 0 ? 'opacity:0.5;' : '') + '">';
+            h += '<td><strong>' + (c.name || '-') + '</strong>' + (Number(c.isActive) === 0 ? ' <small style="color:#ef4444;">(Inactive)</small>' : '') + '</td>';
+            h += '<td>' + (c.phone || '-') + '</td>';
+            h += '<td>' + (c.idNumber || '-') + '</td>';
+            h += '<td>KES ' + Number(c.debtLimit || 0).toLocaleString() + '</td>';
+            h += '<td style="color:' + (Number(c.totalDebt) > 0 ? '#ef4444' : '#10b981') + ';font-weight:700;">KES ' + Number(c.totalDebt || 0).toLocaleString() + '</td>';
+            h += '<td>KES ' + (Number(c.debtLimit || 0) - Number(c.totalDebt || 0)).toLocaleString() + '</td>';
+            h += '<td><div style="width:80px;height:6px;background:#eee;border-radius:3px;"><div style="width:' + pct + '%;height:100%;background:' + color + ';border-radius:3px;"></div></div><small>' + pct + '%</small></td>';
+            h += '<td>' + statusBadge + '</td>';
+            h += '<td style="white-space:nowrap;">';
+            h += '<button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewProducts(' + c.id + ')" title="View Products"><i class="fas fa-box"></i></button> ';
+            h += '<button class="btn btn-sm btn-info" onclick="AdminCreditComponent.viewHistory(' + c.id + ')" title="History"><i class="fas fa-history"></i></button> ';
+            h += '<button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showPayment(' + c.id + ')" title="Record Payment"><i class="fas fa-money-bill"></i></button> ';
+            h += '<button class="btn btn-sm btn-warning" onclick="AdminCreditComponent.editCustomer(' + c.id + ')" title="Edit"><i class="fas fa-edit"></i></button> ';
+            if (Number(c.isActive) === 1) {
+                h += '<button class="btn btn-sm btn-danger" onclick="AdminCreditComponent.deactivateCustomer(' + c.id + ',\'' + (c.name || '').replace(/'/g, "\\'") + '\')" title="Deactivate"><i class="fas fa-user-slash"></i></button>';
+            } else {
+                h += '<button class="btn btn-sm btn-outline-success" onclick="AdminCreditComponent.activateCustomer(' + c.id + ',\'' + (c.name || '').replace(/'/g, "\\'") + '\')" title="Activate"><i class="fas fa-user-check"></i></button>';
+            }
+            h += '</td></tr>';
+        });
+        h += '</tbody></table>';
+        div.innerHTML = h;
+    },
+
     async loadRecentSales() {
         try {
             const sales = await ApiService.get('/credit-sales');
-            const customers = await ApiService.get('/credit-customers');
+            const customers = this._allCustomers.length ? this._allCustomers : await ApiService.get('/credit-customers');
             
             var div = document.getElementById('recentCreditSales');
             if (!div) return;
@@ -152,7 +213,7 @@ const AdminCreditComponent = {
 
     async loadRecentPayments() {
         try {
-            const customers = await ApiService.get('/credit-customers');
+            const customers = this._allCustomers.length ? this._allCustomers : await ApiService.get('/credit-customers');
             var allPayments = [];
             
             if (customers && customers.length) {
@@ -261,9 +322,7 @@ const AdminCreditComponent = {
             h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
             var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-        } catch(e) {
-            console.error('Error viewing products:', e);
-        }
+        } catch(e) { console.error('Error viewing products:', e); }
     },
 
     async viewCustomerSales(customerId) {
@@ -297,17 +356,14 @@ const AdminCreditComponent = {
             
             var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-        } catch(e) {
-            console.error('Error viewing customer sales:', e);
-        }
+        } catch(e) { console.error('Error viewing customer sales:', e); }
     },
 
     async viewSaleProducts(saleId) {
         try {
             const sales = await ApiService.get('/sales');
             var sale = sales ? sales.find(function(s) { return s.id == saleId; }) : null;
-            
-            if (!sale) { return; }
+            if (!sale) return;
             
             var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;"><i class="fas fa-receipt"></i> Items - '+(sale.receiptNo||'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Customer:</strong> '+(sale.customerName||'Walk-in')+' | <strong>Date:</strong> '+new Date(sale.date).toLocaleDateString('en-KE')+'</p>';
             if (sale.items && sale.items.length > 0) {
@@ -320,9 +376,7 @@ const AdminCreditComponent = {
             h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
             var m = document.createElement('div'); m.className = 'modal-overlay'; m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-        } catch(e) {
-            console.error('Error viewing sale products:', e);
-        }
+        } catch(e) { console.error('Error viewing sale products:', e); }
     },
 
     async deactivateCustomer(id, name) {
@@ -362,10 +416,7 @@ const AdminCreditComponent = {
         var self = this;
         m.querySelector('#saveCustBtn').onclick = async function(){
             var name = m.querySelector('#regCustName').value.trim();
-            if(!name){ 
-                showStyledAlert('Required', 'Name required!', 'exclamation-triangle', '#f59e0b'); 
-                return; 
-            }
+            if(!name){ showStyledAlert('Required', 'Name required!', 'exclamation-triangle', '#f59e0b'); return; }
             const result = await ApiService.post('/credit-customers', {
                 name: name,
                 phone: m.querySelector('#regCustPhone').value,
@@ -386,32 +437,24 @@ const AdminCreditComponent = {
         try {
             const customer = await ApiService.get('/credit-customers/' + id);
             if (!customer) return;
-            
             var m = document.createElement('div'); m.className = 'modal-overlay';
             m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;"><i class="fas fa-edit"></i> Edit '+customer.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Name</label><input type="text" id="editCustName" class="form-control" value="'+(customer.name||'')+'"></div><div class="form-group"><label>Debt Limit (KES)</label><input type="number" id="editCustLimit" class="form-control" value="'+(customer.debtLimit||0)+'"></div><div class="form-group"><label>Phone</label><input type="text" id="editCustPhone" class="form-control" value="'+(customer.phone||'')+'"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="updateCustBtn">Update</button></div></div>';
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-            
             m.querySelector('#updateCustBtn').onclick = async function(){
                 const result = await ApiService.put('/credit-customers/' + id, {
                     name: m.querySelector('#editCustName').value,
                     debtLimit: parseFloat(m.querySelector('#editCustLimit').value) || 5000,
                     phone: m.querySelector('#editCustPhone').value
                 });
-                if (result && result.success) {
-                    m.remove();
-                    await AdminCreditComponent.loadAll();
-                }
+                if (result && result.success) { m.remove(); await AdminCreditComponent.loadAll(); }
             };
-        } catch(e) {
-            console.error('Error editing customer:', e);
-        }
+        } catch(e) { console.error('Error editing customer:', e); }
     },
 
     async viewHistory(id) {
         try {
             const customer = await ApiService.get('/credit-customers/' + id);
             if (!customer) return;
-            
             var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-history"></i> '+customer.name+' - History</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(customer.totalDebt||0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(customer.debtLimit||0).toLocaleString()+'</p>';
             if(customer.recentSales && customer.recentSales.length > 0){
                 h+='<h4>Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Debt After</th><th>Cashier</th></tr></thead><tbody>';
@@ -430,20 +473,16 @@ const AdminCreditComponent = {
             h+='</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
             var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;
             document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
-        } catch(e) {
-            console.error('Error viewing history:', e);
-        }
+        } catch(e) { console.error('Error viewing history:', e); }
     },
 
     async showPayment(id) {
         try {
             const customer = await ApiService.get('/credit-customers/' + id);
             if (!customer) return;
-            
             var m=document.createElement('div');m.className='modal-overlay';
             m.innerHTML='<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Record Payment - '+customer.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p>Current Debt: <strong style="color:#ef4444;">KES '+Number(customer.totalDebt||0).toLocaleString()+'</strong></p><div class="form-group"><label>Amount (KES)</label><input type="number" id="payAmount" class="form-control" min="1" max="'+(customer.totalDebt||0)+'"></div><div class="form-group"><label>Method</label><select id="payMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmPayBtn">Confirm</button></div></div>';
             document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
-            
             m.querySelector('#confirmPayBtn').onclick = async function(){
                 var amount=parseFloat(m.querySelector('#payAmount').value)||0;
                 if(amount<=0||amount>customer.totalDebt){
@@ -451,21 +490,15 @@ const AdminCreditComponent = {
                     return;
                 }
                 const result = await ApiService.post('/debt-payments', {
-                    customerId: id,
-                    customerName: customer.name,
-                    amount: amount,
-                    paymentMethod: m.querySelector('#payMethod').value,
-                    receivedBy: 'Admin'
+                    customerId: id, customerName: customer.name, amount: amount,
+                    paymentMethod: m.querySelector('#payMethod').value, receivedBy: 'Admin'
                 });
                 if (result && result.success) {
-                    m.remove();
-                    await AdminCreditComponent.loadAll();
+                    m.remove(); await AdminCreditComponent.loadAll();
                     showStyledAlert('Success', 'Payment recorded!', 'check-circle', '#10b981');
                 }
             };
-        } catch(e) {
-            console.error('Error showing payment:', e);
-        }
+        } catch(e) { console.error('Error showing payment:', e); }
     }
 };
 
