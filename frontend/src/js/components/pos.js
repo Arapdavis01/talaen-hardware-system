@@ -829,14 +829,13 @@ const POSComponent = {
         m.querySelector('#returnReceiptInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { self._searchReceipt(m); } });
     },
 
-       _searchReceipt(m) {
+          _searchReceipt(m) {
         var q = m.querySelector('#returnReceiptInput').value.trim();
         if (!q) { this._showMessage('Enter a receipt number!', 'warning'); return; }
         var self = this;
         ApiService.get('/sales/search/' + encodeURIComponent(q)).then(function(sale){
             var resultDiv = m.querySelector('#returnReceiptResult'), processDiv = m.querySelector('#returnProcessArea');
             if (sale.error) { resultDiv.innerHTML = '<div style="padding:1rem;background:#fef2f2;border-radius:0.5rem;color:#ef4444;">❌ Receipt not found</div>'; processDiv.style.display = 'none'; return; }
-            // 🔥 FIX: Handle both camelCase and lowercase DB column names
             var receiptNo = sale.receiptNo || sale.receiptno;
             ApiService.get('/returns/receipt/' + encodeURIComponent(receiptNo)).then(function(existingReturns){
                 var returnedItems = existingReturns || [], returnedMap = {};
@@ -847,6 +846,7 @@ const POSComponent = {
                     var key = rProductId + '-' + rReturnType; 
                     returnedMap[key] = (returnedMap[key] || 0) + rQuantity; 
                 });
+                var items = sale.items || [];
                 var html = '<div style="padding:1rem;background:#f0fdf4;border-radius:0.5rem;margin-top:0.5rem;">';
                 html += '<h4>✅ Sale Found: ' + receiptNo + '</h4>';
                 html += '<p><strong>Customer:</strong> ' + (sale.customerName || sale.customername || 'Walk-in') + '</p>';
@@ -856,16 +856,13 @@ const POSComponent = {
                 html += '<hr><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">';
                 html += '<div><label><strong>Return Type:</strong></label><select id="returnTypeSelect" class="form-control"><option value="return">Return</option><option value="exchange">Exchange</option></select></div>';
                 html += '<div><label><strong>Items:</strong></label><select id="returnItemSelect" class="form-control">';
-                var items = sale.items || [];
                 items.forEach(function(item){ 
-                    // 🔥 FIX: Handle both camelCase and lowercase DB column names
                     var itemProductId = item.productId || item.productid;
                     var itemProductName = item.productName || item.productname || 'Unknown Item';
                     var itemPrice = item.price || 0;
                     var itemQuantity = item.quantity || 0;
                     var itemSoldInUnit = item.soldInUnit || item.soldinunit || '';
                     var itemConvFactor = item.conversionFactor || item.conversionfactor || 0;
-                    
                     var key = itemProductId + '-return'; 
                     var returnedQty = returnedMap[key] || 0; 
                     var available = itemQuantity - returnedQty; 
@@ -877,16 +874,104 @@ const POSComponent = {
                 html += '<div class="form-group"><label>Quantity</label><input type="number" id="returnQty" class="form-control" value="1" min="1"></div>';
                 html += '<div class="form-group"><label>Reason</label><input type="text" id="returnReason" class="form-control" placeholder="Reason for return/exchange"></div>';
                 html += '<div id="exchangeProductSection" style="display:none;"><div class="form-group"><label>Exchange Product</label><input type="text" id="exchangeProductSearch" class="form-control" placeholder="Search product..." oninput="POSComponent._searchExchangeProduct(this.value)"><div id="exchangeResults"></div></div><div class="form-group"><label>Exchange Quantity</label><input type="number" id="exchangeQty" class="form-control" value="1" min="1"></div></div>';
-                html += '<button class="btn btn-success" id="processReturnBtn"><i class="fas fa-check"></i> Process Return/Exchange</button>';
+                html += '<button class="btn btn-success" id="processReturnBtn" style="width:100%;margin-top:1rem;"><i class="fas fa-check"></i> Process Return/Exchange</button>';
                 html += '</div>';
-                resultDiv.innerHTML = html; processDiv.style.display = 'block';
-                processDiv.querySelector('#returnTypeSelect').onchange = function() { 
-                    var el = processDiv.querySelector('#exchangeProductSection'); 
-                    if (el) el.style.display = this.value === 'exchange' ? 'block' : 'none'; 
-                };
-                processDiv.querySelector('#processReturnBtn').onclick = function() { self._processReturn(sale, m); };
+                
+                // 🔥 FIX: Put HTML in resultDiv, then attach event handlers using document.getElementById
+                resultDiv.innerHTML = html; 
+                processDiv.style.display = 'block';
+                
+                // Store sale reference for the button handler
+                var processBtn = document.getElementById('processReturnBtn');
+                if (processBtn) {
+                    processBtn.onclick = function() {
+                        self._processReturn(sale, m);
+                    };
+                }
+                
+                // Return type change handler
+                var returnTypeSelect = document.getElementById('returnTypeSelect');
+                if (returnTypeSelect) {
+                    returnTypeSelect.onchange = function() { 
+                        var el = document.getElementById('exchangeProductSection'); 
+                        if (el) el.style.display = this.value === 'exchange' ? 'block' : 'none'; 
+                    };
+                }
             });
         });
+    },
+
+    _searchExchangeProduct(query) {
+        var resultsDiv = document.getElementById('exchangeResults');
+        if (!resultsDiv) return;
+        if (!query || query.length < 2) { resultsDiv.innerHTML = ''; return; }
+        ApiService.get('/products/search?q=' + encodeURIComponent(query)).then(function(products){
+            if (!products || products.length === 0) { resultsDiv.innerHTML = '<div style="padding:0.5rem;color:#999;">No products found</div>'; return; }
+            var h = ''; 
+            products.forEach(function(p){ 
+                var stockDisplay = typeof ProductService !== 'undefined' ? ProductService.getStockDisplay(p) : (p.stock + ' ' + (p.unit || 'pcs'));
+                h += '<div style="padding:0.5rem;border-bottom:1px solid #eee;cursor:pointer;" onclick="document.getElementById(\'exchangeProductSearch\').value=\'' + p.name + '\';document.getElementById(\'exchangeProductSearch\').dataset.id=\'' + p.id + '\';document.getElementById(\'exchangeProductSearch\').dataset.price=\'' + p.price + '\';resultsDiv.innerHTML=\'\';">' + p.name + ' - KES ' + p.price.toLocaleString() + ' (' + stockDisplay + ')</div>'; 
+            });
+            resultsDiv.innerHTML = h;
+        });
+    },
+
+    _processReturn(sale, modal) {
+        var self = this;
+        // 🔥 FIX: Use document.getElementById since HTML is in resultDiv, not processDiv
+        var returnType = document.getElementById('returnTypeSelect').value;
+        var itemSelect = document.getElementById('returnItemSelect');
+        var selected = itemSelect.value.split('|');
+        if (selected.length < 4) { this._showMessage('Select a valid item!', 'warning'); return; }
+        var productId = parseInt(selected[0]), productName = selected[1], price = parseFloat(selected[2]), maxQty = parseInt(selected[3]);
+        var soldInUnit = selected[4] || null;
+        var conversionFactor = parseInt(selected[5]) || 0;
+        var qty = parseInt(document.getElementById('returnQty').value) || 1;
+        if (qty < 1 || qty > maxQty) { this._showMessage('Invalid quantity! Max available: ' + maxQty, 'warning'); return; }
+        var reason = document.getElementById('returnReason').value || 'No reason provided';
+        var refundAmount = returnType === 'return' ? (price * qty) : 0;
+        var exchangeProductId = null, exchangeProductName = null, exchangeAmount = 0;
+        if (returnType === 'exchange') {
+            var exchangeSearch = document.getElementById('exchangeProductSearch');
+            var exchangeId = exchangeSearch?.dataset?.id;
+            var exchangePrice = parseFloat(exchangeSearch?.dataset?.price) || 0;
+            var exchangeQty = parseInt(document.getElementById('exchangeQty').value) || 1;
+            if (!exchangeId) { this._showMessage('Select an exchange product!', 'warning'); return; }
+            exchangeProductId = parseInt(exchangeId);
+            exchangeProductName = exchangeSearch.value;
+            exchangeAmount = exchangePrice * exchangeQty;
+        }
+        var returnData = {
+            originalSaleId: sale.id,
+            originalReceiptNo: sale.receiptNo || sale.receiptno,
+            customerName: sale.customerName || sale.customername || 'Walk-in',
+            returnType: returnType,
+            productId: productId,
+            productName: productName,
+            quantity: qty,
+            returnAmount: refundAmount,
+            returnedInUnit: soldInUnit,
+            conversionFactor: conversionFactor,
+            exchangeProductId: exchangeProductId,
+            exchangeProductName: exchangeProductName,
+            exchangeAmount: exchangeAmount,
+            refundAmount: returnType === 'return' ? refundAmount : 0,
+            reason: reason,
+            cashierName: this._getCurrentUser()?.fullName || 'Cashier'
+        };
+        var msg = '<div style="text-align:center;"><h3>' + (returnType === 'return' ? 'Return' : 'Exchange') + '</h3><p><strong>Product:</strong> ' + productName + '</p><p><strong>Quantity:</strong> ' + qty + (soldInUnit ? ' ' + soldInUnit : '') + '</p>';
+        if (returnType === 'return') msg += '<p><strong>Refund Amount:</strong> KES ' + refundAmount.toLocaleString() + '</p>';
+        else msg += '<p><strong>Exchange Product:</strong> ' + exchangeProductName + ' x ' + exchangeQty + '</p>';
+        msg += '</div>';
+        this._showConfirm('Process ' + (returnType === 'return' ? 'Return' : 'Exchange'), msg, function(){
+            ApiService.post('/returns', returnData).then(function(){
+                self._showMessage('✅ ' + (returnType === 'return' ? 'Return' : 'Exchange') + ' processed successfully!', 'success');
+                modal.remove();
+                if (typeof CashierDashboardComponent !== 'undefined' && CashierDashboardComponent._currentView === 'returns') {
+                    CashierDashboardComponent._loadMyReturns();
+                }
+            }).catch(function(e){ self._showMessage('Error: ' + e.message, 'danger'); });
+        }, 'Confirm', 'success');
     },
     _searchExchangeProduct(query) {
         var resultsDiv = document.getElementById('exchangeResults');
