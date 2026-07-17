@@ -113,7 +113,10 @@ async function initDB() {
             productName VARCHAR(255),
             quantity INT,
             price DECIMAL(10,2),
-            total DECIMAL(10,2)
+            total DECIMAL(10,2),
+            soldInUnit VARCHAR(50),
+            conversionFactor INT DEFAULT 0,
+            baseQuantity INT DEFAULT 0
         )`,
         `CREATE TABLE IF NOT EXISTS settings (
             id SERIAL PRIMARY KEY,
@@ -156,6 +159,9 @@ async function initDB() {
             brand VARCHAR(255),
             variant VARCHAR(255),
             quantity INT,
+            orderedInUnit VARCHAR(50),
+            conversionFactor INT DEFAULT 0,
+            baseQuantity INT DEFAULT 0,
             unitPrice DECIMAL(10,2),
             sellingPrice DECIMAL(10,2) DEFAULT 0,
             lastPrice DECIMAL(10,2) DEFAULT 0,
@@ -208,6 +214,9 @@ async function initDB() {
             productId INT,
             productName VARCHAR(255),
             quantity INT,
+            returnedInUnit VARCHAR(50),
+            conversionFactor INT DEFAULT 0,
+            baseQuantity INT DEFAULT 0,
             returnAmount DECIMAL(10,2),
             exchangeProductId INT,
             exchangeProductName VARCHAR(255),
@@ -277,6 +286,21 @@ async function initDB() {
         }
     }
 
+    // Add columns if they don't exist (for existing tables)
+    try {
+        await pool.query("ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS soldInUnit VARCHAR(50)");
+        await pool.query("ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS conversionFactor INT DEFAULT 0");
+        await pool.query("ALTER TABLE sale_items ADD COLUMN IF NOT EXISTS baseQuantity INT DEFAULT 0");
+        await pool.query("ALTER TABLE po_items ADD COLUMN IF NOT EXISTS orderedInUnit VARCHAR(50)");
+        await pool.query("ALTER TABLE po_items ADD COLUMN IF NOT EXISTS conversionFactor INT DEFAULT 0");
+        await pool.query("ALTER TABLE po_items ADD COLUMN IF NOT EXISTS baseQuantity INT DEFAULT 0");
+        await pool.query("ALTER TABLE returns_table ADD COLUMN IF NOT EXISTS returnedInUnit VARCHAR(50)");
+        await pool.query("ALTER TABLE returns_table ADD COLUMN IF NOT EXISTS conversionFactor INT DEFAULT 0");
+        await pool.query("ALTER TABLE returns_table ADD COLUMN IF NOT EXISTS baseQuantity INT DEFAULT 0");
+    } catch (e) {
+        console.error('Error adding columns:', e.message);
+    }
+
     // Initialize mpesa_config if empty
     try {
         const mpesaConfigResult = await pool.query("SELECT COUNT(*) as c FROM mpesa_config");
@@ -298,8 +322,8 @@ async function initDB() {
                 "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU004', 'Paint', 'Crown', 'White 20L', 'Paints', 3500.00, 3000.00, 50, 'cans', NULL, 0, 10)",
                 "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU005', 'Timber', 'Local', '2x4', 'Wood', 250.00, 200.00, 500, 'pcs', NULL, 0, 100)",
                 "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU006', 'Nails', 'Generic', '3-inch', 'Hardware', 150.00, 120.00, 1000, 'kg', NULL, 0, 200)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU007', 'Sand', 'River', 'Fine', 'Building Materials', 2500.00, 2000.00, 30, 'tonnes', NULL, 0, 5)",
-                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU008', 'Ballast', 'Quarry', '3/4 inch', 'Building Materials', 3000.00, 2500.00, 25, 'tonnes', NULL, 0, 5)"
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU007', 'Sand', 'River', 'Fine', 'Building Materials', 200.00, 150.00, 216, 'wheelbarrow', 'tonne', 24, 48)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, salesUnit, conversionFactor, minStock) VALUES ('SKU008', 'Ballast', 'Quarry', '3/4 inch', 'Building Materials', 250.00, 200.00, 500, 'wheelbarrow', 'tonne', 20, 100)"
             ];
             for (const seedQuery of seedProducts) {
                 await pool.query(seedQuery);
@@ -403,6 +427,58 @@ function formatUserResponse(user) {
         fullName: user.fullname,
         isActive: user.isactive
     };
+}
+
+/**
+ * Calculate display stock info for dual-unit products
+ */
+function getDisplayStock(product) {
+    const stock = parseInt(product.stock) || 0;
+    const unit = product.unit || 'pcs';
+    const salesUnit = product.salesUnit || null;
+    const conversionFactor = parseInt(product.conversionFactor) || 0;
+    const price = parseFloat(product.price) || 0;
+    
+    const result = {
+        baseStock: stock,
+        baseUnit: unit,
+        hasAlternativeUnit: !!(salesUnit && conversionFactor > 0),
+        displayText: `${stock} ${unit}`,
+        priceDisplay: `KES ${price.toLocaleString()}/${unit}`,
+        isLowStock: stock <= (parseInt(product.minStock) || 10)
+    };
+    
+    if (result.hasAlternativeUnit) {
+        result.salesUnit = salesUnit;
+        result.conversionFactor = conversionFactor;
+        const salesQty = Math.floor(stock / conversionFactor);
+        const remainder = stock % conversionFactor;
+        result.salesStock = salesQty;
+        result.remainder = remainder;
+        result.bulkPrice = price * conversionFactor;
+        
+        if (salesQty > 0 && remainder > 0) {
+            result.displayText = `${stock} ${unit} (${salesQty} ${salesUnit} + ${remainder} ${unit})`;
+        } else if (salesQty > 0) {
+            result.displayText = `${stock} ${unit} (${salesQty} ${salesUnit})`;
+        } else {
+            result.displayText = `${stock} ${unit} (0 ${salesUnit})`;
+        }
+        
+        result.priceDisplay = `KES ${price.toLocaleString()}/${unit} | KES ${result.bulkPrice.toLocaleString()}/${salesUnit}`;
+    }
+    
+    return result;
+}
+
+/**
+ * Convert quantity to base units for stock operations
+ */
+function convertToBaseUnits(quantity, sellingUnit, conversionFactor) {
+    if (sellingUnit && conversionFactor > 0) {
+        return quantity * conversionFactor;
+    }
+    return quantity;
 }
 
 // ============================================
@@ -846,7 +922,8 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
 app.get('/api/products', verifyToken, async (req, res) => {
     try {
         const r = await pool.query("SELECT id, sku, name, brand, variant, category, price, cost, stock, unit, salesunit AS \"salesUnit\", conversionfactor AS \"conversionFactor\", minstock AS \"minStock\", isactive AS \"isActive\" FROM products WHERE isActive=1 ORDER BY name, brand");
-        res.json(r.rows);
+        const products = r.rows.map(p => ({ ...p, displayStock: getDisplayStock(p) }));
+        res.json(products);
     } catch (error) {
         console.error('Get products error:', error);
         res.status(500).json({ success: false, message: 'Error fetching products' });
@@ -898,9 +975,10 @@ app.get('/api/products/paginated', verifyToken, async (req, res) => {
         params.push(limit, offset);
         
         var productsResult = await pool.query(productsQuery, params);
+        const products = productsResult.rows.map(p => ({ ...p, displayStock: getDisplayStock(p) }));
         
         res.json({ 
-            products: productsResult.rows, 
+            products: products, 
             pagination: { 
                 page: page, 
                 limit: limit, 
@@ -945,6 +1023,7 @@ app.get('/api/products/with-prices', verifyToken, async (req, res) => {
                 [p.name, p.brand, p.variant]
             );
             p.lastPrice = lastPOResult.rows.length ? lastPOResult.rows[0].unitprice : p.cost;
+            p.displayStock = getDisplayStock(p);
         }
         res.json(products);
     } catch(e) {
@@ -1007,10 +1086,11 @@ app.get('/api/products/search', verifyToken, async (req, res) => {
     const q = '%' + (req.query.q || '') + '%';
     try {
         const productsResult = await pool.query(
-            "SELECT id, name, brand, variant, price, stock, unit, salesunit AS \"salesUnit\", conversionfactor AS \"conversionFactor\" FROM products WHERE isActive=1 AND (name ILIKE $1 OR brand ILIKE $2 OR variant ILIKE $3) AND stock > 0 ORDER BY name LIMIT 20",
+            "SELECT id, name, brand, variant, price, stock, unit, salesunit AS \"salesUnit\", conversionfactor AS \"conversionFactor\", minstock AS \"minStock\", category FROM products WHERE isActive=1 AND (name ILIKE $1 OR brand ILIKE $2 OR variant ILIKE $3) AND stock > 0 ORDER BY name LIMIT 20",
             [q, q, q]
         );
-        res.json(productsResult.rows);
+        const products = productsResult.rows.map(p => ({ ...p, displayStock: getDisplayStock(p) }));
+        res.json(products);
     } catch (error) {
         console.error('Search products error:', error);
         res.status(500).json({ success: false, message: 'Error searching products' });
@@ -1018,7 +1098,7 @@ app.get('/api/products/search', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// SALES ENDPOINTS
+// SALES ENDPOINTS (with dual-unit support)
 // ============================================
 
 app.get('/api/sales', verifyToken, async (req, res) => {
@@ -1101,11 +1181,33 @@ app.post('/api/sales', verifyToken, async (req, res) => {
         );
         const saleId = s.rows[0].id;
         for (let i of items) {
+            const productResult = await pool.query("SELECT * FROM products WHERE id = $1", [i.productId]);
+            const product = productResult.rows[0];
+            
+            let soldInUnit = i.soldInUnit || null;
+            let conversionFactor = parseInt(i.conversionFactor) || 0;
+            let baseQuantity = i.quantity;
+            
+            // If sold in alternative unit, convert to base units for stock deduction
+            if (soldInUnit && conversionFactor > 0) {
+                baseQuantity = i.quantity * conversionFactor;
+            }
+            
+            // Validate stock
+            if (product && baseQuantity > product.stock) {
+                const ds = getDisplayStock(product);
+                return res.status(400).json({ 
+                    success: false, 
+                    message: `Insufficient stock for ${i.productName}. Available: ${ds.displayText}` 
+                });
+            }
+            
             await pool.query(
-                "INSERT INTO sale_items (saleId, productId, productName, quantity, price, total) VALUES ($1, $2, $3, $4, $5, $6)",
-                [saleId, i.productId, i.productName, i.quantity, i.price, i.quantity * i.price]
+                "INSERT INTO sale_items (saleId, productId, productName, quantity, price, total, soldInUnit, conversionFactor, baseQuantity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                [saleId, i.productId, i.productName, i.quantity, i.price, i.total || i.quantity * i.price, soldInUnit, conversionFactor, baseQuantity]
             );
-            await pool.query("UPDATE products SET stock = stock - $1 WHERE id = $2", [i.quantity, i.productId]);
+            // Deduct base units from stock
+            await pool.query("UPDATE products SET stock = stock - $1 WHERE id = $2", [baseQuantity, i.productId]);
         }
         logActivity(cashierId, cashierName, 'sale', 'Sale: ' + rn + ' - KES ' + (total || 0).toLocaleString());
         res.json({ success: true, receiptNo: rn, saleId: saleId });
@@ -1133,17 +1235,25 @@ app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// RETURN ENDPOINTS
+// RETURN ENDPOINTS (with dual-unit support)
 // ============================================
 
 app.post('/api/returns', verifyToken, async (req, res) => {
-    const { originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnAmount, exchangeProductId, exchangeProductName, exchangeAmount, refundAmount, reason, cashierName } = req.body;
+    const { originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnAmount, exchangeProductId, exchangeProductName, exchangeAmount, refundAmount, reason, cashierName, returnedInUnit, conversionFactor } = req.body;
     try {
+        let baseQuantity = quantity;
+        
+        // If returned in alternative unit, convert to base units
+        if (returnedInUnit && conversionFactor > 0) {
+            baseQuantity = quantity * conversionFactor;
+        }
+        
         await pool.query(
-            "INSERT INTO returns_table (originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnAmount, exchangeProductId, exchangeProductName, exchangeAmount, refundAmount, reason, cashierName, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW())",
-            [originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnAmount, exchangeProductId || null, exchangeProductName || null, exchangeAmount || 0, refundAmount || 0, reason, cashierName]
+            "INSERT INTO returns_table (originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnedInUnit, conversionFactor, baseQuantity, returnAmount, exchangeProductId, exchangeProductName, exchangeAmount, refundAmount, reason, cashierName, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())",
+            [originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnedInUnit || null, conversionFactor || 0, baseQuantity, returnAmount, exchangeProductId || null, exchangeProductName || null, exchangeAmount || 0, refundAmount || 0, reason, cashierName]
         );
-        await pool.query("UPDATE products SET stock = stock + $1 WHERE id = $2", [quantity, productId]);
+        // Add back base units to stock
+        await pool.query("UPDATE products SET stock = stock + $1 WHERE id = $2", [baseQuantity, productId]);
         if (exchangeProductId) {
             await pool.query("UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0", [exchangeProductId]);
         }
@@ -1173,7 +1283,7 @@ app.get('/api/returns', verifyToken, async (req, res) => {
 
 app.get('/api/returns/receipt/:receiptNo', verifyToken, async (req, res) => {
     try {
-        const returnsResult = await pool.query("SELECT productId, quantity, returnType, date FROM returns_table WHERE originalReceiptNo = $1 ORDER BY date DESC", [req.params.receiptNo]);
+        const returnsResult = await pool.query("SELECT productId, quantity, returnedInUnit, returnType, date FROM returns_table WHERE originalReceiptNo = $1 ORDER BY date DESC", [req.params.receiptNo]);
         res.json(returnsResult.rows);
     } catch (error) {
         console.error('Get returns by receipt error:', error);
@@ -1201,7 +1311,7 @@ app.get('/api/returns/summary', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// PURCHASE ORDERS
+// PURCHASE ORDERS (with dual-unit support)
 // ============================================
 
 app.get('/api/purchase-orders', verifyToken, authorize('admin'), async (req, res) => {
@@ -1230,9 +1340,18 @@ app.post('/api/purchase-orders', verifyToken, authorize('admin'), async (req, re
         const poId = po.rows[0].id;
         if (d.items) {
             for (let i of d.items) {
+                let orderedInUnit = i.orderedInUnit || null;
+                let conversionFactor = parseInt(i.conversionFactor) || 0;
+                let baseQuantity = i.quantity;
+                
+                // If ordered in alternative unit, calculate base quantity
+                if (orderedInUnit && conversionFactor > 0) {
+                    baseQuantity = i.quantity * conversionFactor;
+                }
+                
                 await pool.query(
-                    "INSERT INTO po_items (poId, productName, brand, variant, quantity, unitPrice, sellingPrice, lastPrice, currentStock, discount, total) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)",
-                    [poId, i.productName, i.brand || '', i.variant || '', i.quantity, i.unitPrice, i.sellingPrice || 0, i.lastPrice || 0, i.currentStock || 0, i.discount || 0, i.total]
+                    "INSERT INTO po_items (poId, productName, brand, variant, quantity, orderedInUnit, conversionFactor, baseQuantity, unitPrice, sellingPrice, lastPrice, currentStock, discount, total) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+                    [poId, i.productName, i.brand || '', i.variant || '', i.quantity, orderedInUnit, conversionFactor, baseQuantity, i.unitPrice, i.sellingPrice || 0, i.lastPrice || 0, i.currentStock || 0, i.discount || 0, i.total]
                 );
             }
         }
@@ -1252,10 +1371,13 @@ app.put('/api/purchase-orders/:id/receive', verifyToken, authorize('admin'), asy
         const itemsResult = await pool.query("SELECT * FROM po_items WHERE poId = $1", [req.params.id]);
         const items = itemsResult.rows;
         for (let i of items) {
+            // Use baseQuantity for stock addition (already converted)
+            const stockToAdd = i.basequantity || i.quantity;
+            
             const pResult = await pool.query("SELECT * FROM products WHERE name=$1 AND brand=$2 AND variant=$3 AND isActive=1", [i.productname, i.brand, i.variant]);
             const p = pResult.rows;
             if (p.length) {
-                await pool.query("UPDATE products SET stock = stock + $1, cost = $2 WHERE id = $3", [i.quantity, i.unitprice, p[0].id]);
+                await pool.query("UPDATE products SET stock = stock + $1, cost = $2 WHERE id = $3", [stockToAdd, i.unitprice, p[0].id]);
             }
         }
         await pool.query("UPDATE purchase_orders SET status = 'received', receivedDate = NOW() WHERE id = $1", [req.params.id]);
@@ -1293,7 +1415,7 @@ app.post('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => 
 });
 
 // ============================================
-// CREDIT CUSTOMERS - lowercase DB → camelCase JSON
+// CREDIT CUSTOMERS
 // ============================================
 
 app.get('/api/credit-customers', verifyToken, async (req, res) => {
@@ -1372,6 +1494,7 @@ app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => 
         res.json([]);
     }
 });
+
 // ============================================
 // DEBT PAYMENTS
 // ============================================
@@ -1452,7 +1575,6 @@ app.get('/api/credit-sales', verifyToken, async (req, res) => {
     }
 });
 
-// ✅ FIXED: Credit summary with totalCustomers
 app.get('/api/credit-summary', verifyToken, async (req, res) => {
     try {
         const tdResult = await pool.query("SELECT COALESCE(SUM(totalDebt), 0) as total FROM credit_customers WHERE isActive=1");
@@ -1633,9 +1755,9 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
         if (!report.length) {
             var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
             var sales = salesResult.rows;
-            var itemsSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
-            var stockAddedResult = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
-            var stockSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+            var itemsSoldResult = await pool.query("SELECT SUM(si.baseQuantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+            var stockAddedResult = await pool.query("SELECT SUM(pi.baseQuantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
+            var stockSoldResult = await pool.query("SELECT SUM(si.baseQuantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
             var productsResult = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
             var totalSales = sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0);
             await pool.query(
@@ -1657,9 +1779,9 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
         var today = new Date().toISOString().split('T')[0];
         var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
         var sales = salesResult.rows;
-        var itemsSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
-        var stockAddedResult = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
-        var stockSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+        var itemsSoldResult = await pool.query("SELECT SUM(si.baseQuantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+        var stockAddedResult = await pool.query("SELECT SUM(pi.baseQuantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
+        var stockSoldResult = await pool.query("SELECT SUM(si.baseQuantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
         var productsResult = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
         var totalSales = sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0);
         await pool.query(
