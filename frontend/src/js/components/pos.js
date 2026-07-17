@@ -523,7 +523,7 @@ const POSComponent = {
         if (count) count.textContent = this._heldCarts.length; 
     },
 
-    // ========== CUSTOMER METHODS (unchanged from original) ==========
+    // ========== CUSTOMER METHODS ==========
     searchCustomers() {
         var q = document.getElementById('customerName')?.value.trim(); var div = document.getElementById('customerSuggestions');
         if (!q || q.length < 2) { if (div) div.style.display = 'none'; return; }
@@ -1026,12 +1026,22 @@ const POSComponent = {
     },
 
     _showConfirm(title, msg, onConfirm, btnText, btnType) { 
-        var m=document.createElement('div');m.className='modal-overlay';
-        m.innerHTML='<div class="modal"><div class="modal-header"><h3>'+title+'</h3></div><div class="modal-body">'+msg+'</div><div class="modal-footer"><button class="btn btn-outline" id="modalCancel">Cancel</button><button class="btn btn-'+(btnType||'primary')+'" id="modalConfirm">'+(btnText||'Confirm')+'</button></div></div>';
+        var m = document.createElement('div');
+        m.className = 'modal-overlay';
+        
+        var colors = {
+            success: { gradient: 'linear-gradient(135deg,#10b981,#059669)', color: '#10b981' },
+            danger: { gradient: 'linear-gradient(135deg,#ef4444,#dc2626)', color: '#ef4444' },
+            warning: { gradient: 'linear-gradient(135deg,#f59e0b,#d97706)', color: '#f59e0b' },
+            primary: { gradient: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#3b82f6' }
+        };
+        var c = colors[btnType] || colors.primary;
+        
+        m.innerHTML = '<div class="modal"><div class="modal-header" style="background:' + c.gradient + ';color:white;"><h3 style="color:white;">' + title + '</h3></div><div class="modal-body">' + msg + '</div><div class="modal-footer"><button class="btn btn-outline" id="modalCancel">Cancel</button><button class="btn btn-' + (btnType || 'primary') + '" id="modalConfirm">' + (btnText || 'Confirm') + '</button></div></div>';
         document.body.appendChild(m);
-        m.onclick=function(e){if(e.target===m)m.remove();};
-        m.querySelector('#modalCancel').onclick=function(){m.remove();};
-        m.querySelector('#modalConfirm').onclick=function(){m.remove();if(onConfirm)onConfirm();}; 
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+        m.querySelector('#modalCancel').onclick = function() { m.remove(); };
+        m.querySelector('#modalConfirm').onclick = function() { m.remove(); if (onConfirm) onConfirm(); }; 
     },
 
     _showReceipt(sale) {
