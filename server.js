@@ -458,7 +458,7 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// USER ENDPOINTS - FIXED for PostgreSQL
+// USER ENDPOINTS - FULLY FIXED
 // ============================================
 
 // GET ALL USERS - Admin only
@@ -467,7 +467,6 @@ app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
         const r = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users ORDER BY id"
         );
-        // Map to camelCase for frontend
         const users = r.rows.map(user => ({
             id: user.id,
             username: user.username,
@@ -541,7 +540,6 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
             return res.json({ success: false, message: 'Username and password (min 6 chars) required' });
         }
         
-        // Check if username exists
         const existingUser = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
         if (existingUser.rows.length > 0) {
             return res.json({ success: false, message: 'Username already exists' });
@@ -583,23 +581,61 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// UPDATE USER - Admin only
+// UPDATE USER - Admin only (with toggle support)
 app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
-    const { isActive, fullName, username, role } = req.body;
+    const { isActive, fullName, username, role, toggle } = req.body;
+    
     try {
         const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
         const user = userResult.rows;
+        
         if (!user.length) {
             return res.json({ success: false, message: 'User not found' });
         }
         
-        // Prevent admin from deactivating themselves
+        // Handle toggle (activate/deactivate)
+        if (toggle !== undefined) {
+            // Prevent deactivating admin
+            if (user[0].role === 'admin') {
+                return res.json({ success: false, message: 'Cannot deactivate admin account' });
+            }
+            
+            // Prevent deactivating self
+            if (parseInt(userId) === req.user.id) {
+                return res.json({ success: false, message: 'You cannot deactivate your own account' });
+            }
+            
+            const newStatus = user[0].isactive === 1 ? 0 : 1;
+            await pool.query("UPDATE users SET isActive = $1 WHERE id = $2", [newStatus, userId]);
+            
+            const action = newStatus === 1 ? 'activated' : 'deactivated';
+            logActivity(req.user.id, req.user.fullName, 'toggle_user', action + ' user: ' + (user[0].fullname || user[0].username));
+            
+            const updatedUserResult = await pool.query(
+                "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
+                [userId]
+            );
+            const updatedUser = updatedUserResult.rows[0];
+            
+            return res.json({ 
+                success: true, 
+                message: 'User ' + action + ' successfully',
+                user: {
+                    id: updatedUser.id,
+                    username: updatedUser.username,
+                    password: updatedUser.password,
+                    role: updatedUser.role,
+                    fullName: updatedUser.fullname,
+                    isActive: updatedUser.isactive
+                }
+            });
+        }
+        
+        // Regular update (without toggle)
         if (isActive === 0 && parseInt(userId) === req.user.id) {
             return res.json({ success: false, message: 'You cannot deactivate your own account' });
         }
-        
-        // Prevent changing admin role
         if (role && user[0].role === 'admin' && role !== 'admin') {
             return res.json({ success: false, message: 'Cannot change admin role' });
         }
@@ -613,7 +649,6 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
             values.push(fullName);
         }
         if (username !== undefined && username !== '') {
-            // Check if username is taken by another user
             const existingUser = await pool.query("SELECT id FROM users WHERE username = $1 AND id != $2", [username, userId]);
             if (existingUser.rows.length > 0) {
                 return res.json({ success: false, message: 'Username already exists' });
@@ -671,28 +706,52 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
 app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { newPassword } = req.body;
+    
     try {
         if (!newPassword || newPassword.length < 6) {
             return res.json({ success: false, message: 'New password must be at least 6 characters' });
         }
+        
         const userResult = await pool.query("SELECT * FROM users WHERE id = $1", [userId]);
         const user = userResult.rows;
+        
         if (!user.length) {
             return res.json({ success: false, message: 'User not found' });
         }
-        if (userId == req.user.id) {
+        
+        if (parseInt(userId) === req.user.id) {
             return res.json({ success: false, message: 'Use profile update to change your own password' });
         }
+        
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await pool.query(
             "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
             [hashedPassword, newPassword, userId]
         );
-        logActivity(req.user.id, req.user.fullName, 'password_reset', 'Reset password for: ' + (user[0].fullName || user[0].username));
-        res.json({ success: true, message: 'Password reset successfully for ' + (user[0].fullName || user[0].username) });
+        
+        logActivity(req.user.id, req.user.fullName, 'password_reset', 'Reset password for: ' + (user[0].fullname || user[0].username));
+        
+        const updatedUserResult = await pool.query(
+            "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
+            [userId]
+        );
+        const updatedUser = updatedUserResult.rows[0];
+        
+        res.json({ 
+            success: true, 
+            message: 'Password reset successfully for ' + (user[0].fullname || user[0].username),
+            user: {
+                id: updatedUser.id,
+                username: updatedUser.username,
+                password: updatedUser.password,
+                role: updatedUser.role,
+                fullName: updatedUser.fullname,
+                isActive: updatedUser.isactive
+            }
+        });
     } catch (error) {
         console.error('Password reset error:', error);
-        res.status(500).json({ success: false, message: 'Error resetting password' });
+        res.status(500).json({ success: false, message: 'Error resetting password: ' + error.message });
     }
 });
 
