@@ -845,7 +845,7 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
 
 app.get('/api/products', verifyToken, async (req, res) => {
     try {
-        const r = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name, brand");
+        const r = await pool.query("SELECT id, sku, name, brand, variant, category, price, cost, stock, unit, salesunit AS \"salesUnit\", conversionfactor AS \"conversionFactor\", minstock AS \"minStock\", isactive AS \"isActive\" FROM products WHERE isActive=1 ORDER BY name, brand");
         res.json(r.rows);
     } catch (error) {
         console.error('Get products error:', error);
@@ -894,7 +894,7 @@ app.get('/api/products/paginated', verifyToken, async (req, res) => {
         var countResult = await pool.query(countQuery, params);
         var total = parseInt(countResult.rows[0].total);
         
-        var productsQuery = 'SELECT * FROM products ' + whereClause + ' ORDER BY name, brand LIMIT $' + paramCount + ' OFFSET $' + (paramCount + 1);
+        var productsQuery = 'SELECT id, sku, name, brand, variant, category, price, cost, stock, unit, salesunit AS "salesUnit", conversionfactor AS "conversionFactor", minstock AS "minStock", isactive AS "isActive" FROM products ' + whereClause + ' ORDER BY name, brand LIMIT $' + paramCount + ' OFFSET $' + (paramCount + 1);
         params.push(limit, offset);
         
         var productsResult = await pool.query(productsQuery, params);
@@ -937,7 +937,7 @@ app.get('/api/products/categories', verifyToken, async (req, res) => {
 
 app.get('/api/products/with-prices', verifyToken, async (req, res) => {
     try {
-        const productsResult = await pool.query("SELECT * FROM products WHERE isActive=1 ORDER BY name,brand");
+        const productsResult = await pool.query("SELECT id, sku, name, brand, variant, category, price, cost, stock, unit, salesunit AS \"salesUnit\", conversionfactor AS \"conversionFactor\", minstock AS \"minStock\", isactive AS \"isActive\" FROM products WHERE isActive=1 ORDER BY name,brand");
         const products = productsResult.rows;
         for (let p of products) {
             const lastPOResult = await pool.query(
@@ -1007,7 +1007,7 @@ app.get('/api/products/search', verifyToken, async (req, res) => {
     const q = '%' + (req.query.q || '') + '%';
     try {
         const productsResult = await pool.query(
-            "SELECT id, name, brand, variant, price, stock, unit, salesUnit, conversionFactor FROM products WHERE isActive=1 AND (name ILIKE $1 OR brand ILIKE $2 OR variant ILIKE $3) AND stock > 0 ORDER BY name LIMIT 20",
+            "SELECT id, name, brand, variant, price, stock, unit, salesunit AS \"salesUnit\", conversionfactor AS \"conversionFactor\" FROM products WHERE isActive=1 AND (name ILIKE $1 OR brand ILIKE $2 OR variant ILIKE $3) AND stock > 0 ORDER BY name LIMIT 20",
             [q, q, q]
         );
         res.json(productsResult.rows);
