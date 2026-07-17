@@ -60,6 +60,7 @@ async function initDB() {
             id SERIAL PRIMARY KEY,
             username VARCHAR(255) UNIQUE NOT NULL,
             password VARCHAR(255) NOT NULL,
+            plain_password VARCHAR(255),
             role VARCHAR(50) DEFAULT 'cashier',
             fullName VARCHAR(255) DEFAULT '',
             isActive INT DEFAULT 1
@@ -246,12 +247,12 @@ async function initDB() {
             const hashedCashier = await bcrypt.hash('cashier123', 10);
             
             await pool.query(
-                "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6)",
-                [1, 'admin', hashedAdmin, 'admin', 'Administrator', 1]
+                "INSERT INTO users (id, username, password, plain_password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                [1, 'admin', hashedAdmin, 'admin123', 'admin', 'Administrator', 1]
             );
             await pool.query(
-                "INSERT INTO users (id, username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6)",
-                [2, 'cashier', hashedCashier, 'cashier', 'Cashier User', 1]
+                "INSERT INTO users (id, username, password, plain_password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+                [2, 'cashier', hashedCashier, 'cashier123', 'cashier', 'Cashier User', 1]
             );
             
             const hashedSettingsAdmin = await bcrypt.hash('admin123', 10);
@@ -448,12 +449,15 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// USER ENDPOINTS
+// USER ENDPOINTS - With plain_password Support
 // ============================================
 
+// 🔥 ADMIN: Get all users - shows actual passwords
 app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [r] = await pool.query("SELECT id, username, role, fullName, isActive FROM users ORDER BY id");
+        const [r] = await pool.query(
+            "SELECT id, username, plain_password as password, role, fullName, isActive FROM users ORDER BY id"
+        );
         res.json(r);
     } catch (error) {
         console.error('Get users error:', error);
@@ -461,9 +465,13 @@ app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
+// 🔥 USER: Get own profile - shows own password
 app.get('/api/users/profile', verifyToken, async (req, res) => {
     try {
-        const [user] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [req.user.id]);
+        const [user] = await pool.query(
+            "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
+            [req.user.id]
+        );
         if (user.length === 0) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
@@ -474,9 +482,13 @@ app.get('/api/users/profile', verifyToken, async (req, res) => {
     }
 });
 
+// 🔥 ADMIN: Get single user - shows actual password
 app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const [user] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [req.params.id]);
+        const [user] = await pool.query(
+            "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
+            [req.params.id]
+        );
         if (user.length === 0) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
@@ -487,6 +499,7 @@ app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
+// 🔥 ADMIN: Create user - stores both hashed and plain password
 app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     const { username, password, role, fullName } = req.body;
     try {
@@ -495,11 +508,14 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
         }
         const hashedPassword = await bcrypt.hash(password, 10);
         const [r] = await pool.query(
-            "INSERT INTO users (username, password, role, fullName, isActive) VALUES ($1, $2, $3, $4, 1) RETURNING id",
-            [username, hashedPassword, role || 'cashier', fullName]
+            "INSERT INTO users (username, password, plain_password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, 1) RETURNING id",
+            [username, hashedPassword, password, role || 'cashier', fullName]
         );
         logActivity(req.user.id, req.user.fullName, 'add_user', 'Added: ' + fullName);
-        const [newUser] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [r[0].id]);
+        const [newUser] = await pool.query(
+            "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
+            [r[0].id]
+        );
         res.json({ success: true, message: 'User created successfully', user: newUser[0] });
     } catch(e) {
         if (e.code === '23505') {
@@ -511,6 +527,7 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
+// 🔥 ADMIN: Update user - excludes password field (use reset-password endpoint)
 app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { isActive, fullName, username, role } = req.body;
@@ -549,7 +566,10 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
         }
         values.push(userId);
         await pool.query('UPDATE users SET ' + updates.join(', ') + ' WHERE id = $' + paramCount, values);
-        const [updatedUser] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [userId]);
+        const [updatedUser] = await pool.query(
+            "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
+            [userId]
+        );
         logActivity(req.user.id, req.user.fullName, 'update_user', 'Updated: ' + (updatedUser[0].fullName || updatedUser[0].username));
         res.json({ success: true, message: 'User updated successfully', user: updatedUser[0] });
     } catch(e) {
@@ -562,6 +582,7 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
+// 🔥 ADMIN: Reset user password - updates both hashed and plain password
 app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { newPassword } = req.body;
@@ -577,7 +598,10 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
             return res.json({ success: false, message: 'Use profile update to change your own password' });
         }
         const hashedPassword = await bcrypt.hash(newPassword, 10);
-        await pool.query("UPDATE users SET password = $1 WHERE id = $2", [hashedPassword, userId]);
+        await pool.query(
+            "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
+            [hashedPassword, newPassword, userId]
+        );
         logActivity(req.user.id, req.user.fullName, 'password_reset', 'Reset password for: ' + (user[0].fullName || user[0].username));
         res.json({ success: true, message: 'Password reset successfully for ' + (user[0].fullName || user[0].username) });
     } catch (error) {
@@ -586,6 +610,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
     }
 });
 
+// 🔥 USER: Change own password - updates both hashed and plain password
 app.put('/api/users/profile', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { fullName, currentPassword, newPassword } = req.body;
@@ -606,14 +631,20 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
                 return res.json({ success: false, message: 'New password must be at least 6 characters' });
             }
             const hashedPassword = await bcrypt.hash(newPassword, 10);
-            await pool.query("UPDATE users SET password = $1 WHERE id = $2", [hashedPassword, userId]);
+            await pool.query(
+                "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
+                [hashedPassword, newPassword, userId]
+            );
             logActivity(userId, req.user.fullName, 'password_change', 'User changed their own password');
         }
         if (fullName !== undefined) {
             await pool.query("UPDATE users SET fullName = $1 WHERE id = $2", [fullName, userId]);
             req.user.fullName = fullName;
         }
-        const [updatedUser] = await pool.query("SELECT id, username, role, fullName, isActive FROM users WHERE id = $1", [userId]);
+        const [updatedUser] = await pool.query(
+            "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
+            [userId]
+        );
         res.json({ success: true, message: 'Profile updated successfully', user: updatedUser[0] });
     } catch (error) {
         console.error('Profile update error:', error);
