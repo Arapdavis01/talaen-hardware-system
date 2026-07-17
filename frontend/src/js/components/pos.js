@@ -829,31 +829,48 @@ const POSComponent = {
         m.querySelector('#returnReceiptInput').addEventListener('keydown', function(e) { if (e.key === 'Enter') { self._searchReceipt(m); } });
     },
 
-    _searchReceipt(m) {
+       _searchReceipt(m) {
         var q = m.querySelector('#returnReceiptInput').value.trim();
         if (!q) { this._showMessage('Enter a receipt number!', 'warning'); return; }
         var self = this;
         ApiService.get('/sales/search/' + encodeURIComponent(q)).then(function(sale){
             var resultDiv = m.querySelector('#returnReceiptResult'), processDiv = m.querySelector('#returnProcessArea');
             if (sale.error) { resultDiv.innerHTML = '<div style="padding:1rem;background:#fef2f2;border-radius:0.5rem;color:#ef4444;">❌ Receipt not found</div>'; processDiv.style.display = 'none'; return; }
-            ApiService.get('/returns/receipt/' + encodeURIComponent(sale.receiptNo)).then(function(existingReturns){
+            // 🔥 FIX: Handle both camelCase and lowercase DB column names
+            var receiptNo = sale.receiptNo || sale.receiptno;
+            ApiService.get('/returns/receipt/' + encodeURIComponent(receiptNo)).then(function(existingReturns){
                 var returnedItems = existingReturns || [], returnedMap = {};
-                returnedItems.forEach(function(r){ var key = r.productId + '-' + r.returnType; returnedMap[key] = (returnedMap[key] || 0) + r.quantity; });
+                returnedItems.forEach(function(r){ 
+                    var rProductId = r.productId || r.productid;
+                    var rReturnType = r.returnType || r.returntype;
+                    var rQuantity = r.quantity || 0;
+                    var key = rProductId + '-' + rReturnType; 
+                    returnedMap[key] = (returnedMap[key] || 0) + rQuantity; 
+                });
                 var html = '<div style="padding:1rem;background:#f0fdf4;border-radius:0.5rem;margin-top:0.5rem;">';
-                html += '<h4>✅ Sale Found: ' + sale.receiptNo + '</h4>';
-                html += '<p><strong>Customer:</strong> ' + (sale.customerName || 'Walk-in') + '</p>';
+                html += '<h4>✅ Sale Found: ' + receiptNo + '</h4>';
+                html += '<p><strong>Customer:</strong> ' + (sale.customerName || sale.customername || 'Walk-in') + '</p>';
                 html += '<p><strong>Date:</strong> ' + new Date(sale.date).toLocaleDateString('en-KE') + '</p>';
                 html += '<p><strong>Total:</strong> KES ' + Number(sale.total || 0).toLocaleString() + '</p>';
-                if (sale.is_returned) { html += '<p style="color:#f59e0b;"><strong>⚠️ This sale has already been partially/fully returned/exchanged.</strong></p>'; }
+                if (sale.is_returned || sale.isReturned) { html += '<p style="color:#f59e0b;"><strong>⚠️ This sale has already been partially/fully returned/exchanged.</strong></p>'; }
                 html += '<hr><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">';
                 html += '<div><label><strong>Return Type:</strong></label><select id="returnTypeSelect" class="form-control"><option value="return">Return</option><option value="exchange">Exchange</option></select></div>';
                 html += '<div><label><strong>Items:</strong></label><select id="returnItemSelect" class="form-control">';
-                sale.items.forEach(function(item){ 
-                    var key = item.productId + '-return'; 
+                var items = sale.items || [];
+                items.forEach(function(item){ 
+                    // 🔥 FIX: Handle both camelCase and lowercase DB column names
+                    var itemProductId = item.productId || item.productid;
+                    var itemProductName = item.productName || item.productname || 'Unknown Item';
+                    var itemPrice = item.price || 0;
+                    var itemQuantity = item.quantity || 0;
+                    var itemSoldInUnit = item.soldInUnit || item.soldinunit || '';
+                    var itemConvFactor = item.conversionFactor || item.conversionfactor || 0;
+                    
+                    var key = itemProductId + '-return'; 
                     var returnedQty = returnedMap[key] || 0; 
-                    var available = item.quantity - returnedQty; 
+                    var available = itemQuantity - returnedQty; 
                     if (available > 0) { 
-                        html += '<option value="' + item.productId + '|' + item.productName + '|' + item.price + '|' + available + '|' + (item.soldInUnit || '') + '|' + (item.conversionFactor || 0) + '">' + item.productName + ' (x' + available + ' available' + (item.soldInUnit ? ' in ' + item.soldInUnit : '') + ')</option>'; 
+                        html += '<option value="' + itemProductId + '|' + itemProductName + '|' + itemPrice + '|' + available + '|' + itemSoldInUnit + '|' + itemConvFactor + '">' + itemProductName + ' (x' + available + ' available' + (itemSoldInUnit ? ' in ' + itemSoldInUnit : '') + ')</option>'; 
                     } 
                 });
                 html += '</select></div></div>';
@@ -871,7 +888,6 @@ const POSComponent = {
             });
         });
     },
-
     _searchExchangeProduct(query) {
         var resultsDiv = document.getElementById('exchangeResults');
         if (!resultsDiv) return;
@@ -887,7 +903,7 @@ const POSComponent = {
         });
     },
 
-    _processReturn(sale, modal) {
+       _processReturn(sale, modal) {
         var self = this;
         var returnType = modal.querySelector('#returnTypeSelect').value;
         var itemSelect = modal.querySelector('#returnItemSelect');
@@ -911,10 +927,11 @@ const POSComponent = {
             exchangeProductName = exchangeSearch.value;
             exchangeAmount = exchangePrice * exchangeQty;
         }
+        // 🔥 FIX: Handle lowercase DB column names for sale object
         var returnData = {
             originalSaleId: sale.id,
-            originalReceiptNo: sale.receiptNo,
-            customerName: sale.customerName || 'Walk-in',
+            originalReceiptNo: sale.receiptNo || sale.receiptno,
+            customerName: sale.customerName || sale.customername || 'Walk-in',
             returnType: returnType,
             productId: productId,
             productName: productName,
