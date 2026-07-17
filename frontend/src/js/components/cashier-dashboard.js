@@ -1,5 +1,5 @@
 // ============================================
-// CASHIER DASHBOARD - With JWT Authentication
+// CASHIER DASHBOARD - With JWT Authentication & Dual-Unit Support
 // ============================================
 
 const CashierDashboardComponent = {
@@ -32,6 +32,15 @@ const CashierDashboardComponent = {
         
         // Announcement Banner
         h += '<div id="announcementBanner" style="display:none;text-align:center;padding:1rem;margin-bottom:1.5rem;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:1rem;font-size:1.2rem;font-weight:700;color:#92400e;border:2px solid #f59e0b;"></div>';
+        
+        // Tab Navigation
+        h += '<div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap;justify-content:center;">';
+        h += '<button class="btn btn-sm ' + (this._currentView === 'overview' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'overview\')"><i class="fas fa-home"></i> Overview</button>';
+        h += '<button class="btn btn-sm ' + (this._currentView === 'sales' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'sales\')"><i class="fas fa-receipt"></i> Sales</button>';
+        h += '<button class="btn btn-sm ' + (this._currentView === 'returns' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'returns\')"><i class="fas fa-exchange-alt"></i> Returns</button>';
+        h += '<button class="btn btn-sm ' + (this._currentView === 'credit' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'credit\')"><i class="fas fa-credit-card"></i> Credit</button>';
+        h += '<button class="btn btn-sm ' + (this._currentView === 'reports' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'reports\')"><i class="fas fa-chart-bar"></i> Reports</button>';
+        h += '</div>';
         
         h += '<div id="cashierContent">';
         if (this._currentView === 'sales') {
@@ -144,8 +153,8 @@ const CashierDashboardComponent = {
         
         h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-link"></i> Quick Links</h3></div><div class="card-body" style="text-align:center;padding:2rem;">';
         h += '<button class="btn btn-success btn-lg" style="margin:0.5rem;padding:1.5rem 2rem;" onclick="AppRouter.navigate(\'pos\')"><i class="fas fa-shopping-cart"></i><br>New Sale</button>';
-        h += '<button class="btn btn-primary btn-lg" style="margin:0.5rem;padding:1.5rem 2rem;" onclick="AppRouter.navigate(\'cashier-sales\')"><i class="fas fa-list"></i><br>My Sales</button>';
-        h += '<button class="btn btn-warning btn-lg" style="margin:0.5rem;padding:1.5rem 2rem;" onclick="AppRouter.navigate(\'cashier-returns\')"><i class="fas fa-exchange-alt"></i><br>Returns</button>';
+        h += '<button class="btn btn-primary btn-lg" style="margin:0.5rem;padding:1.5rem 2rem;" onclick="CashierDashboardComponent._switchTab(\'sales\')"><i class="fas fa-list"></i><br>My Sales</button>';
+        h += '<button class="btn btn-warning btn-lg" style="margin:0.5rem;padding:1.5rem 2rem;" onclick="CashierDashboardComponent._switchTab(\'returns\')"><i class="fas fa-exchange-alt"></i><br>Returns</button>';
         h += '</div></div>';
         return h;
     },
@@ -156,7 +165,7 @@ const CashierDashboardComponent = {
         h += '<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">';
         h += '<h3 class="card-title"><i class="fas fa-receipt"></i> Sales History</h3>';
         h += '<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">';
-        h += '<input type="text" id="salesSearchInput" class="form-control" placeholder="Search..." style="width:180px;" oninput="CashierDashboardComponent._filterSalesTable()">';
+        h += '<input type="text" id="salesSearchInput" class="form-control" placeholder="Search receipt, customer..." style="width:180px;" oninput="CashierDashboardComponent._filterSalesTable()">';
         h += '<select id="salesCashierFilter" class="form-control" style="width:140px;" onchange="CashierDashboardComponent._loadMySales()"><option value="all">All Cashiers</option><option value="me">My Sales Only</option></select>';
         h += '<select id="salesPaymentFilter" class="form-control" style="width:130px;" onchange="CashierDashboardComponent._loadMySales()"><option value="all">All Payments</option><option value="cash">Cash</option><option value="mpesa">M-PESA</option><option value="credit">Credit</option></select>';
         h += '<button class="btn btn-sm btn-outline" onclick="CashierDashboardComponent._exportSalesCSV()"><i class="fas fa-download"></i> Export CSV</button>';
@@ -210,12 +219,30 @@ const CashierDashboardComponent = {
         var html = '<div style="max-height:500px;overflow-y:auto;"><table class="table"><thead><tr><th>Receipt No</th><th>Date</th><th>Customer</th><th>Items</th><th style="text-align:right;">Total</th><th>Payment</th><th>Cashier</th><th>Actions</th></tr></thead><tbody>';
         sales.forEach(function(sale) {
             var itemCount = sale.items ? sale.items.length : 0;
+            
+            // 🔥 Build items preview with dual-unit info
+            var itemsPreview = itemCount + ' items';
+            if (sale.items && sale.items.length > 0) {
+                var previewItems = sale.items.slice(0, 2);
+                itemsPreview = previewItems.map(function(item) {
+                    var unitInfo = '';
+                    if (item.soldInUnit && item.conversionFactor > 0) {
+                        unitInfo = ' ' + item.soldInUnit;
+                    }
+                    return '<small>' + item.productName + ' ×' + item.quantity + unitInfo + '</small>';
+                }).join('<br>');
+                if (sale.items.length > 2) {
+                    itemsPreview += '<br><small style="color:#999;">+ ' + (sale.items.length - 2) + ' more</small>';
+                }
+            }
+            
             var pLabel = sale.paymentMethod === 'mpesa' ? 'M-PESA' : sale.paymentMethod === 'credit' ? 'CREDIT' : 'CASH';
             var pColor = sale.paymentMethod === 'credit' ? '#f59e0b' : sale.paymentMethod === 'mpesa' ? '#10b981' : '#3b82f6';
             var dateStr = sale.date ? new Date(sale.date).toLocaleDateString('en-KE') + '<br><small style="color:#999;">' + new Date(sale.date).toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit'}) + '</small>' : '-';
             html += '<tr class="sales-row" data-search="' + (sale.receiptNo||'').toLowerCase() + ' ' + (sale.customerName||'').toLowerCase() + ' ' + (sale.cashierName||'').toLowerCase() + '">';
-            html += '<td><strong>' + (sale.receiptNo||'-') + '</strong></td><td>' + dateStr + '</td><td>' + (sale.customerName||'Walk-in') + '</td><td>' + itemCount + ' items</td>';
-            html += '<td style="text-align:right;font-weight:700;">KES ' + Number(sale.total||0).toLocaleString() + '</td><td><span style="color:' + pColor + ';font-weight:600;">' + pLabel + '</span></td><td>' + (sale.cashierName||'N/A') + '</td>';
+            html += '<td><strong style="font-family:monospace;">' + (sale.receiptNo||'-') + '</strong></td><td>' + dateStr + '</td><td>' + (sale.customerName||'Walk-in') + (sale.isCredit ? ' <span class="badge badge-warning">CR</span>' : '') + '</td>';
+            html += '<td>' + itemsPreview + '</td>';
+            html += '<td style="text-align:right;font-weight:700;">KES ' + Number(sale.total||0).toLocaleString() + '</td><td><span style="color:' + pColor + ';font-weight:600;">' + pLabel + '</span>' + (sale.mpesaRef ? '<br><small style="color:#10b981;">' + sale.mpesaRef + '</small>' : '') + '</td><td>' + (sale.cashierName||'N/A') + '</td>';
             html += '<td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="CashierDashboardComponent._viewReceipt(\'' + (sale.receiptNo||'') + '\')" title="View"><i class="fas fa-eye"></i></button> <button class="btn btn-sm btn-primary" onclick="CashierDashboardComponent._reprintReceipt(\'' + (sale.receiptNo||'') + '\')" title="Print"><i class="fas fa-print"></i></button></td></tr>';
         });
         html += '</tbody></table></div>'; 
@@ -237,7 +264,11 @@ const CashierDashboardComponent = {
         }
         var csv = 'Receipt No,Date,Customer,Items,Total,Payment,Cashier\n';
         sales.forEach(function(s) { 
-            csv += '"' + (s.receiptNo||'') + '","' + (s.date?new Date(s.date).toLocaleDateString('en-KE'):'') + '","' + ((s.customerName||'Walk-in').replace(/,/g,' ')) + '","' + (s.items?s.items.length:0) + '","' + Number(s.total||0).toFixed(2) + '","' + (s.paymentMethod||'cash') + '","' + (s.cashierName||'N/A') + '"\n'; 
+            var itemsDetail = (s.items || []).map(function(item) {
+                var unitInfo = item.soldInUnit ? ' ' + item.soldInUnit : '';
+                return item.productName + ' x' + item.quantity + unitInfo;
+            }).join('; ');
+            csv += '"' + (s.receiptNo||'') + '","' + (s.date?new Date(s.date).toLocaleDateString('en-KE'):'') + '","' + ((s.customerName||'Walk-in').replace(/,/g,' ')) + '","' + itemsDetail + '","' + Number(s.total||0).toFixed(2) + '","' + (s.paymentMethod||'cash') + '","' + (s.cashierName||'N/A') + '"\n'; 
         });
         var b = new Blob([csv],{type:'text/csv'}); 
         var a = document.createElement('a'); 
@@ -250,7 +281,6 @@ const CashierDashboardComponent = {
 
     _viewReceipt(receiptNo) {
         var self = this;
-        // ✅ REPLACED: fetch with ApiService
         ApiService.get('/sales/search/' + encodeURIComponent(receiptNo)).then(function(sale){
             if(sale.error){self._showMessage('Receipt not found!','danger');return;}
             var h = self._buildReceiptHTML(sale);
@@ -264,7 +294,6 @@ const CashierDashboardComponent = {
 
     _reprintReceipt(receiptNo) {
         var self = this;
-        // ✅ REPLACED: fetch with ApiService
         ApiService.get('/sales/search/' + encodeURIComponent(receiptNo)).then(function(sale){
             if(sale.error){self._showMessage('Receipt not found!','danger');return;}
             var h = self._buildReceiptHTML(sale);
@@ -276,6 +305,7 @@ const CashierDashboardComponent = {
         });
     },
 
+    // 🔥 Updated receipt builder with dual-unit display
     _buildReceiptHTML(sale) {
         var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;">';
         h += '<div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;">';
@@ -290,7 +320,20 @@ const CashierDashboardComponent = {
         h += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Payment:</span><span>' + (sale.paymentMethod||'cash').toUpperCase() + '</span></div>';
         if(sale.mpesaRef) h += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>M-Pesa Ref:</span><span style="color:#10b981;">' + sale.mpesaRef + '</span></div>';
         h += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Cashier:</span><span>' + (sale.cashierName||'N/A') + '</span></div></div>';
-        if(sale.items&&sale.items.length>0){h+='<table style="width:100%;border-collapse:collapse;margin:15px 0;"><thead><tr style="border-bottom:2px solid #333;"><th style="text-align:left;padding:4px;">Item</th><th style="text-align:center;padding:4px;">Qty</th><th style="text-align:right;padding:4px;">Price</th><th style="text-align:right;padding:4px;">Total</th></tr></thead><tbody>';sale.items.forEach(function(item){h+='<tr><td style="text-align:left;padding:4px;">'+item.productName+'</td><td style="text-align:center;padding:4px;">'+item.quantity+'</td><td style="text-align:right;padding:4px;">'+(item.price||0).toLocaleString()+'</td><td style="text-align:right;padding:4px;">'+((item.price||0)*(item.quantity||0)).toLocaleString()+'</td></tr>';});h+='</tbody></table>';}
+        
+        // 🔥 Items with dual-unit display
+        if(sale.items&&sale.items.length>0){
+            h+='<table style="width:100%;border-collapse:collapse;margin:15px 0;"><thead><tr style="border-bottom:2px solid #333;"><th style="text-align:left;padding:4px;">Item</th><th style="text-align:center;padding:4px;">Qty</th><th style="text-align:right;padding:4px;">Price</th><th style="text-align:right;padding:4px;">Total</th></tr></thead><tbody>';
+            sale.items.forEach(function(item){
+                var unitLabel = '';
+                if (item.soldInUnit && item.conversionFactor > 0) {
+                    unitLabel = '/' + item.soldInUnit;
+                }
+                h+='<tr><td style="text-align:left;padding:4px;">'+item.productName+'</td><td style="text-align:center;padding:4px;">'+item.quantity+'</td><td style="text-align:right;padding:4px;">'+(item.price||0).toLocaleString()+unitLabel+'</td><td style="text-align:right;padding:4px;">'+((item.total)||(item.price*item.quantity)||0).toLocaleString()+'</td></tr>';
+            });
+            h+='</tbody></table>';
+        }
+        
         var st=(sale.subtotal||0),stEx=st/1.16,vatAmt=st-stEx,tc=Number(sale.transportCost)||0,disc=Number(sale.discount)||0,gt=(st-disc)+tc;
         h+='<div style="border-top:2px solid #333;padding-top:10px;">';
         h+='<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Subtotal (excl. VAT):</span><span>KES '+stEx.toLocaleString(undefined,{minimumFractionDigits:2})+'</span></div>';
@@ -341,7 +384,6 @@ const CashierDashboardComponent = {
         var tableDiv = document.getElementById('myReturnsTable'); if (!tableDiv) return;
         tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</p>';
         try {
-            // ✅ REPLACED: fetch with ApiService
             var allReturns = await ApiService.get('/returns');
             var filteredReturns = cashierFilter === 'me' ? allReturns.filter(function(r) { return r.cashierName === (user.fullName || user.username); }) : allReturns;
             if (typeFilter !== 'all') filteredReturns = filteredReturns.filter(function(r) { return r.returnType === typeFilter; });
@@ -373,7 +415,7 @@ const CashierDashboardComponent = {
             tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;color:#999;">No returns found.</p>'; 
             return; 
         }
-        var html = '<div style="max-height:500px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Type</th><th>Product</th><th>Qty</th><th>Exchange</th><th style="text-align:right;">Refund</th><th>Cashier</th></tr></thead><tbody>';
+        var html = '<div style="max-height:500px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Type</th><th>Product</th><th>Qty</th><th>Unit</th><th>Exchange</th><th style="text-align:right;">Refund</th><th>Cashier</th></tr></thead><tbody>';
         returns.forEach(function(ret) {
             var isExchange = ret.returnType === 'exchange';
             var typeIcon = isExchange ? '🔄 Exchange' : '↩️ Return';
@@ -382,8 +424,15 @@ const CashierDashboardComponent = {
             var refundAmount = ret.returnAmount ? Number(ret.returnAmount) : 0;
             var refundDisplay = refundAmount > 0 ? 'KES ' + refundAmount.toLocaleString() : '-';
             var refundColor = refundAmount > 0 ? '#10b981' : '#999';
+            
+            // 🔥 Unit display for returns
+            var unitDisplay = '';
+            if (ret.returnedInUnit && ret.conversionFactor > 0) {
+                unitDisplay = ret.returnedInUnit;
+            }
+            
             html += '<tr class="returns-row" data-search="' + (ret.originalReceiptNo||'').toLowerCase() + ' ' + (ret.customerName||'').toLowerCase() + ' ' + (ret.productName||'').toLowerCase() + ' ' + (ret.cashierName||'').toLowerCase() + '">';
-            html += '<td>' + (ret.date ? new Date(ret.date).toLocaleDateString('en-KE') : '-') + '</td><td><strong>' + (ret.originalReceiptNo || '-') + '</strong></td><td>' + (ret.customerName || 'Walk-in') + '</td><td style="color:' + typeColor + ';font-weight:600;">' + typeIcon + '</td><td>' + (ret.productName || '-') + '</td><td>' + (ret.quantity || 1) + '</td><td>' + exchangeProduct + '</td><td style="text-align:right;font-weight:700;color:' + refundColor + ';">' + refundDisplay + '</td><td>' + (ret.cashierName || 'N/A') + '</td></tr>';
+            html += '<td>' + (ret.date ? new Date(ret.date).toLocaleDateString('en-KE') : '-') + '</td><td><strong>' + (ret.originalReceiptNo || '-') + '</strong></td><td>' + (ret.customerName || 'Walk-in') + '</td><td style="color:' + typeColor + ';font-weight:600;">' + typeIcon + '</td><td>' + (ret.productName || '-') + '</td><td>' + (ret.quantity || 1) + '</td><td>' + (unitDisplay || '-') + '</td><td>' + exchangeProduct + '</td><td style="text-align:right;font-weight:700;color:' + refundColor + ';">' + refundDisplay + '</td><td>' + (ret.cashierName || 'N/A') + '</td></tr>';
         });
         html += '</tbody></table></div>'; 
         tableDiv.innerHTML = html;
@@ -408,7 +457,6 @@ const CashierDashboardComponent = {
         var user = this._getCurrentUser(); 
         if (!user) return;
         try {
-            // ✅ REPLACED: fetch with ApiService
             var customers = await ApiService.get('/credit-customers');
             var custList = document.getElementById('creditTabCustomersList');
             if (custList) {
@@ -453,7 +501,6 @@ const CashierDashboardComponent = {
         }
         
         try {
-            // ✅ REPLACED: fetch with ApiService - need to get all payments from all customers
             var customers = await ApiService.get('/credit-customers');
             var allPayments = [];
             for (var i = 0; i < customers.length; i++) {
@@ -603,7 +650,6 @@ const CashierDashboardComponent = {
                 '<div class="stat-card"><div class="stat-icon"><i class="fas fa-box"></i></div><div class="stat-label">Available Products</div><div class="stat-value">' + products.length + '</div><div class="stat-sub">' + products.reduce(function(s,p){return s+(p.stock||0);},0) + ' units in stock</div></div>' +
                 creditHTML;
         }
-        // ✅ REPLACED: fetch with ApiService
         ApiService.get('/settings').then(function(s) {
             var banner = document.getElementById('announcementBanner');
             if (banner && s.announcement) {
@@ -616,13 +662,11 @@ const CashierDashboardComponent = {
 
     async loadCreditOnly() {
         try {
-            // ✅ REPLACED: fetch with ApiService
             var creditData = await ApiService.get('/credit-summary');
             var creditCard = document.getElementById('creditStatCard');
             if (creditCard && creditData) {
                 creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Outstanding Debt</div><div class="stat-value" style="color:#ef4444;">KES ' + (creditData.totalDebt || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' customers with debt</div>';
             }
-            // ✅ REPLACED: fetch with ApiService
             var customers = await ApiService.get('/credit-customers');
             var debtors = customers.filter(function(c) { return c.totalDebt > 0; });
             var custList = document.getElementById('creditCustomersList');
