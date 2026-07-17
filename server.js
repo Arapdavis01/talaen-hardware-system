@@ -23,13 +23,10 @@ const loginLimiter = rateLimit({
     message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false,
-    // Fix for X-Forwarded-For header warning
     skip: function(req) {
-        // Skip rate limiting for local requests if needed
         return false;
     },
     keyGenerator: function(req) {
-        // Use IP address from request
         return req.ip || req.connection.remoteAddress;
     }
 });
@@ -344,7 +341,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
     }
 
     try {
-        // Check if account is locked
         const lockCheckResult = await pool.query(
             "SELECT COUNT(*) as failed_count FROM login_attempts WHERE username = $1 AND success = 0 AND attempt_time > NOW() - INTERVAL '15 minutes'",
             [username]
@@ -358,7 +354,6 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
             });
         }
 
-        // Get user
         const userResult = await pool.query("SELECT * FROM users WHERE username = $1", [username]);
         const user = userResult.rows;
 
@@ -367,13 +362,11 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
             return res.json({ success: false, message: 'Invalid credentials' });
         }
 
-        // Check if account is active
         if (user[0].isactive !== 1) {
             await logLoginAttempt(username, ipAddress, false);
             return res.json({ success: false, message: 'Account is deactivated. Contact administrator.' });
         }
 
-        // Verify password
         const isMatch = await bcrypt.compare(password, user[0].password);
         
         if (!isMatch) {
@@ -389,10 +382,8 @@ app.post('/api/auth/login', loginLimiter, async (req, res) => {
             });
         }
 
-        // SUCCESS!
         await logLoginAttempt(username, ipAddress, true);
 
-        // Generate JWT token
         const token = jwt.sign(
             { 
                 id: user[0].id, 
@@ -467,88 +458,132 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// USER ENDPOINTS - With plain_password Support
+// USER ENDPOINTS - FIXED for PostgreSQL
 // ============================================
 
-// 🔥 ADMIN: Get all users - shows actual passwords
+// GET ALL USERS - Admin only
 app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const r = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users ORDER BY id"
         );
-        res.json(r.rows);
+        // Map to camelCase for frontend
+        const users = r.rows.map(user => ({
+            id: user.id,
+            username: user.username,
+            password: user.password,
+            role: user.role,
+            fullName: user.fullname,
+            isActive: user.isactive
+        }));
+        res.json(users);
     } catch (error) {
         console.error('Get users error:', error);
         res.status(500).json({ success: false, message: 'Error fetching users' });
     }
 });
 
-// 🔥 USER: Get own profile - shows own password
+// GET USER PROFILE - Self
 app.get('/api/users/profile', verifyToken, async (req, res) => {
     try {
         const userResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [req.user.id]
         );
-        const user = userResult.rows;
-        if (user.length === 0) {
+        const user = userResult.rows[0];
+        if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
-        res.json(user[0]);
+        res.json({
+            id: user.id,
+            username: user.username,
+            password: user.password,
+            role: user.role,
+            fullName: user.fullname,
+            isActive: user.isactive
+        });
     } catch (error) {
         console.error('Get profile error:', error);
         res.status(500).json({ success: false, message: 'Error fetching profile' });
     }
 });
 
-// 🔥 ADMIN: Get single user - shows actual password
+// GET SINGLE USER - Admin only
 app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const userResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [req.params.id]
         );
-        const user = userResult.rows;
-        if (user.length === 0) {
+        const user = userResult.rows[0];
+        if (!user) {
             return res.status(404).json({ success: false, message: 'User not found' });
         }
-        res.json(user[0]);
+        res.json({
+            id: user.id,
+            username: user.username,
+            password: user.password,
+            role: user.role,
+            fullName: user.fullname,
+            isActive: user.isactive
+        });
     } catch (error) {
         console.error('Get user error:', error);
         res.status(500).json({ success: false, message: 'Error fetching user' });
     }
 });
 
-// 🔥 ADMIN: Create user - stores both hashed and plain password
+// CREATE USER - Admin only
 app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     const { username, password, role, fullName } = req.body;
     try {
-        if (!password || password.length < 6) {
-            return res.json({ success: false, message: 'Password must be at least 6 characters' });
+        if (!username || !password || password.length < 6) {
+            return res.json({ success: false, message: 'Username and password (min 6 chars) required' });
         }
+        
+        // Check if username exists
+        const existingUser = await pool.query("SELECT id FROM users WHERE username = $1", [username]);
+        if (existingUser.rows.length > 0) {
+            return res.json({ success: false, message: 'Username already exists' });
+        }
+        
         const hashedPassword = await bcrypt.hash(password, 10);
         const r = await pool.query(
             "INSERT INTO users (username, password, plain_password, role, fullName, isActive) VALUES ($1, $2, $3, $4, $5, 1) RETURNING id",
-            [username, hashedPassword, password, role || 'cashier', fullName]
+            [username, hashedPassword, password, role || 'cashier', fullName || username]
         );
-        const newUserId = r.rows[0].id;
-        logActivity(req.user.id, req.user.fullName, 'add_user', 'Added: ' + fullName);
+        
+        logActivity(req.user.id, req.user.fullName, 'add_user', 'Added: ' + (fullName || username));
+        
         const newUserResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
-            [newUserId]
+            [r.rows[0].id]
         );
-        res.json({ success: true, message: 'User created successfully', user: newUserResult.rows[0] });
+        const newUser = newUserResult.rows[0];
+        
+        res.json({ 
+            success: true, 
+            message: 'User created successfully',
+            user: {
+                id: newUser.id,
+                username: newUser.username,
+                password: newUser.password,
+                role: newUser.role,
+                fullName: newUser.fullname,
+                isActive: newUser.isactive
+            }
+        });
     } catch(e) {
+        console.error('Create user error:', e);
         if (e.code === '23505') {
             res.json({ success: false, message: 'Username already exists' });
         } else {
-            console.error('Create user error:', e);
-            res.json({ success: false, message: 'Error creating user' });
+            res.json({ success: false, message: 'Error creating user: ' + e.message });
         }
     }
 });
 
-// 🔥 ADMIN: Update user - excludes password field (use reset-password endpoint)
+// UPDATE USER - Admin only
 app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { isActive, fullName, username, role } = req.body;
@@ -558,20 +593,31 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
         if (!user.length) {
             return res.json({ success: false, message: 'User not found' });
         }
-        if (isActive === 0 && userId == req.user.id) {
+        
+        // Prevent admin from deactivating themselves
+        if (isActive === 0 && parseInt(userId) === req.user.id) {
             return res.json({ success: false, message: 'You cannot deactivate your own account' });
         }
+        
+        // Prevent changing admin role
         if (role && user[0].role === 'admin' && role !== 'admin') {
             return res.json({ success: false, message: 'Cannot change admin role' });
         }
+        
         const updates = [];
         const values = [];
         let paramCount = 1;
-        if (fullName !== undefined) {
+        
+        if (fullName !== undefined && fullName !== '') {
             updates.push('fullName = $' + paramCount++);
             values.push(fullName);
         }
-        if (username !== undefined) {
+        if (username !== undefined && username !== '') {
+            // Check if username is taken by another user
+            const existingUser = await pool.query("SELECT id FROM users WHERE username = $1 AND id != $2", [username, userId]);
+            if (existingUser.rows.length > 0) {
+                return res.json({ success: false, message: 'Username already exists' });
+            }
             updates.push('username = $' + paramCount++);
             values.push(username);
         }
@@ -583,28 +629,45 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
             updates.push('role = $' + paramCount++);
             values.push(role);
         }
+        
         if (updates.length === 0) {
             return res.json({ success: false, message: 'No updates provided' });
         }
+        
         values.push(userId);
         await pool.query('UPDATE users SET ' + updates.join(', ') + ' WHERE id = $' + paramCount, values);
+        
         const updatedUserResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [userId]
         );
-        logActivity(req.user.id, req.user.fullName, 'update_user', 'Updated: ' + (updatedUserResult.rows[0].fullName || updatedUserResult.rows[0].username));
-        res.json({ success: true, message: 'User updated successfully', user: updatedUserResult.rows[0] });
+        const updatedUser = updatedUserResult.rows[0];
+        
+        logActivity(req.user.id, req.user.fullName, 'update_user', 'Updated: ' + (updatedUser.fullname || updatedUser.username));
+        
+        res.json({ 
+            success: true, 
+            message: 'User updated successfully',
+            user: {
+                id: updatedUser.id,
+                username: updatedUser.username,
+                password: updatedUser.password,
+                role: updatedUser.role,
+                fullName: updatedUser.fullname,
+                isActive: updatedUser.isactive
+            }
+        });
     } catch(e) {
+        console.error('Update user error:', e);
         if (e.code === '23505') {
             res.json({ success: false, message: 'Username already exists' });
         } else {
-            console.error('Update user error:', e);
-            res.json({ success: false, message: 'Error updating user' });
+            res.json({ success: false, message: 'Error updating user: ' + e.message });
         }
     }
 });
 
-// 🔥 ADMIN: Reset user password - updates both hashed and plain password
+// RESET USER PASSWORD - Admin only
 app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { newPassword } = req.body;
@@ -633,7 +696,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
     }
 });
 
-// 🔥 USER: Change own password - updates both hashed and plain password
+// CHANGE OWN PASSWORD - Self
 app.put('/api/users/profile', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { fullName, currentPassword, newPassword } = req.body;
@@ -661,7 +724,7 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
             );
             logActivity(userId, req.user.fullName, 'password_change', 'User changed their own password');
         }
-        if (fullName !== undefined) {
+        if (fullName !== undefined && fullName !== '') {
             await pool.query("UPDATE users SET fullName = $1 WHERE id = $2", [fullName, userId]);
             req.user.fullName = fullName;
         }
@@ -669,7 +732,19 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [userId]
         );
-        res.json({ success: true, message: 'Profile updated successfully', user: updatedUserResult.rows[0] });
+        const updatedUser = updatedUserResult.rows[0];
+        res.json({ 
+            success: true, 
+            message: 'Profile updated successfully',
+            user: {
+                id: updatedUser.id,
+                username: updatedUser.username,
+                password: updatedUser.password,
+                role: updatedUser.role,
+                fullName: updatedUser.fullname,
+                isActive: updatedUser.isactive
+            }
+        });
     } catch (error) {
         console.error('Profile update error:', error);
         res.status(500).json({ success: false, message: 'Error updating profile' });
