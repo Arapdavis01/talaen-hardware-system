@@ -702,7 +702,7 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// RESET USER PASSWORD - Admin only
+// RESET USER PASSWORD - Admin only (UPDATED: also updates plain_password)
 app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { newPassword } = req.body;
@@ -723,6 +723,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
             return res.json({ success: false, message: 'Use profile update to change your own password' });
         }
         
+        // ✅ Update both hashed password and plain_password
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await pool.query(
             "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
@@ -743,7 +744,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
             user: {
                 id: updatedUser.id,
                 username: updatedUser.username,
-                password: updatedUser.password,
+                password: updatedUser.password,  // ✅ Shows the new plain password
                 role: updatedUser.role,
                 fullName: updatedUser.fullname,
                 isActive: updatedUser.isactive
@@ -755,7 +756,7 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
     }
 });
 
-// CHANGE OWN PASSWORD - Self
+// CHANGE OWN PASSWORD - Self (UPDATED: also updates plain_password)
 app.put('/api/users/profile', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { fullName, currentPassword, newPassword } = req.body;
@@ -777,6 +778,7 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
                 return res.json({ success: false, message: 'New password must be at least 6 characters' });
             }
             const hashedPassword = await bcrypt.hash(newPassword, 10);
+            // ✅ Update both hashed and plain password
             await pool.query(
                 "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
                 [hashedPassword, newPassword, userId]
@@ -798,7 +800,7 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
             user: {
                 id: updatedUser.id,
                 username: updatedUser.username,
-                password: updatedUser.password,
+                password: updatedUser.password,  // ✅ Shows the new plain password
                 role: updatedUser.role,
                 fullName: updatedUser.fullname,
                 isActive: updatedUser.isactive
