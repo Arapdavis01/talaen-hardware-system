@@ -72,52 +72,117 @@ const ApiService = {
         }
     },
 
-    // ✅ GET request
+    // ✅ FIXED: GET request - safely parses JSON and handles errors
     async get(endpoint, options = {}) {
-        const response = await this.request(endpoint, {
-            ...options,
-            method: 'GET'
-        });
-        return response.ok ? response.json() : null;
+        try {
+            const response = await this.request(endpoint, {
+                ...options,
+                method: 'GET'
+            });
+            
+            if (!response.ok) {
+                console.error('GET failed for', endpoint, 'status:', response.status);
+                return null;
+            }
+            
+            // ✅ Safely parse JSON
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                console.error('JSON parse error for', endpoint, ':', text.substring(0, 100));
+                return null;
+            }
+        } catch (error) {
+            console.error('GET error for', endpoint, ':', error.message);
+            return null;
+        }
     },
 
-    // ✅ POST request
+    // ✅ FIXED: POST request - safely parses JSON and handles errors
     async post(endpoint, data, options = {}) {
-        const response = await this.request(endpoint, {
-            ...options,
-            method: 'POST',
-            body: JSON.stringify(data)
-        });
-        return response.json();
+        try {
+            const response = await this.request(endpoint, {
+                ...options,
+                method: 'POST',
+                body: JSON.stringify(data)
+            });
+            
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return { success: false, message: text };
+            }
+        } catch (error) {
+            console.error('POST error for', endpoint, ':', error.message);
+            return { success: false, message: error.message };
+        }
     },
 
-    // ✅ PUT request
+    // ✅ FIXED: PUT request - safely parses JSON and handles errors
     async put(endpoint, data, options = {}) {
-        const response = await this.request(endpoint, {
-            ...options,
-            method: 'PUT',
-            body: JSON.stringify(data)
-        });
-        return response.json();
+        try {
+            const response = await this.request(endpoint, {
+                ...options,
+                method: 'PUT',
+                body: JSON.stringify(data)
+            });
+            
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return { success: false, message: text };
+            }
+        } catch (error) {
+            console.error('PUT error for', endpoint, ':', error.message);
+            return { success: false, message: error.message };
+        }
     },
 
-    // ✅ DELETE request
+    // ✅ FIXED: DELETE request - safely parses JSON and handles errors
     async delete(endpoint, options = {}) {
-        const response = await this.request(endpoint, {
-            ...options,
-            method: 'DELETE'
-        });
-        return response.ok ? { success: true } : { success: false };
+        try {
+            const response = await this.request(endpoint, {
+                ...options,
+                method: 'DELETE'
+            });
+            
+            if (response.ok) {
+                const text = await response.text();
+                try {
+                    return JSON.parse(text);
+                } catch (e) {
+                    return { success: true };
+                }
+            }
+            return { success: false };
+        } catch (error) {
+            console.error('DELETE error for', endpoint, ':', error.message);
+            return { success: false, message: error.message };
+        }
     },
 
-    // ✅ PATCH request
+    // ✅ FIXED: PATCH request - safely parses JSON and handles errors
     async patch(endpoint, data, options = {}) {
-        const response = await this.request(endpoint, {
-            ...options,
-            method: 'PATCH',
-            body: JSON.stringify(data)
-        });
-        return response.json();
+        try {
+            const response = await this.request(endpoint, {
+                ...options,
+                method: 'PATCH',
+                body: JSON.stringify(data)
+            });
+            
+            const text = await response.text();
+            try {
+                return JSON.parse(text);
+            } catch (e) {
+                return { success: false };
+            }
+        } catch (error) {
+            console.error('PATCH error for', endpoint, ':', error.message);
+            return { success: false, message: error.message };
+        }
     },
 
     // ============================================
@@ -125,7 +190,7 @@ const ApiService = {
     // ============================================
 
     async getProducts() {
-        return this.get('/products') || [];
+        return (await this.get('/products')) || [];
     },
 
     async getProductsPaginated(page = 1, limit = 25, search = '', category = '', stockFilter = '') {
@@ -133,11 +198,11 @@ const ApiService = {
         if (search) url += `&search=${encodeURIComponent(search)}`;
         if (category) url += `&category=${encodeURIComponent(category)}`;
         if (stockFilter) url += `&stock=${encodeURIComponent(stockFilter)}`;
-        return this.get(url) || { products: [], pagination: {} };
+        return (await this.get(url)) || { products: [], pagination: {} };
     },
 
     async getCategories() {
-        return this.get('/products/categories') || [];
+        return (await this.get('/products/categories')) || [];
     },
 
     async createProduct(data) {
@@ -157,11 +222,11 @@ const ApiService = {
     },
 
     async searchProducts(query) {
-        return this.get(`/products/search?q=${encodeURIComponent(query)}`) || [];
+        return (await this.get(`/products/search?q=${encodeURIComponent(query)}`)) || [];
     },
 
     async getProductsWithPrices() {
-        return this.get('/products/with-prices') || [];
+        return (await this.get('/products/with-prices')) || [];
     },
 
     // ============================================
@@ -218,8 +283,7 @@ const ApiService = {
     // ============================================
 
     async getSales() {
-        const result = await this.get('/sales');
-        return result || [];
+        return (await this.get('/sales')) || [];
     },
 
     async createSale(saleData) {
@@ -227,18 +291,15 @@ const ApiService = {
     },
 
     async getCashierSummary() {
-        const result = await this.get('/sales/cashiers-summary');
-        return result || [];
+        return (await this.get('/sales/cashiers-summary')) || [];
     },
 
     async getCashierSales(cashierId) {
-        const result = await this.get(`/sales/cashier/${cashierId}`);
-        return result || { all: [], today: [], totalAll: 0, totalToday: 0 };
+        return (await this.get(`/sales/cashier/${cashierId}`)) || { all: [], today: [], totalAll: 0, totalToday: 0 };
     },
 
     async searchSale(receiptNo) {
-        const result = await this.get(`/sales/search/${receiptNo}`);
-        return result || null;
+        return (await this.get(`/sales/search/${receiptNo}`)) || null;
     },
 
     // ============================================
@@ -246,13 +307,11 @@ const ApiService = {
     // ============================================
 
     async getUsers() {
-        const result = await this.get('/users');
-        return result || [];
+        return (await this.get('/users')) || [];
     },
 
     async getUser(id) {
-        const result = await this.get(`/users/${id}`);
-        return result || null;
+        return (await this.get(`/users/${id}`)) || null;
     },
 
     async createUser(userData) {
@@ -280,8 +339,7 @@ const ApiService = {
     // ============================================
 
     async getSuppliers() {
-        const result = await this.get('/suppliers');
-        return result || [];
+        return (await this.get('/suppliers')) || [];
     },
 
     async createSupplier(data) {
@@ -293,8 +351,7 @@ const ApiService = {
     // ============================================
 
     async getPurchaseOrders() {
-        const result = await this.get('/purchase-orders');
-        return result || [];
+        return (await this.get('/purchase-orders')) || [];
     },
 
     async createPurchaseOrder(data) {
@@ -314,13 +371,11 @@ const ApiService = {
     // ============================================
 
     async getCreditCustomers() {
-        const result = await this.get('/credit-customers');
-        return result || [];
+        return (await this.get('/credit-customers')) || [];
     },
 
     async getCreditCustomer(id) {
-        const result = await this.get(`/credit-customers/${id}`);
-        return result || {};
+        return (await this.get(`/credit-customers/${id}`)) || {};
     },
 
     async createCreditCustomer(data) {
@@ -332,13 +387,11 @@ const ApiService = {
     },
 
     async searchCreditCustomer(query) {
-        const result = await this.get(`/credit-customers/search/${encodeURIComponent(query)}`);
-        return result || [];
+        return (await this.get(`/credit-customers/search/${encodeURIComponent(query)}`)) || [];
     },
 
     async getCreditSales() {
-        const result = await this.get('/credit-sales');
-        return result || [];
+        return (await this.get('/credit-sales')) || [];
     },
 
     async createCreditSale(data) {
@@ -346,8 +399,7 @@ const ApiService = {
     },
 
     async getCreditSummary() {
-        const result = await this.get('/credit-summary');
-        return result || { totalDebt: 0, activeCustomers: 0, todayCreditSales: 0, todayPayments: 0 };
+        return (await this.get('/credit-summary')) || { totalDebt: 0, activeCustomers: 0, todayCreditSales: 0, todayPayments: 0 };
     },
 
     async createDebtPayment(data) {
@@ -363,8 +415,7 @@ const ApiService = {
     // ============================================
 
     async getReturns() {
-        const result = await this.get('/returns');
-        return result || [];
+        return (await this.get('/returns')) || [];
     },
 
     async createReturn(data) {
@@ -372,8 +423,7 @@ const ApiService = {
     },
 
     async getReturnSummary() {
-        const result = await this.get('/returns/summary');
-        return result || { totalReturns: 0, totalExchanges: 0, totalRefunded: 0, todayReturns: 0 };
+        return (await this.get('/returns/summary')) || { totalReturns: 0, totalExchanges: 0, totalRefunded: 0, todayReturns: 0 };
     },
 
     // ============================================
@@ -381,8 +431,7 @@ const ApiService = {
     // ============================================
 
     async getSettings() {
-        const result = await this.get('/settings');
-        return result || { adminPassword: 'admin123' };
+        return (await this.get('/settings')) || { adminPassword: 'admin123' };
     },
 
     async updateSettings(data) {
@@ -394,8 +443,7 @@ const ApiService = {
     // ============================================
 
     async getActivityLog() {
-        const result = await this.get('/activity');
-        return result || [];
+        return (await this.get('/activity')) || [];
     },
 
     async clearActivityLog() {
@@ -407,8 +455,7 @@ const ApiService = {
     // ============================================
 
     async getMpesaConfig() {
-        const result = await this.get('/mpesa/config');
-        return result || { tillNumber: '', shortCode: '', environment: 'sandbox', configured: false };
+        return (await this.get('/mpesa/config')) || { tillNumber: '', shortCode: '', environment: 'sandbox', configured: false };
     },
 
     async updateMpesaConfig(data) {
@@ -416,8 +463,7 @@ const ApiService = {
     },
 
     async getMpesaTransactions() {
-        const result = await this.get('/mpesa/transactions');
-        return result || [];
+        return (await this.get('/mpesa/transactions')) || [];
     },
 
     async createMpesaPayment(data) {
@@ -429,13 +475,11 @@ const ApiService = {
     // ============================================
 
     async getDailyReports() {
-        const result = await this.get('/daily-reports');
-        return result || [];
+        return (await this.get('/daily-reports')) || [];
     },
 
     async getTodayReport() {
-        const result = await this.get('/daily-reports/today');
-        return result || {};
+        return (await this.get('/daily-reports/today')) || {};
     },
 
     async generateDailyReport() {
