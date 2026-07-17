@@ -23,9 +23,6 @@ const loginLimiter = rateLimit({
     message: { success: false, message: 'Too many login attempts. Please try again in 15 minutes.' },
     standardHeaders: true,
     legacyHeaders: false,
-    skip: function(req) {
-        return false;
-    },
     keyGenerator: function(req) {
         return req.ip || req.connection.remoteAddress;
     }
@@ -288,6 +285,29 @@ async function initDB() {
         console.error('Error initializing mpesa_config:', error.message);
     }
 
+    // Seed default products if table is empty
+    try {
+        const productsCount = await pool.query("SELECT COUNT(*) as c FROM products");
+        if (parseInt(productsCount.rows[0].c) === 0) {
+            const seedProducts = [
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU001', 'Cement', 'Bamburi', '50kg', 'Building Materials', 750.00, 650.00, 100, 'bags', 20)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU002', 'Cement', 'Mombasa', '50kg', 'Building Materials', 720.00, 620.00, 80, 'bags', 20)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU003', 'Steel Bars', 'Doshi', '12mm', 'Construction', 450.00, 380.00, 200, 'pcs', 50)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU004', 'Paint', 'Crown', 'White 20L', 'Paints', 3500.00, 3000.00, 50, 'cans', 10)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU005', 'Timber', 'Local', '2x4', 'Wood', 250.00, 200.00, 500, 'pcs', 100)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU006', 'Nails', 'Generic', '3-inch', 'Hardware', 150.00, 120.00, 1000, 'kg', 200)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU007', 'Sand', 'River', 'Fine', 'Building Materials', 2500.00, 2000.00, 30, 'tonnes', 5)",
+                "INSERT INTO products (sku, name, brand, variant, category, price, cost, stock, unit, minStock) VALUES ('SKU008', 'Ballast', 'Quarry', '3/4 inch', 'Building Materials', 3000.00, 2500.00, 25, 'tonnes', 5)"
+            ];
+            for (const seedQuery of seedProducts) {
+                await pool.query(seedQuery);
+            }
+            console.log('Default products seeded successfully');
+        }
+    } catch (error) {
+        console.error('Error seeding products:', error.message);
+    }
+
     try {
         const usersResult = await pool.query("SELECT COUNT(*) as c FROM users");
         const userCount = parseInt(usersResult.rows[0].c);
@@ -372,12 +392,11 @@ function authorize(...roles) {
     };
 }
 
-// Helper function to format user response consistently
 function formatUserResponse(user) {
     return {
         id: user.id,
         username: user.username,
-        password: user.password || '',  // Returns empty string instead of 'N/A'
+        password: user.password || '',
         role: user.role,
         fullName: user.fullname,
         isActive: user.isactive
@@ -514,10 +533,9 @@ app.get('/api/auth/verify', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// USER ENDPOINTS - FULLY FIXED (plain_password always updated)
+// USER ENDPOINTS
 // ============================================
 
-// GET ALL USERS - Admin only
 app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const r = await pool.query(
@@ -531,7 +549,6 @@ app.get('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// GET USER PROFILE - Self
 app.get('/api/users/profile', verifyToken, async (req, res) => {
     try {
         const userResult = await pool.query(
@@ -549,7 +566,6 @@ app.get('/api/users/profile', verifyToken, async (req, res) => {
     }
 });
 
-// GET SINGLE USER - Admin only
 app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const userResult = await pool.query(
@@ -567,7 +583,6 @@ app.get('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// CREATE USER - Admin only
 app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     const { username, password, role, fullName } = req.body;
     try {
@@ -609,7 +624,6 @@ app.post('/api/users', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// UPDATE USER - Admin only (with toggle, password, and regular updates)
 app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { isActive, fullName, username, role, toggle, password } = req.body;
@@ -622,7 +636,6 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
             return res.json({ success: false, message: 'User not found' });
         }
         
-        // Handle toggle (activate/deactivate)
         if (toggle !== undefined) {
             if (user[0].role === 'admin') {
                 return res.json({ success: false, message: 'Cannot deactivate admin account' });
@@ -641,22 +654,18 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
                 "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
                 [userId]
             );
-            const updatedUser = updatedUserResult.rows[0];
-            
             return res.json({ 
                 success: true, 
                 message: 'User ' + action + ' successfully',
-                user: formatUserResponse(updatedUser)
+                user: formatUserResponse(updatedUserResult.rows[0])
             });
         }
         
-        // ✅ Handle password update (admin changing their own password via settings)
         if (password !== undefined) {
             if (password.length < 6) {
                 return res.json({ success: false, message: 'Password must be at least 6 characters' });
             }
             
-            // ✅ Update BOTH password (hashed) AND plain_password (plain text)
             const hashedPassword = await bcrypt.hash(password, 10);
             await pool.query(
                 "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
@@ -669,16 +678,13 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
                 "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
                 [userId]
             );
-            const updatedUser = updatedUserResult.rows[0];
-            
             return res.json({ 
                 success: true, 
                 message: 'Password updated successfully',
-                user: formatUserResponse(updatedUser)
+                user: formatUserResponse(updatedUserResult.rows[0])
             });
         }
         
-        // Regular update (without toggle or password)
         if (isActive === 0 && parseInt(userId) === req.user.id) {
             return res.json({ success: false, message: 'You cannot deactivate your own account' });
         }
@@ -741,7 +747,6 @@ app.put('/api/users/:id', verifyToken, authorize('admin'), async (req, res) => {
     }
 });
 
-// ✅ RESET USER PASSWORD - Admin only - Updates BOTH password AND plain_password
 app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async (req, res) => {
     const userId = req.params.id;
     const { newPassword } = req.body;
@@ -762,7 +767,6 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
             return res.json({ success: false, message: 'Use profile update to change your own password' });
         }
         
-        // ✅ CRITICAL FIX: Update BOTH password (hashed) AND plain_password (plain text)
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         await pool.query(
             "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
@@ -771,17 +775,15 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
         
         logActivity(req.user.id, req.user.fullName, 'password_reset', 'Reset password for: ' + (user[0].fullname || user[0].username));
         
-        // Fetch updated user to return the actual plain password
         const updatedUserResult = await pool.query(
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [userId]
         );
-        const updatedUser = updatedUserResult.rows[0];
         
         res.json({ 
             success: true, 
             message: 'Password reset successfully for ' + (user[0].fullname || user[0].username),
-            user: formatUserResponse(updatedUser)
+            user: formatUserResponse(updatedUserResult.rows[0])
         });
     } catch (error) {
         console.error('Password reset error:', error);
@@ -789,7 +791,6 @@ app.post('/api/users/:id/reset-password', verifyToken, authorize('admin'), async
     }
 });
 
-// ✅ CHANGE OWN PASSWORD - Self - Updates BOTH password AND plain_password
 app.put('/api/users/profile', verifyToken, async (req, res) => {
     const userId = req.user.id;
     const { fullName, currentPassword, newPassword } = req.body;
@@ -810,7 +811,6 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
             if (newPassword.length < 6) {
                 return res.json({ success: false, message: 'New password must be at least 6 characters' });
             }
-            // ✅ Update BOTH password AND plain_password
             const hashedPassword = await bcrypt.hash(newPassword, 10);
             await pool.query(
                 "UPDATE users SET password = $1, plain_password = $2 WHERE id = $3",
@@ -826,11 +826,10 @@ app.put('/api/users/profile', verifyToken, async (req, res) => {
             "SELECT id, username, plain_password as password, role, fullName, isActive FROM users WHERE id = $1",
             [userId]
         );
-        const updatedUser = updatedUserResult.rows[0];
         res.json({ 
             success: true, 
             message: 'Profile updated successfully',
-            user: formatUserResponse(updatedUser)
+            user: formatUserResponse(updatedUserResult.rows[0])
         });
     } catch (error) {
         console.error('Profile update error:', error);
@@ -852,6 +851,7 @@ app.get('/api/products', verifyToken, async (req, res) => {
     }
 });
 
+// ✅ FIXED: Paginated products with proper type casting
 app.get('/api/products/paginated', verifyToken, async (req, res) => {
     try {
         var page = parseInt(req.query.page) || 1;
@@ -860,20 +860,27 @@ app.get('/api/products/paginated', verifyToken, async (req, res) => {
         var category = req.query.category || '';
         var stockFilter = req.query.stock || '';
         var offset = (page - 1) * limit;
+        
         var whereClause = 'WHERE isActive = 1';
         var params = [];
         var paramCount = 1;
+        
         if (search) {
-            whereClause += ' AND (name ILIKE $' + paramCount + ' OR brand ILIKE $' + (paramCount + 1) + ' OR variant ILIKE $' + (paramCount + 2) + ' OR category ILIKE $' + (paramCount + 3) + ')';
             var q = '%' + search + '%';
+            whereClause += ' AND (name ILIKE $' + paramCount + '::text' +
+                          ' OR brand ILIKE $' + (paramCount + 1) + '::text' +
+                          ' OR variant ILIKE $' + (paramCount + 2) + '::text' +
+                          ' OR category ILIKE $' + (paramCount + 3) + '::text)';
             params.push(q, q, q, q);
             paramCount += 4;
         }
+        
         if (category) {
-            whereClause += ' AND category = $' + paramCount;
+            whereClause += ' AND category = $' + paramCount + '::varchar';
             params.push(category);
             paramCount++;
         }
+        
         if (stockFilter === 'out') {
             whereClause += ' AND stock = 0';
         } else if (stockFilter === 'low') {
@@ -881,14 +888,42 @@ app.get('/api/products/paginated', verifyToken, async (req, res) => {
         } else if (stockFilter === 'ok') {
             whereClause += ' AND stock > minStock';
         }
-        var countResult = await pool.query('SELECT COUNT(*) as total FROM products ' + whereClause, params);
+        
+        // Count total
+        var countQuery = 'SELECT COUNT(*) as total FROM products ' + whereClause;
+        var countResult = await pool.query(countQuery, params);
         var total = parseInt(countResult.rows[0].total);
+        
+        // Get products with pagination
+        var productsQuery = 'SELECT * FROM products ' + whereClause + ' ORDER BY name, brand LIMIT $' + paramCount + ' OFFSET $' + (paramCount + 1);
         params.push(limit, offset);
-        var productsResult = await pool.query('SELECT * FROM products ' + whereClause + ' ORDER BY name, brand LIMIT $' + params.length + ' OFFSET $' + (params.length + 1), params);
-        res.json({ products: productsResult.rows, pagination: { page: page, limit: limit, total: total, totalPages: Math.ceil(total / limit), hasNext: offset + limit < total, hasPrev: page > 1 } });
+        
+        var productsResult = await pool.query(productsQuery, params);
+        
+        res.json({ 
+            products: productsResult.rows, 
+            pagination: { 
+                page: page, 
+                limit: limit, 
+                total: total, 
+                totalPages: Math.ceil(total / limit), 
+                hasNext: offset + limit < total, 
+                hasPrev: page > 1 
+            } 
+        });
     } catch(e) {
         console.error('Paginated products error:', e);
-        res.json({ products: [], pagination: { page: 1, limit: 25, total: 0, totalPages: 0, hasNext: false, hasPrev: false } });
+        res.json({ 
+            products: [], 
+            pagination: { 
+                page: 1, 
+                limit: 25, 
+                total: 0, 
+                totalPages: 0, 
+                hasNext: false, 
+                hasPrev: false 
+            } 
+        });
     }
 });
 
@@ -1011,13 +1046,17 @@ app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (r
         for (let c of cashiers) {
             const salesResult = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0", [c.id]);
             const sales = salesResult.rows;
-            const todaySales = sales.filter(function(s) { return s.date && s.date.toISOString().startsWith(today); });
+            const todaySales = sales.filter(function(s) { 
+                if (!s.date) return false;
+                var d = new Date(s.date);
+                return d.toISOString().startsWith(today);
+            });
             result.push({
                 id: c.id,
                 name: c.fullname,
                 username: c.username,
-                totalAll: sales.reduce(function(s, sale) { return s + Number(sale.total); }, 0),
-                totalToday: todaySales.reduce(function(s, sale) { return s + Number(sale.total); }, 0),
+                totalAll: sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0),
+                totalToday: todaySales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0),
                 countAll: sales.length,
                 countToday: todaySales.length
             });
@@ -1034,12 +1073,16 @@ app.get('/api/sales/cashier/:id', verifyToken, async (req, res) => {
         const salesResult = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0 ORDER BY date DESC", [req.params.id]);
         const sales = salesResult.rows;
         const today = new Date().toISOString().split('T')[0];
-        const todaySales = sales.filter(function(s) { return s.date && s.date.toISOString().startsWith(today); });
+        const todaySales = sales.filter(function(s) { 
+            if (!s.date) return false;
+            var d = new Date(s.date);
+            return d.toISOString().startsWith(today);
+        });
         res.json({
             all: sales,
             today: todaySales,
-            totalAll: sales.reduce(function(s, sale) { return s + Number(sale.total); }, 0),
-            totalToday: todaySales.reduce(function(s, sale) { return s + Number(sale.total); }, 0),
+            totalAll: sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0),
+            totalToday: todaySales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0),
             countAll: sales.length,
             countToday: todaySales.length
         });
@@ -1492,7 +1535,7 @@ app.get('/api/mpesa/config', verifyToken, authorize('admin'), async (req, res) =
         });
     } catch (error) {
         console.error('Get M-Pesa config error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching M-Pesa config' });
+        res.json({ tillNumber: '', shortCode: '', environment: 'sandbox', configured: false });
     }
 });
 
@@ -1533,7 +1576,7 @@ app.get('/api/mpesa/transactions', verifyToken, authorize('admin'), async (req, 
         res.json(r.rows);
     } catch (error) {
         console.error('Get M-Pesa transactions error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching M-Pesa transactions' });
+        res.json([]);
     }
 });
 
@@ -1543,7 +1586,7 @@ app.get('/api/mpesa/transaction/:checkoutRequestID', verifyToken, async (req, re
         res.json(r.rows[0] || { status: 'not_found' });
     } catch (error) {
         console.error('Get M-Pesa transaction error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching M-Pesa transaction' });
+        res.json({ status: 'not_found' });
     }
 });
 
@@ -1557,7 +1600,7 @@ app.get('/api/daily-reports', verifyToken, async (req, res) => {
         res.json(r.rows);
     } catch (error) {
         console.error('Get daily reports error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching daily reports' });
+        res.json([]);
     }
 });
 
@@ -1573,10 +1616,10 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
             var stockAddedResult = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
             var stockSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
             var productsResult = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
-            var totalSales = sales.reduce(function(s, sale) { return Number(s) + Number(sale.total || 0); }, 0);
+            var totalSales = sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0);
             await pool.query(
                 "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                [today, totalSales, sales.length, itemsSoldResult.rows[0]?.total || 0, productsResult.rows[0]?.totalstock || 0, stockAddedResult.rows[0]?.total || 0, stockSoldResult.rows[0]?.total || 0, productsResult.rows[0]?.count || 0]
+                [today, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0)]
             );
             var newReportResult = await pool.query("SELECT * FROM daily_reports WHERE reportDate = $1", [today]);
             report = newReportResult.rows;
@@ -1584,7 +1627,7 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
         res.json(report[0] || {});
     } catch (error) {
         console.error('Get today report error:', error);
-        res.status(500).json({ success: false, message: 'Error fetching today report' });
+        res.json({});
     }
 });
 
@@ -1597,10 +1640,10 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
         var stockAddedResult = await pool.query("SELECT SUM(pi.quantity) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
         var stockSoldResult = await pool.query("SELECT SUM(si.quantity) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
         var productsResult = await pool.query("SELECT COUNT(*) as count, SUM(stock) as totalStock FROM products WHERE isActive=1");
-        var totalSales = sales.reduce(function(s, sale) { return Number(s) + Number(sale.total || 0); }, 0);
+        var totalSales = sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0);
         await pool.query(
             "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (reportDate) DO UPDATE SET totalSales=$2, transactionCount=$3, totalItemsSold=$4, closingStock=$5, stockAdded=$6, stockSold=$7, productsCount=$8",
-            [today, totalSales, sales.length, itemsSoldResult.rows[0]?.total || 0, productsResult.rows[0]?.totalstock || 0, stockAddedResult.rows[0]?.total || 0, stockSoldResult.rows[0]?.total || 0, productsResult.rows[0]?.count || 0]
+            [today, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0)]
         );
         res.json({ success: true });
     } catch (error) {
