@@ -1,5 +1,5 @@
 // ============================================
-// PRODUCT SERVICE - With JWT Authentication
+// PRODUCT SERVICE - With JWT Authentication & Dual-Unit Support
 // ============================================
 
 const ProductService = {
@@ -283,6 +283,269 @@ const ProductService = {
     clearCache() {
         this._cache = [];
         this._lastFetch = null;
+    },
+
+    // ============================================
+    // 🔥 DUAL-UNIT SUPPORT METHODS
+    // ============================================
+
+    /**
+     * Check if a product has an alternative sales unit
+     * @param {Object} product - Product object
+     * @returns {boolean} True if product has salesUnit and conversionFactor > 0
+     */
+    hasAlternativeUnit(product) {
+        if (!product) return false;
+        const salesUnit = product.salesUnit || null;
+        const conversionFactor = parseInt(product.conversionFactor) || 0;
+        return !!(salesUnit && conversionFactor > 0);
+    },
+
+    /**
+     * Get formatted stock display text
+     * Examples:
+     *   - "216 wheelbarrows (9 tonnes)"
+     *   - "200 wheelbarrows (8 tonnes + 8 wheelbarrows)"
+     *   - "100 bags"
+     * @param {Object} product - Product object
+     * @returns {string} Formatted stock display text
+     */
+    getStockDisplay(product) {
+        if (!product) return 'N/A';
+        
+        // Use displayStock from API if available
+        if (product.displayStock && product.displayStock.displayText) {
+            return product.displayStock.displayText;
+        }
+        
+        // Fallback calculation if API didn't provide displayStock
+        const stock = parseInt(product.stock) || 0;
+        const unit = product.unit || 'pcs';
+        const salesUnit = product.salesUnit || null;
+        const conversionFactor = parseInt(product.conversionFactor) || 0;
+        
+        if (this.hasAlternativeUnit(product)) {
+            const salesQty = Math.floor(stock / conversionFactor);
+            const remainder = stock % conversionFactor;
+            
+            if (salesQty > 0 && remainder > 0) {
+                return `${stock} ${unit} (${salesQty} ${salesUnit} + ${remainder} ${unit})`;
+            } else if (salesQty > 0) {
+                return `${stock} ${unit} (${salesQty} ${salesUnit})`;
+            } else {
+                return `${stock} ${unit} (0 ${salesUnit})`;
+            }
+        }
+        
+        return `${stock} ${unit}`;
+    },
+
+    /**
+     * Get formatted price display text
+     * Examples:
+     *   - "KES 200/wheelbarrow | KES 4,800/tonne"
+     *   - "KES 750/bag"
+     * @param {Object} product - Product object
+     * @returns {string} Formatted price display text
+     */
+    getPriceDisplay(product) {
+        if (!product) return 'N/A';
+        
+        // Use displayStock from API if available
+        if (product.displayStock && product.displayStock.priceDisplay) {
+            return product.displayStock.priceDisplay;
+        }
+        
+        // Fallback calculation
+        const price = parseFloat(product.price) || 0;
+        const unit = product.unit || 'pcs';
+        
+        let display = `KES ${price.toLocaleString()}/${unit}`;
+        
+        if (this.hasAlternativeUnit(product)) {
+            const salesUnit = product.salesUnit;
+            const conversionFactor = parseInt(product.conversionFactor) || 0;
+            const bulkPrice = price * conversionFactor;
+            display += ` | KES ${bulkPrice.toLocaleString()}/${salesUnit}`;
+        }
+        
+        return display;
+    },
+
+    /**
+     * Get available quantity in a specific unit
+     * @param {Object} product - Product object
+     * @param {string} unitType - 'base' or 'sales'
+     * @returns {number} Available quantity in the requested unit
+     */
+    getAvailableInUnit(product, unitType = 'base') {
+        if (!product) return 0;
+        
+        const stock = parseInt(product.stock) || 0;
+        
+        if (unitType === 'sales' && this.hasAlternativeUnit(product)) {
+            const conversionFactor = parseInt(product.conversionFactor) || 0;
+            return Math.floor(stock / conversionFactor);
+        }
+        
+        return stock;
+    },
+
+    /**
+     * Convert quantity between units
+     * @param {number} quantity - Quantity to convert
+     * @param {Object} product - Product object
+     * @param {string} fromUnit - 'base' or 'sales'
+     * @param {string} toUnit - 'base' or 'sales'
+     * @returns {number} Converted quantity
+     */
+    convertQuantity(quantity, product, fromUnit, toUnit) {
+        if (!product || !this.hasAlternativeUnit(product)) return quantity;
+        
+        const conversionFactor = parseInt(product.conversionFactor) || 0;
+        if (conversionFactor === 0) return quantity;
+        
+        if (fromUnit === 'sales' && toUnit === 'base') {
+            return quantity * conversionFactor;
+        } else if (fromUnit === 'base' && toUnit === 'sales') {
+            return Math.floor(quantity / conversionFactor);
+        }
+        
+        return quantity;
+    },
+
+    /**
+     * Get bulk price (price per sales unit)
+     * @param {Object} product - Product object
+     * @returns {number} Bulk price or 0 if no alternative unit
+     */
+    getBulkPrice(product) {
+        if (!product || !this.hasAlternativeUnit(product)) return 0;
+        
+        const price = parseFloat(product.price) || 0;
+        const conversionFactor = parseInt(product.conversionFactor) || 0;
+        
+        return price * conversionFactor;
+    },
+
+    /**
+     * Get price for a specific unit type
+     * @param {Object} product - Product object
+     * @param {string} unitType - 'base' or 'sales'
+     * @returns {number} Price for the requested unit
+     */
+    getPriceForUnit(product, unitType = 'base') {
+        if (!product) return 0;
+        
+        if (unitType === 'sales' && this.hasAlternativeUnit(product)) {
+            return this.getBulkPrice(product);
+        }
+        
+        return parseFloat(product.price) || 0;
+    },
+
+    /**
+     * Validate stock availability
+     * @param {Object} product - Product object
+     * @param {number} quantity - Requested quantity
+     * @param {string} unitType - 'base' or 'sales'
+     * @returns {Object} { valid: boolean, available: number, message: string, displayStock: string }
+     */
+    validateStock(product, quantity, unitType = 'base') {
+        if (!product) {
+            return { 
+                valid: false, 
+                available: 0, 
+                message: 'Product not found',
+                displayStock: 'N/A'
+            };
+        }
+        
+        const available = this.getAvailableInUnit(product, unitType);
+        const displayStock = this.getStockDisplay(product);
+        const unitName = unitType === 'sales' && this.hasAlternativeUnit(product) 
+            ? product.salesUnit 
+            : (product.unit || 'pcs');
+        
+        if (quantity > available) {
+            return {
+                valid: false,
+                available: available,
+                message: `Insufficient stock! Available: ${available} ${unitName}. Total: ${displayStock}`,
+                displayStock: displayStock
+            };
+        }
+        
+        return { 
+            valid: true, 
+            available: available, 
+            message: '',
+            displayStock: displayStock
+        };
+    },
+
+    /**
+     * Check if product is low on stock (based on minStock in base units)
+     * @param {Object} product - Product object
+     * @returns {boolean}
+     */
+    isLowStock(product) {
+        if (!product) return false;
+        
+        // Use displayStock from API if available
+        if (product.displayStock && product.displayStock.isLowStock !== undefined) {
+            return product.displayStock.isLowStock;
+        }
+        
+        const stock = parseInt(product.stock) || 0;
+        const minStock = parseInt(product.minStock) || 10;
+        return stock <= minStock;
+    },
+
+    /**
+     * Get low stock warning text with dual-unit display
+     * @param {Object} product - Product object
+     * @returns {string} Warning text or empty string
+     */
+    getLowStockWarning(product) {
+        if (!product || !this.isLowStock(product)) return '';
+        
+        const displayStock = this.getStockDisplay(product);
+        return `⚠️ Low Stock: ${displayStock}`;
+    },
+
+    /**
+     * Calculate total price for a given quantity and unit
+     * @param {Object} product - Product object
+     * @param {number} quantity - Quantity
+     * @param {string} unitType - 'base' or 'sales'
+     * @returns {number} Total price
+     */
+    calculateTotal(product, quantity, unitType = 'base') {
+        if (!product || quantity <= 0) return 0;
+        
+        const price = this.getPriceForUnit(product, unitType);
+        return price * quantity;
+    },
+
+    /**
+     * Format quantity with unit for display (e.g., on receipts)
+     * @param {number} quantity - Quantity
+     * @param {Object} product - Product object
+     * @param {string} unitType - 'base' or 'sales'
+     * @returns {string} Formatted string like "5 tonnes" or "10 wheelbarrows"
+     */
+    formatQuantityWithUnit(quantity, product, unitType = 'base') {
+        if (!product) return `${quantity}`;
+        
+        let unit;
+        if (unitType === 'sales' && this.hasAlternativeUnit(product)) {
+            unit = product.salesUnit;
+        } else {
+            unit = product.unit || 'pcs';
+        }
+        
+        return `${quantity} ${unit}`;
     }
 };
 
