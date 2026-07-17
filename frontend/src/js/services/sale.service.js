@@ -1,5 +1,5 @@
 // ============================================
-// SALE SERVICE - With JWT Authentication
+// SALE SERVICE - With JWT Authentication & Dual-Unit Support
 // ============================================
 
 const SaleService = {
@@ -32,38 +32,50 @@ const SaleService = {
         }
     },
 
-    // ✅ Create a new sale
+    // ✅ Create a new sale (with dual-unit support)
     async create(saleData) {
         try {
-            const subtotal = saleData.items.reduce((s, i) => s + (i.price * i.quantity), 0);
-            const tax = subtotal * 0.16;
-            const total = subtotal + (saleData.transportCost || 0) - (saleData.discount || 0);
-            const receiptNo = 'TIH-' + Date.now().toString(36).toUpperCase();
             const user = this._getCurrentUser();
 
-            // Map items to include conversion fields
+            // Map items to include dual-unit fields
             const mappedItems = saleData.items.map(function(item) {
-                return {
+                const mappedItem = {
                     productId: item.productId,
                     productName: item.productName,
                     quantity: item.quantity,
                     price: item.price,
-                    unit: item.unit || 'pcs',
-                    conversionFactor: item.conversionFactor || 1,
-                    mainUnit: item.mainUnit || item.unit || 'pcs',
-                    mainPrice: item.mainPrice || item.price
+                    total: item.total || (item.price * item.quantity),
+                    soldInUnit: item.soldInUnit || null,
+                    conversionFactor: item.conversionFactor || 0
                 };
+                
+                // If selling in sales unit, the total should reflect the quantity in that unit
+                // Price is always per base unit from the server
+                if (item.soldInUnit && item.conversionFactor > 0) {
+                    // Total = quantity sold × price per base unit
+                    // Example: 2 tonnes × KES 200/wheelbarrow = KES 400 (not KES 9,600)
+                    // Actually, if selling by tonne, the frontend should send the correct price
+                    // Let the frontend calculate and send the total
+                    mappedItem.total = item.total || (item.quantity * item.price);
+                }
+                
+                return mappedItem;
             });
+
+            // Calculate subtotal from items
+            const subtotal = mappedItems.reduce((s, i) => s + (i.total || (i.price * i.quantity)), 0);
+            const tax = saleData.tax || (subtotal * 0.16);
+            const total = subtotal + (saleData.transportCost || 0) - (saleData.discount || 0);
 
             // ✅ Use ApiService with JWT token
             const result = await ApiService.post('/sales', {
                 customerName: saleData.customerName || 'Walk-in Customer',
                 items: mappedItems,
                 paymentMethod: saleData.paymentMethod || 'cash',
-                subtotal,
-                tax,
+                subtotal: subtotal,
+                tax: tax,
                 discount: saleData.discount || 0,
-                total,
+                total: total,
                 cashierId: user?.id || null,
                 cashierName: user?.fullName || 'Unknown',
                 mpesaRef: saleData.mpesaRef || null,
@@ -79,7 +91,7 @@ const SaleService = {
             return {
                 success: true,
                 saleId: result.saleId,
-                receiptNo: result.receiptNo || receiptNo,
+                receiptNo: result.receiptNo || ('TIH-' + Date.now().toString(36).toUpperCase()),
                 customerName: saleData.customerName || 'Walk-in Customer',
                 items: mappedItems,
                 subtotal,
@@ -215,7 +227,32 @@ const SaleService = {
         return summary;
     },
 
-    // ✅ Generate receipt HTML
+    // ✅ Format sale item for display (handles dual-unit)
+    formatSaleItemDisplay(item) {
+        const productName = item.productName || '';
+        const quantity = item.quantity || 0;
+        const price = Number(item.price || 0);
+        const total = Number(item.total || (price * quantity));
+        
+        // Check if sold in alternative unit
+        if (item.soldInUnit && item.conversionFactor > 0) {
+            // Receipt shows the unit used for sale
+            return `${productName} - ${quantity} ${item.soldInUnit} @ KES ${price.toLocaleString()} = KES ${total.toLocaleString()}`;
+        }
+        
+        // Regular sale (no alternative unit)
+        return `${productName} - ${quantity} @ KES ${price.toLocaleString()} = KES ${total.toLocaleString()}`;
+    },
+
+    // ✅ Get unit label for display
+    getUnitLabel(item) {
+        if (item.soldInUnit && item.conversionFactor > 0) {
+            return item.soldInUnit;
+        }
+        return item.unit || '';
+    },
+
+    // ✅ Generate receipt HTML (updated for dual-unit display)
     generateReceiptHTML(sale) {
         var d = new Date(sale.date || new Date());
         var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;">';
@@ -237,12 +274,27 @@ const SaleService = {
         h += '</table>';
         h += '<table style="width:100%;border-collapse:collapse;margin:15px 0;">';
         h += '<tr style="border-bottom:2px solid #333;"><th style="text-align:left;">Item</th><th>Qty</th><th style="text-align:right;">Price</th><th style="text-align:right;">Total</th></tr>';
+        
         if (sale.items && sale.items.length > 0) {
             sale.items.forEach(function(i) {
-                var unitLabel = i.unit ? '/' + i.unit : '';
-                h += '<tr><td>' + (i.productName || '') + '</td><td style="text-align:center;">' + (i.quantity || 0) + '</td><td style="text-align:right;">' + Number(i.price || 0).toLocaleString() + unitLabel + '</td><td style="text-align:right;">' + (Number(i.price || 0) * Number(i.quantity || 0)).toLocaleString() + '</td></tr>';
+                // Determine unit to display on receipt
+                var unitLabel = '';
+                if (i.soldInUnit && i.conversionFactor > 0) {
+                    // Sold in alternative unit - show that unit
+                    unitLabel = '/' + i.soldInUnit;
+                } else if (i.unit) {
+                    unitLabel = '/' + i.unit;
+                }
+                
+                h += '<tr>';
+                h += '<td>' + (i.productName || '') + '</td>';
+                h += '<td style="text-align:center;">' + (i.quantity || 0) + '</td>';
+                h += '<td style="text-align:right;">' + Number(i.price || 0).toLocaleString() + unitLabel + '</td>';
+                h += '<td style="text-align:right;">' + (Number(i.total || (i.price * i.quantity)) || 0).toLocaleString() + '</td>';
+                h += '</tr>';
             });
         }
+        
         h += '</table>';
         h += '<div style="border-top:2px solid #333;padding-top:10px;">';
         h += '<p><strong>Subtotal:</strong> KES ' + Number(sale.subtotal || 0).toLocaleString() + '</p>';
@@ -278,6 +330,67 @@ const SaleService = {
         } else {
             alert('Please allow popups to print the receipt.');
         }
+    },
+
+    // ============================================
+    // 🔥 DUAL-UNIT SUPPORT METHODS
+    // ============================================
+
+    /**
+     * Check if a sale item was sold in an alternative unit
+     * @param {Object} item - Sale item object
+     * @returns {boolean}
+     */
+    isDualUnitItem(item) {
+        return !!(item.soldInUnit && item.conversionFactor > 0);
+    },
+
+    /**
+     * Get the display unit for a sale item
+     * @param {Object} item - Sale item object
+     * @returns {string} Unit name used for this sale
+     */
+    getItemDisplayUnit(item) {
+        if (this.isDualUnitItem(item)) {
+            return item.soldInUnit;
+        }
+        return item.unit || 'pcs';
+    },
+
+    /**
+     * Get the base quantity for a sale item (in smallest unit)
+     * @param {Object} item - Sale item object
+     * @returns {number} Base quantity
+     */
+    getBaseQuantity(item) {
+        if (this.isDualUnitItem(item)) {
+            return item.baseQuantity || (item.quantity * item.conversionFactor);
+        }
+        return item.quantity || 0;
+    },
+
+    /**
+     * Format item quantity with appropriate unit for receipt
+     * @param {Object} item - Sale item object
+     * @returns {string} Formatted string like "5 tonnes" or "10 wheelbarrows"
+     */
+    formatItemQuantity(item) {
+        const qty = item.quantity || 0;
+        const unit = this.getItemDisplayUnit(item);
+        return `${qty} ${unit}`;
+    },
+
+    /**
+     * Calculate total for a dual-unit item
+     * @param {Object} item - Sale item with soldInUnit and conversionFactor
+     * @returns {number} Total price
+     */
+    calculateDualUnitTotal(item) {
+        if (this.isDualUnitItem(item)) {
+            // Quantity is in sales unit, price is per base unit
+            return item.quantity * (item.price || 0);
+        }
+        return (item.quantity || 0) * (item.price || 0);
     }
 };
 
