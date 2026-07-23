@@ -1103,10 +1103,15 @@ app.get('/api/products/search', verifyToken, async (req, res) => {
 
 app.get('/api/sales', verifyToken, async (req, res) => {
     try {
-        const salesResult = await pool.query("SELECT * FROM sales ORDER BY date DESC");
+        const salesResult = await pool.query(
+            "SELECT id, receiptno AS \"receiptNo\", customername AS \"customerName\", paymentmethod AS \"paymentMethod\", subtotal, tax, discount, total, transportcost AS \"transportCost\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", mpesaref AS \"mpesaRef\", iscredit AS \"isCredit\", customerid AS \"customerId\", debtpaid AS \"debtPaid\", date, isvoid AS \"isVoid\", is_returned, return_type, return_date FROM sales ORDER BY date DESC"
+        );
         const sales = salesResult.rows;
         for (let s of sales) {
-            const itemsResult = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [s.id]);
+            const itemsResult = await pool.query(
+                "SELECT id, saleid AS \"saleId\", productid AS \"productId\", productname AS \"productName\", quantity, price, total, soldinunit AS \"soldInUnit\", conversionfactor AS \"conversionFactor\", basequantity AS \"baseQuantity\" FROM sale_items WHERE saleId = $1",
+                [s.id]
+            );
             s.items = itemsResult.rows;
         }
         res.json(sales);
@@ -1118,12 +1123,15 @@ app.get('/api/sales', verifyToken, async (req, res) => {
 
 app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const cashiersResult = await pool.query("SELECT id, fullName, username FROM users WHERE role='cashier' AND isActive=1");
+        const cashiersResult = await pool.query("SELECT id, fullname AS \"fullName\", username FROM users WHERE role='cashier' AND isActive=1");
         const cashiers = cashiersResult.rows;
         const today = new Date().toISOString().split('T')[0];
         const result = [];
         for (let c of cashiers) {
-            const salesResult = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0", [c.id]);
+            const salesResult = await pool.query(
+                "SELECT id, total, date FROM sales WHERE cashierid=$1 AND isvoid=0",
+                [c.id]
+            );
             const sales = salesResult.rows;
             const todaySales = sales.filter(function(s) { 
                 if (!s.date) return false;
@@ -1132,7 +1140,7 @@ app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (r
             });
             result.push({
                 id: c.id,
-                name: c.fullname,
+                name: c.fullName,
                 username: c.username,
                 totalAll: sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0),
                 totalToday: todaySales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0),
@@ -1149,7 +1157,10 @@ app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (r
 
 app.get('/api/sales/cashier/:id', verifyToken, async (req, res) => {
     try {
-        const salesResult = await pool.query("SELECT * FROM sales WHERE cashierId=$1 AND isVoid=0 ORDER BY date DESC", [req.params.id]);
+        const salesResult = await pool.query(
+            "SELECT id, receiptno AS \"receiptNo\", customername AS \"customerName\", paymentmethod AS \"paymentMethod\", subtotal, tax, discount, total, transportcost AS \"transportCost\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", mpesaref AS \"mpesaRef\", iscredit AS \"isCredit\", customerid AS \"customerId\", debtpaid AS \"debtPaid\", date, isvoid AS \"isVoid\" FROM sales WHERE cashierid=$1 AND isvoid=0 ORDER BY date DESC",
+            [req.params.id]
+        );
         const sales = salesResult.rows;
         const today = new Date().toISOString().split('T')[0];
         const todaySales = sales.filter(function(s) { 
@@ -1219,10 +1230,16 @@ app.post('/api/sales', verifyToken, async (req, res) => {
 
 app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
     try {
-        const saleResult = await pool.query("SELECT * FROM sales WHERE receiptNo = $1", [req.params.receiptNo]);
+        const saleResult = await pool.query(
+            "SELECT id, receiptno AS \"receiptNo\", customername AS \"customerName\", paymentmethod AS \"paymentMethod\", subtotal, tax, discount, total, transportcost AS \"transportCost\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", mpesaref AS \"mpesaRef\", iscredit AS \"isCredit\", customerid AS \"customerId\", debtpaid AS \"debtPaid\", date, isvoid AS \"isVoid\", is_returned, return_type, return_date FROM sales WHERE receiptno = $1",
+            [req.params.receiptNo]
+        );
         const sale = saleResult.rows;
         if (sale.length) {
-            const itemsResult = await pool.query("SELECT * FROM sale_items WHERE saleId = $1", [sale[0].id]);
+            const itemsResult = await pool.query(
+                "SELECT id, saleid AS \"saleId\", productid AS \"productId\", productname AS \"productName\", quantity, price, total, soldinunit AS \"soldInUnit\", conversionfactor AS \"conversionFactor\", basequantity AS \"baseQuantity\" FROM sale_items WHERE saleId = $1",
+                [sale[0].id]
+            );
             sale[0].items = itemsResult.rows;
             res.json(sale[0]);
         } else {
@@ -1233,7 +1250,6 @@ app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
         res.status(500).json({ error: 'Error searching sale' });
     }
 });
-
 // ============================================
 // RETURN ENDPOINTS (with dual-unit support)
 // ============================================
