@@ -1332,15 +1332,20 @@ app.get('/api/returns/summary', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// PURCHASE ORDERS (with dual-unit support)
+// PURCHASE ORDERS (with dual-unit support & camelCase aliases)
 // ============================================
 
 app.get('/api/purchase-orders', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const posResult = await pool.query("SELECT * FROM purchase_orders ORDER BY date DESC");
+        const posResult = await pool.query(
+            "SELECT id, ponumber AS \"poNumber\", suppliername AS \"supplierName\", supplierid AS \"supplierId\", status, notes, total, createdby AS \"createdBy\", date, receiveddate AS \"receivedDate\" FROM purchase_orders ORDER BY date DESC"
+        );
         const pos = posResult.rows;
         for (let po of pos) {
-            const itemsResult = await pool.query("SELECT * FROM po_items WHERE poId = $1", [po.id]);
+            const itemsResult = await pool.query(
+                "SELECT id, poid AS \"poId\", productname AS \"productName\", brand, variant, quantity, orderedinunit AS \"orderedInUnit\", conversionfactor AS \"conversionFactor\", basequantity AS \"baseQuantity\", unitprice AS \"unitPrice\", sellingprice AS \"sellingPrice\", lastprice AS \"lastPrice\", currentstock AS \"currentStock\", discount, total FROM po_items WHERE poId = $1",
+                [po.id]
+            );
             po.items = itemsResult.rows;
         }
         res.json(pos);
@@ -1386,13 +1391,13 @@ app.post('/api/purchase-orders', verifyToken, authorize('admin'), async (req, re
 
 app.put('/api/purchase-orders/:id/receive', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const poResult = await pool.query("SELECT * FROM purchase_orders WHERE id = $1", [req.params.id]);
+        const poResult = await pool.query("SELECT id, ponumber AS \"poNumber\" FROM purchase_orders WHERE id = $1", [req.params.id]);
         const po = poResult.rows;
         if (!po.length) return res.json({ success: false });
         const itemsResult = await pool.query("SELECT * FROM po_items WHERE poId = $1", [req.params.id]);
         const items = itemsResult.rows;
         for (let i of items) {
-            // Use baseQuantity for stock addition (already converted)
+            // Use basequantity (lowercase from DB) for stock addition (already converted)
             const stockToAdd = i.basequantity || i.quantity;
             
             const pResult = await pool.query("SELECT * FROM products WHERE name=$1 AND brand=$2 AND variant=$3 AND isActive=1", [i.productname, i.brand, i.variant]);
@@ -1402,14 +1407,13 @@ app.put('/api/purchase-orders/:id/receive', verifyToken, authorize('admin'), asy
             }
         }
         await pool.query("UPDATE purchase_orders SET status = 'received', receivedDate = NOW() WHERE id = $1", [req.params.id]);
-        logActivity(null, 'Admin', 'po_received', 'PO received: ' + po[0].ponumber);
+        logActivity(null, 'Admin', 'po_received', 'PO received: ' + po[0].poNumber);
         res.json({ success: true });
     } catch (error) {
         console.error('Receive PO error:', error);
         res.status(500).json({ success: false, message: 'Error receiving purchase order' });
     }
 });
-
 // ============================================
 // SUPPLIERS
 // ============================================
