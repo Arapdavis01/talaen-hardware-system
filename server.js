@@ -1772,7 +1772,7 @@ app.get('/api/mpesa/transaction/:checkoutRequestID', verifyToken, async (req, re
 });
 
 // ============================================
-// DAILY REPORTS (with camelCase aliases)
+// DAILY REPORTS (with camelCase aliases & date support)
 // ============================================
 
 app.get('/api/daily-reports', verifyToken, async (req, res) => {
@@ -1795,6 +1795,7 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
         );
         var report = reportResult.rows;
         if (!report.length) {
+            // Auto‑generate if not exists
             var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
             var sales = salesResult.rows;
             var itemsSoldResult = await pool.query("SELECT COALESCE(SUM(si.baseQuantity), 0) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
@@ -1806,7 +1807,6 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
                 "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
                 [today, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0)]
             );
-            // Fetch the newly created report with camelCase aliases
             var newReportResult = await pool.query(
                 "SELECT id, reportdate AS \"reportDate\", totalsales AS \"totalSales\", transactioncount AS \"transactionCount\", totalitemssold AS \"totalItemsSold\", closingstock AS \"closingStock\", stockadded AS \"stockAdded\", stocksold AS \"stockSold\", productscount AS \"productsCount\" FROM daily_reports WHERE reportDate = $1", [today]
             );
@@ -1821,17 +1821,18 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
 
 app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        var today = new Date().toISOString().split('T')[0];
-        var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
+        // Accept optional date from request body, default to today
+        var targetDate = req.body.date || new Date().toISOString().split('T')[0];
+        var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [targetDate + '%']);
         var sales = salesResult.rows;
-        var itemsSoldResult = await pool.query("SELECT COALESCE(SUM(si.baseQuantity), 0) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
-        var stockAddedResult = await pool.query("SELECT COALESCE(SUM(pi.baseQuantity), 0) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
-        var stockSoldResult = await pool.query("SELECT COALESCE(SUM(si.baseQuantity), 0) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
+        var itemsSoldResult = await pool.query("SELECT COALESCE(SUM(si.baseQuantity), 0) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [targetDate + '%']);
+        var stockAddedResult = await pool.query("SELECT COALESCE(SUM(pi.baseQuantity), 0) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [targetDate + '%']);
+        var stockSoldResult = await pool.query("SELECT COALESCE(SUM(si.baseQuantity), 0) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [targetDate + '%']);
         var productsResult = await pool.query("SELECT COUNT(*) as count, COALESCE(SUM(stock), 0) as totalStock FROM products WHERE isActive=1");
         var totalSales = sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0);
         await pool.query(
             "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (reportDate) DO UPDATE SET totalSales=$2, transactionCount=$3, totalItemsSold=$4, closingStock=$5, stockAdded=$6, stockSold=$7, productsCount=$8",
-            [today, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0)]
+            [targetDate, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0)]
         );
         res.json({ success: true });
     } catch (error) {
@@ -1839,7 +1840,6 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
         res.status(500).json({ success: false, message: 'Error generating daily report' });
     }
 });
-
 // ============================================
 // FRONTEND ROUTE
 // ============================================
