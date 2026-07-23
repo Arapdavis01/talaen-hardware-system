@@ -55,10 +55,6 @@ const AdminPurchasesComponent = {
         return h;
     },
 
-    // ============================================
-    // ✅ UPDATED: Using ApiService with JWT & Dual-Unit Support
-    // ============================================
-
     // ========== FILTERED & GROUPED PO HISTORY ==========
     _allPOs: [],
 
@@ -227,7 +223,7 @@ const AdminPurchasesComponent = {
 
     showAddSupplier() {
         var m = document.createElement('div'); m.className = 'modal-overlay';
-        m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-plus-circle"></i> Add Supplier</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Supplier Name *</label><input type="text" id="supName" class="form-control" autofocus></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Phone</label><input type="text" id="supPhone" class="form-control"></div><div class="form-group"><label>Email</label><input type="text" id="supEmail" class="form-control"></div></div><div class="form-group"><label>Address</label><input type="text" id="supAddress" class="form-control"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="saveSupplierBtn"><i class="fas fa-save"></i> Save</button></div></div>';
+        m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-plus-circle"></i> Add Supplier</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">✕</button></div><div class="modal-body"><div class="form-group"><label>Supplier Name *</label><input type="text" id="supName" class="form-control" autofocus></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;"><div class="form-group"><label>Phone</label><input type="text" id="supPhone" class="form-control"></div><div class="form-group"><label>Email</label><input type="text" id="supEmail" class="form-control"></div></div><div class="form-group"><label>Address</label><input type="text" id="supAddress" class="form-control"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="saveSupplierBtn"><i class="fas fa-save"></i> Save</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
         m.querySelector('#saveSupplierBtn').onclick = async function(){
             var n = document.getElementById('supName').value.trim(); if(!n){showStyledAlert('Required', 'Name required!', 'exclamation-triangle', '#f59e0b');return;}
@@ -259,26 +255,21 @@ const AdminPurchasesComponent = {
                 var filtered = products.filter(function(p){return p.name.toLowerCase().includes(q) || (p.brand||'').toLowerCase().includes(q);});
                 var h = ''; if(filtered.length === 0){h='<p style="padding:1rem;color:#999;">No products found</p>';}
                 else{filtered.forEach(function(p){
-                    // Stock display with dual-unit
                     var stockDisplay = typeof ProductService !== 'undefined' && ProductService.getStockDisplay 
                         ? ProductService.getStockDisplay(p) 
                         : (p.stock + ' ' + (p.unit || 'pcs'));
                     
-                    // Price display
-                    var priceDisplay = typeof ProductService !== 'undefined' && ProductService.getPriceDisplay
-                        ? ProductService.getPriceDisplay(p)
-                        : 'KES ' + (p.price || 0).toLocaleString() + '/' + (p.unit || 'pcs');
-                    
                     h += '<div style="padding:0.75rem;border-bottom:1px solid #eee;cursor:pointer;display:grid;grid-template-columns:1fr auto auto auto auto;gap:0.5rem;align-items:center;" onclick="AdminPurchasesComponent.addPOItem('+p.id+')">';
                     h += '<div><strong>'+(p.brand||'')+' '+p.name+'</strong><br><small style="color:#999;">'+(p.variant||'')+'</small></div>';
                     h += '<div style="text-align:center;"><small style="color:#999;">Buy</small><br>KES '+(p.lastPrice||p.cost||0).toLocaleString()+'</div>';
-                    h += '<div style="text-align:center;" title="' + priceDisplay + '"><small style="color:#999;">Sell</small><br>KES '+(p.price||0).toLocaleString()+'/' + (p.unit||'pcs') + '</div>';
-                    h += '<div style="text-align:center;" title="' + stockDisplay + '"><small style="color:#999;">Stock</small><br>' + p.stock + ' ' + (p.unit||'pcs') + '</div>';
+                    h += '<div style="text-align:center;"><small style="color:#999;">Sell</small><br>KES '+(p.price||0).toLocaleString()+'/' + (p.unit||'pcs') + '</div>';
+                    h += '<div style="text-align:center;"><small style="color:#999;">Stock</small><br>' + p.stock + ' ' + (p.unit||'pcs') + '</div>';
                     h += '<button class="btn btn-sm btn-success">+ Add</button></div>';
                 });} div.innerHTML = h;
             });
     },
 
+    // ✅ REDESIGNED: Clean, well-structured modal
     addPOItem(productId) {
         var supplierSelect = document.getElementById('supplierSelect');
         if (!supplierSelect || !supplierSelect.value) { this._showSupplierWarning(); return; }
@@ -288,52 +279,98 @@ const AdminPurchasesComponent = {
                 var p = products.find(function(x){return x.id == productId;}); if(!p)return;
                 var buyPrice = p.lastPrice || p.cost || 0;
                 var hasAlternativeUnit = !!(p.salesUnit && p.conversionFactor > 0);
+                var conversionFactor = hasAlternativeUnit ? parseInt(p.conversionFactor) : 0;
+                var salesUnit = hasAlternativeUnit ? p.salesUnit : '';
                 
                 var m = document.createElement('div'); m.className = 'modal-overlay';
-                m.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-cart-plus"></i> Add to Purchase Order</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div style="text-align:center;margin-bottom:1rem;"><h4>'+(p.brand||'')+' '+p.name+'</h4><p style="color:#999;">'+(p.variant||'')+'</p>';
+                var h = '<div class="modal" style="max-width:500px;">';
                 
-                // Stock display
+                // Header
+                h += '<div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;">';
+                h += '<h3 style="color:white;margin:0;"><i class="fas fa-cart-plus"></i> Add to Purchase Order</h3>';
+                h += '<button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">✕</button>';
+                h += '</div>';
+                
+                h += '<div class="modal-body">';
+                
+                // Product Info Card
+                h += '<div style="background:#f8fafc;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;text-align:center;">';
+                h += '<h4 style="margin:0 0 0.25rem;">'+(p.brand||'')+' '+p.name+'</h4>';
+                if(p.variant) h += '<p style="color:#666;margin:0 0 0.5rem;">' + p.variant + '</p>';
                 var stockDisplay = typeof ProductService !== 'undefined' && ProductService.getStockDisplay 
                     ? ProductService.getStockDisplay(p) 
-                    : (p.stock + ' ' + (p.unit || 'pcs'));
-                m.innerHTML += '<p style="color:#666;">Current Stock: <strong>' + stockDisplay + '</strong></p></div>';
+                    : (p.stock + ' ' + (p.unit||'pcs'));
+                h += '<p style="color:#666;margin:0;"><i class="fas fa-boxes"></i> Current Stock: <strong>' + stockDisplay + '</strong></p>';
+                h += '</div>';
                 
-                m.innerHTML += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;text-align:center;margin-bottom:1rem;"><div style="background:#f5f5f5;padding:0.75rem;border-radius:0.5rem;"><small>Buy Price (per ' + (p.unit||'pcs') + ')</small><br><input type="number" id="modalBuyPrice" class="form-control" value="'+buyPrice+'" step="0.01" style="text-align:center;font-weight:700;"></div><div style="background:#f5f5f5;padding:0.75rem;border-radius:0.5rem;"><small>Sell Price</small><br><strong>KES '+(p.price||0).toLocaleString()+'/' + (p.unit||'pcs') + '</strong></div><div style="background:#f5f5f5;padding:0.75rem;border-radius:0.5rem;"><small>Base Unit</small><br><strong>' + (p.unit||'pcs') + '</strong></div></div>';
+                // Prices Card
+                h += '<div style="background:#f5f5f5;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;">';
+                h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">';
+                h += '<div style="text-align:center;">';
+                h += '<small style="color:#666;display:block;margin-bottom:0.25rem;"><i class="fas fa-tag"></i> Buy Price (per ' + (p.unit||'pcs') + ')</small>';
+                h += '<input type="number" id="modalBuyPrice" class="form-control" value="'+buyPrice+'" step="0.01" style="text-align:center;font-weight:700;font-size:1.1rem;">';
+                h += '</div>';
+                h += '<div style="text-align:center;">';
+                h += '<small style="color:#666;display:block;margin-bottom:0.25rem;"><i class="fas fa-money-bill-wave"></i> Sell Price</small>';
+                h += '<div style="font-weight:700;font-size:1.1rem;color:#10b981;">KES '+(p.price||0).toLocaleString()+'/' + (p.unit||'pcs') + '</div>';
+                h += '</div>';
+                h += '</div>';
+                h += '</div>';
                 
-                // 🔥 DUAL-UNIT: Order unit selection
+                // Order Unit (if dual-unit)
                 if (hasAlternativeUnit) {
-                    var conversionFactor = parseInt(p.conversionFactor);
-                    var salesUnit = p.salesUnit;
-                    m.innerHTML += '<div style="background:#fff8e1;padding:1rem;border-radius:0.75rem;border:1px solid #f59e0b;margin-bottom:1rem;">';
-                    m.innerHTML += '<p style="color:#f59e0b;font-weight:600;margin-bottom:0.5rem;"><i class="fas fa-sync-alt"></i> Order Unit</p>';
-                    m.innerHTML += '<div style="display:flex;gap:0.5rem;">';
-                    m.innerHTML += '<label style="flex:1;padding:0.75rem;border:2px solid var(--primary);border-radius:0.75rem;text-align:center;cursor:pointer;" class="order-unit-option" data-unit="base">';
-                    m.innerHTML += '<input type="radio" name="orderUnit" value="base" checked style="display:none;">';
-                    m.innerHTML += '<div style="font-weight:700;">' + (p.unit||'pcs').charAt(0).toUpperCase() + (p.unit||'pcs').slice(1) + '</div>';
-                    m.innerHTML += '<div style="font-size:0.85rem;color:#666;">Base Unit</div>';
-                    m.innerHTML += '</label>';
-                    m.innerHTML += '<label style="flex:1;padding:0.75rem;border:2px solid #ccc;border-radius:0.75rem;text-align:center;cursor:pointer;" class="order-unit-option" data-unit="sales">';
-                    m.innerHTML += '<input type="radio" name="orderUnit" value="sales" style="display:none;">';
-                    m.innerHTML += '<div style="font-weight:700;">' + salesUnit.charAt(0).toUpperCase() + salesUnit.slice(1) + '</div>';
-                    m.innerHTML += '<div style="font-size:0.85rem;color:#666;">1 ' + salesUnit + ' = ' + conversionFactor + ' ' + (p.unit||'pcs') + '</div>';
-                    m.innerHTML += '</label>';
-                    m.innerHTML += '</div>';
-                    m.innerHTML += '<small style="color:#666;">Ordering in <strong>' + salesUnit + '</strong> will auto-convert to base units when received.</small>';
-                    m.innerHTML += '</div>';
+                    h += '<div style="background:#fff8e1;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;border:1px solid #f59e0b;">';
+                    h += '<p style="color:#f59e0b;font-weight:600;margin:0 0 0.75rem;"><i class="fas fa-sync-alt"></i> Order Unit</p>';
+                    h += '<div style="display:flex;gap:0.5rem;">';
+                    h += '<label style="flex:1;padding:0.75rem;border:2px solid var(--primary);border-radius:0.75rem;text-align:center;cursor:pointer;" class="order-unit-option" data-unit="base">';
+                    h += '<input type="radio" name="orderUnit" value="base" checked style="display:none;">';
+                    h += '<div style="font-weight:700;">' + (p.unit||'pcs').charAt(0).toUpperCase() + (p.unit||'pcs').slice(1) + '</div>';
+                    h += '<div style="font-size:0.8rem;color:#666;">Base Unit</div>';
+                    h += '</label>';
+                    h += '<label style="flex:1;padding:0.75rem;border:2px solid #ccc;border-radius:0.75rem;text-align:center;cursor:pointer;" class="order-unit-option" data-unit="sales">';
+                    h += '<input type="radio" name="orderUnit" value="sales" style="display:none;">';
+                    h += '<div style="font-weight:700;">' + salesUnit.charAt(0).toUpperCase() + salesUnit.slice(1) + '</div>';
+                    h += '<div style="font-size:0.8rem;color:#666;">1 = ' + conversionFactor + ' ' + (p.unit||'pcs') + '</div>';
+                    h += '</label>';
+                    h += '</div>';
+                    h += '<div id="conversionInfo" style="margin-top:0.5rem;padding:0.5rem;background:#f0fdf4;border-radius:0.5rem;font-size:0.85rem;color:#10b981;display:none;"></div>';
+                    h += '</div>';
                 }
                 
-                m.innerHTML += '<div class="form-group"><label>Quantity</label><input type="number" id="modalQty" class="form-control" value="1" min="1" style="font-size:1.2rem;text-align:center;" autofocus>';
+                // Quantity & Discount
+                h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">';
+                h += '<div class="form-group" style="margin-bottom:0;">';
+                h += '<label>Quantity</label>';
+                h += '<input type="number" id="modalQty" class="form-control" value="1" min="1" style="font-size:1.2rem;text-align:center;" autofocus>';
                 if (hasAlternativeUnit) {
-                    m.innerHTML += '<small id="qtyHint" style="color:#666;">Enter quantity in <strong>' + (p.unit||'pcs') + '</strong></small>';
+                    h += '<small id="qtyHint" style="color:#666;display:block;text-align:center;">Enter in <strong>' + (p.unit||'pcs') + '</strong></small>';
                 }
-                m.innerHTML += '</div>';
+                h += '</div>';
+                h += '<div class="form-group" style="margin-bottom:0;">';
+                h += '<label>Discount (KES)</label>';
+                h += '<input type="number" id="modalDiscount" class="form-control" value="0" min="0" style="font-size:1.2rem;text-align:center;">';
+                h += '</div>';
+                h += '</div>';
                 
-                m.innerHTML += '<div class="form-group"><label>Discount (KES)</label><input type="number" id="modalDiscount" class="form-control" value="0" min="0"></div>';
-                m.innerHTML += '<div style="text-align:center;margin-top:0.5rem;"><strong>Total: KES <span id="modalTotal">'+buyPrice.toLocaleString()+'</span></strong></div>';
-                m.innerHTML += '<div id="conversionInfo" style="margin-top:0.5rem;padding:0.5rem;background:#f0fdf4;border-radius:0.5rem;font-size:0.85rem;color:#10b981;display:none;"></div>';
+                // Total
+                h += '<div style="background:#f0fdf4;border-radius:0.75rem;padding:1rem;text-align:center;margin-bottom:1rem;">';
+                h += '<span style="font-size:1.1rem;color:#666;">Total: </span>';
+                h += '<span id="modalTotal" style="font-size:1.3rem;font-weight:700;color:#10b981;">KES ' + buyPrice.toLocaleString() + '</span>';
+                h += '</div>';
                 
-                m.innerHTML += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmAddBtn"><i class="fas fa-plus"></i> Add</button></div></div>';
-                document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
+                h += '</div>'; // modal-body
+                
+                // Footer
+                h += '<div class="modal-footer">';
+                h += '<button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>';
+                h += '<button class="btn btn-success" id="confirmAddBtn"><i class="fas fa-plus"></i> Add to Order</button>';
+                h += '</div>';
+                
+                h += '</div>'; // modal
+                
+                m.innerHTML = h;
+                document.body.appendChild(m); 
+                m.onclick = function(e) { if (e.target === m) m.remove(); };
                 
                 // Unit selection handler
                 if (hasAlternativeUnit) {
@@ -346,13 +383,13 @@ const AdminPurchasesComponent = {
                             var qtyHint = m.querySelector('#qtyHint');
                             var convInfo = m.querySelector('#conversionInfo');
                             if (radio.value === 'sales') {
-                                if (qtyHint) qtyHint.innerHTML = 'Enter quantity in <strong>' + salesUnit + '</strong> (will be converted to ' + (p.unit||'pcs') + ' on receive)';
+                                if (qtyHint) qtyHint.innerHTML = 'Enter in <strong>' + salesUnit + '</strong> (converted on receive)';
                                 if (convInfo) {
                                     convInfo.style.display = 'block';
-                                    convInfo.innerHTML = '📦 1 ' + salesUnit + ' = <strong>' + conversionFactor + ' ' + (p.unit||'pcs') + '</strong> | Receiving will add <strong>' + conversionFactor + ' × qty</strong> to stock';
+                                    convInfo.innerHTML = '📦 1 ' + salesUnit + ' = <strong>' + conversionFactor + ' ' + (p.unit||'pcs') + '</strong> | Receiving adds <strong>' + conversionFactor + ' × qty</strong> base units';
                                 }
                             } else {
-                                if (qtyHint) qtyHint.innerHTML = 'Enter quantity in <strong>' + (p.unit||'pcs') + '</strong>';
+                                if (qtyHint) qtyHint.innerHTML = 'Enter in <strong>' + (p.unit||'pcs') + '</strong>';
                                 if (convInfo) convInfo.style.display = 'none';
                             }
                             updateModalTotal();
@@ -365,7 +402,7 @@ const AdminPurchasesComponent = {
                     var d = parseFloat(m.querySelector('#modalDiscount').value) || 0; 
                     var bp = parseFloat(m.querySelector('#modalBuyPrice')?.value) || buyPrice; 
                     var t = bp * q - d; 
-                    m.querySelector('#modalTotal').textContent = t.toLocaleString(); 
+                    m.querySelector('#modalTotal').textContent = 'KES ' + t.toLocaleString(); 
                 };
                 m.querySelector('#modalQty').oninput = updateModalTotal; 
                 m.querySelector('#modalDiscount').oninput = updateModalTotal; 
@@ -379,7 +416,6 @@ const AdminPurchasesComponent = {
                     var itemTotal = (bp * qty) - disc; 
                     if (itemTotal <= 0) { showStyledAlert('Error', 'Total cannot be zero', 'times-circle', '#ef4444'); return; }
                     
-                    // 🔥 DUAL-UNIT: Get ordered unit
                     var orderedInUnit = null;
                     var convFactor = 0;
                     var baseQty = qty;
@@ -415,7 +451,7 @@ const AdminPurchasesComponent = {
             });
     },
 
-    // ========== PO ITEMS RENDERING (with dual-unit display) ==========
+    // ========== PO ITEMS RENDERING ==========
 
     _renderPOItems() {
         var div = document.getElementById('poItemsList'); 
@@ -426,7 +462,6 @@ const AdminPurchasesComponent = {
         }
         var h = '<table class="table"><thead><tr><th>Product</th><th>Brand</th><th>Variant</th><th>Qty</th><th>Unit</th><th>Buy Price</th><th>Sell Price</th><th>Discount</th><th>Total</th><th></th></tr></thead><tbody>';
         this._poItems.forEach(function(i,idx){ 
-            var qtyDisplay = i.quantity;
             var unitDisplay = '';
             if (i.orderedInUnit && i.conversionFactor > 0) {
                 unitDisplay = i.orderedInUnit + ' (' + i.baseQuantity + ' base units)';
@@ -441,7 +476,7 @@ const AdminPurchasesComponent = {
             h += '<td>KES '+i.sellingPrice.toLocaleString()+'</td>';
             h += '<td>'+(i.discount?'-KES '+i.discount.toLocaleString():'0')+'</td>';
             h += '<td>KES '+i.total.toLocaleString()+'</td>';
-            h += '<td><button class="btn btn-sm btn-danger" onclick="AdminPurchasesComponent.removeItem('+idx+')">X</button></td>';
+            h += '<td><button class="btn btn-sm btn-danger" onclick="AdminPurchasesComponent.removeItem('+idx+')">✕</button></td>';
             h += '</tr>'; 
         });
         h += '</tbody></table>'; 
@@ -483,7 +518,6 @@ const AdminPurchasesComponent = {
         var self = this; var btn = document.getElementById('submitPOBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...'; }
         
-        // 🔥 Include dual-unit fields in items
         var itemsWithUnits = this._poItems.map(function(item) {
             return {
                 productName: item.productName,
@@ -524,7 +558,7 @@ const AdminPurchasesComponent = {
     printExistingPO(poNumber) {
         ApiService.get('/purchase-orders').then(function(pos){
             var po = pos.find(function(p){return p.poNumber === poNumber;}); if(!po)return;
-            var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;"><div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;"><img src="../assets/talaen02.jpg" style="width:50px;height:50px;border-radius:10px;"><br><strong>TALAEN INVESTMENT HARDWARE</strong><br><strong>PURCHASE ORDER</strong><br><strong>'+po.poNumber+'</strong></div><p><strong>Supplier:</strong> '+po.supplierName+'</p><p><strong>Status:</strong> '+po.status.toUpperCase()+'</p><table style="width:100%;border-collapse:collapse;"><tr style="border-bottom:2px solid #333;"><th>Product</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th></tr>';
+            var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;"><div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;"><strong>TALAEN INVESTMENT HARDWARE</strong><br><strong>PURCHASE ORDER</strong><br><strong>'+po.poNumber+'</strong></div><p><strong>Supplier:</strong> '+po.supplierName+'</p><p><strong>Status:</strong> '+po.status.toUpperCase()+'</p><table style="width:100%;border-collapse:collapse;"><tr style="border-bottom:2px solid #333;"><th>Product</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th></tr>';
             (po.items||[]).forEach(function(i){
                 var unitDisplay = i.orderedInUnit || '-';
                 if (i.conversionFactor > 0) unitDisplay = i.quantity + ' ' + i.orderedInUnit + ' (' + i.baseQuantity + ' base)';
