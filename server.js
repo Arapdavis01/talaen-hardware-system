@@ -1289,7 +1289,9 @@ app.post('/api/returns', verifyToken, async (req, res) => {
 
 app.get('/api/returns', verifyToken, async (req, res) => {
     try {
-        const r = await pool.query("SELECT * FROM returns_table ORDER BY date DESC LIMIT 100");
+        const r = await pool.query(
+            "SELECT id, originalsaleid AS \"originalSaleId\", originalreceiptno AS \"originalReceiptNo\", customername AS \"customerName\", returntype AS \"returnType\", productid AS \"productId\", productname AS \"productName\", quantity, returnedinunit AS \"returnedInUnit\", conversionfactor AS \"conversionFactor\", basequantity AS \"baseQuantity\", returnamount AS \"returnAmount\", exchangeproductid AS \"exchangeProductId\", exchangeproductname AS \"exchangeProductName\", exchangeamount AS \"exchangeAmount\", refundamount AS \"refundAmount\", reason, cashiername AS \"cashierName\", date FROM returns_table ORDER BY date DESC LIMIT 100"
+        );
         res.json(r.rows);
     } catch (error) {
         console.error('Get returns error:', error);
@@ -1299,7 +1301,10 @@ app.get('/api/returns', verifyToken, async (req, res) => {
 
 app.get('/api/returns/receipt/:receiptNo', verifyToken, async (req, res) => {
     try {
-        const returnsResult = await pool.query("SELECT productId, quantity, returnedInUnit, returnType, date FROM returns_table WHERE originalReceiptNo = $1 ORDER BY date DESC", [req.params.receiptNo]);
+        const returnsResult = await pool.query(
+            "SELECT id, productid AS \"productId\", productname AS \"productName\", quantity, returnedinunit AS \"returnedInUnit\", returntype AS \"returnType\", date FROM returns_table WHERE originalreceiptno = $1 ORDER BY date DESC",
+            [req.params.receiptNo]
+        );
         res.json(returnsResult.rows);
     } catch (error) {
         console.error('Get returns by receipt error:', error);
@@ -1309,9 +1314,9 @@ app.get('/api/returns/receipt/:receiptNo', verifyToken, async (req, res) => {
 
 app.get('/api/returns/summary', verifyToken, async (req, res) => {
     try {
-        var totalReturnsResult = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='return'");
-        var totalExchangesResult = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returnType='exchange'");
-        var totalRefundedResult = await pool.query("SELECT SUM(refundAmount) as total FROM returns_table");
+        var totalReturnsResult = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returntype='return'");
+        var totalExchangesResult = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE returntype='exchange'");
+        var totalRefundedResult = await pool.query("SELECT COALESCE(SUM(refundamount), 0) as total FROM returns_table");
         var today = new Date().toISOString().split('T')[0] + '%';
         var todayReturnsResult = await pool.query("SELECT COUNT(*) as count FROM returns_table WHERE date::text LIKE $1", [today]);
         res.json({
