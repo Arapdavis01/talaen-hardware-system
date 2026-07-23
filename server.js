@@ -1454,8 +1454,14 @@ app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
         );
         const c = cResult.rows;
         if (c.length) {
-            const salesResult = await pool.query("SELECT * FROM credit_sales WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
-            const paymentsResult = await pool.query("SELECT * FROM debt_payments WHERE customerId = $1 ORDER BY date DESC LIMIT 10", [req.params.id]);
+            const salesResult = await pool.query(
+                "SELECT id, saleid AS \"saleId\", customerid AS \"customerId\", customername AS \"customerName\", amount, debtbefore AS \"debtBefore\", debtafter AS \"debtAfter\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", date FROM credit_sales WHERE customerId = $1 ORDER BY date DESC LIMIT 10",
+                [req.params.id]
+            );
+            const paymentsResult = await pool.query(
+                "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, paymentmethod AS \"paymentMethod\", saleid AS \"saleId\", receivedby AS \"receivedBy\", receivedbyid AS \"receivedById\", date FROM debt_payments WHERE customerId = $1 ORDER BY date DESC LIMIT 10",
+                [req.params.id]
+            );
             c[0].recentSales = salesResult.rows;
             c[0].payments = paymentsResult.rows;
         }
@@ -1532,7 +1538,10 @@ app.post('/api/debt-payments', verifyToken, async (req, res) => {
 
 app.get('/api/debt-payments/:customerId', verifyToken, async (req, res) => {
     try {
-        const r = await pool.query("SELECT * FROM debt_payments WHERE customerId = $1 ORDER BY date DESC", [req.params.customerId]);
+        const r = await pool.query(
+            "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, paymentmethod AS \"paymentMethod\", saleid AS \"saleId\", receivedby AS \"receivedBy\", receivedbyid AS \"receivedById\", date FROM debt_payments WHERE customerId = $1 ORDER BY date DESC",
+            [req.params.customerId]
+        );
         res.json(r.rows);
     } catch (error) {
         console.error('Get debt payments error:', error);
@@ -1542,7 +1551,10 @@ app.get('/api/debt-payments/:customerId', verifyToken, async (req, res) => {
 
 app.delete('/api/debt-payments/:id', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        const paymentResult = await pool.query("SELECT * FROM debt_payments WHERE id = $1", [req.params.id]);
+        const paymentResult = await pool.query(
+            "SELECT id, amount, customerid, customername FROM debt_payments WHERE id = $1",
+            [req.params.id]
+        );
         const payment = paymentResult.rows;
         if (!payment.length) return res.json({ success: false });
         await pool.query("UPDATE credit_customers SET totalDebt = totalDebt + $1 WHERE id = $2", [payment[0].amount, payment[0].customerid]);
@@ -1583,7 +1595,9 @@ app.post('/api/credit-sales', verifyToken, async (req, res) => {
 
 app.get('/api/credit-sales', verifyToken, async (req, res) => {
     try {
-        const r = await pool.query("SELECT * FROM credit_sales ORDER BY date DESC LIMIT 100");
+        const r = await pool.query(
+            "SELECT id, saleid AS \"saleId\", customerid AS \"customerId\", customername AS \"customerName\", amount, debtbefore AS \"debtBefore\", debtafter AS \"debtAfter\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", date FROM credit_sales ORDER BY date DESC LIMIT 100"
+        );
         res.json(r.rows);
     } catch (error) {
         console.error('Get credit sales error:', error);
@@ -1623,7 +1637,6 @@ app.get('/api/credit-summary', verifyToken, async (req, res) => {
         });
     }
 });
-
 // ============================================
 // SETTINGS
 // ============================================
