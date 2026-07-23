@@ -13,12 +13,7 @@ const AdminReportsComponent = {
         return h;
     },
 
-    // ============================================
-    // ✅ UPDATED: Using ApiService with JWT
-    // ============================================
-
     generateReport() {
-        // ✅ REPLACED: fetch with ApiService
         ApiService.post('/daily-reports/generate')
             .then(function(){
                 AdminReportsComponent.loadToday(); 
@@ -27,7 +22,6 @@ const AdminReportsComponent = {
     },
 
     loadToday() {
-        // ✅ REPLACED: fetch with ApiService
         ApiService.get('/daily-reports/today')
             .then(function(report){
                 var h = '<div class="stats-grid">';
@@ -42,7 +36,6 @@ const AdminReportsComponent = {
 
     loadHistory() {
         var self = this;
-        // ✅ REPLACED: fetch with ApiService
         ApiService.get('/daily-reports')
             .then(function(reports){
                 self._allReports = reports || [];
@@ -50,10 +43,25 @@ const AdminReportsComponent = {
             });
     },
 
+    // ✅ Format date and pass clean date string
     _displayReports(reports) {
         var h = '<table class="table"><thead><tr><th>Date</th><th>Sales</th><th>Transactions</th><th>Items Sold</th><th>Stock Added</th><th>Closing Stock</th></tr></thead><tbody>';
         if(!reports || !reports.length){h+='<tr><td colspan="6">No reports found.</td></tr>';}
-        else{reports.forEach(function(r){h+='<tr style="cursor:pointer;" onclick="AdminReportsComponent.showDayDetail(\''+r.reportDate+'\')"><td><strong>'+r.reportDate+' <i class="fas fa-external-link-alt" style="font-size:0.7rem;color:var(--secondary);"></i></strong></td><td>KES '+Number(r.totalSales||0).toLocaleString()+'</td><td>'+Number(r.transactionCount||0)+'</td><td>'+Number(r.totalItemsSold||0)+'</td><td>'+Number(r.stockAdded||0)+'</td><td>'+Number(r.closingStock||0)+'</td></tr>';});}
+        else{
+            reports.forEach(function(r){
+                // Format date properly
+                var dateStr = r.reportDate ? new Date(r.reportDate).toLocaleDateString('en-KE') : '';
+                // Extract YYYY-MM-DD for filtering
+                var isoDate = r.reportDate ? new Date(r.reportDate).toISOString().split('T')[0] : '';
+                h += '<tr style="cursor:pointer;" onclick="AdminReportsComponent.showDayDetail(\'' + isoDate + '\')">';
+                h += '<td><strong>' + dateStr + ' <i class="fas fa-external-link-alt" style="font-size:0.7rem;color:var(--secondary);"></i></strong></td>';
+                h += '<td>KES '+Number(r.totalSales||0).toLocaleString()+'</td>';
+                h += '<td>'+Number(r.transactionCount||0)+'</td>';
+                h += '<td>'+Number(r.totalItemsSold||0)+'</td>';
+                h += '<td>'+Number(r.stockAdded||0)+'</td>';
+                h += '<td>'+Number(r.closingStock||0)+'</td></tr>';
+            });
+        }
         h+='</tbody></table>'; 
         document.getElementById('reportsHistory').innerHTML = h;
     },
@@ -63,10 +71,11 @@ const AdminReportsComponent = {
         var searchVal = (document.getElementById('reportSearch')?.value || '').toLowerCase();
         var reports = this._allReports || [];
         var filtered = reports.filter(function(r) {
+            var rDate = r.reportDate ? new Date(r.reportDate).toISOString().split('T')[0] : '';
             var matchDate = true; 
             var matchSearch = true;
-            if (dateVal) { matchDate = r.reportDate === dateVal; }
-            if (searchVal) { matchSearch = r.reportDate.includes(searchVal); }
+            if (dateVal) { matchDate = rDate === dateVal; }
+            if (searchVal) { matchSearch = rDate.includes(searchVal); }
             return matchDate && matchSearch;
         });
         this._displayReports(filtered);
@@ -78,11 +87,19 @@ const AdminReportsComponent = {
         this._displayReports(this._allReports || []);
     },
 
+    // ✅ Fixed: handle date formatting and property access
     showDayDetail(reportDate) {
-        // ✅ REPLACED: fetch with ApiService
+        // reportDate is now a clean YYYY-MM-DD string
+        var displayDate = new Date(reportDate + 'T00:00:00').toLocaleDateString('en-KE', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+        
         ApiService.get('/sales')
             .then(function(sales){
-                var daySales = sales.filter(function(s) { return s.date && s.date.startsWith(reportDate); });
+                // Filter sales for the given date (use date part only)
+                var daySales = sales.filter(function(s) { 
+                    if (!s.date) return false;
+                    var sDate = new Date(s.date).toISOString().split('T')[0];
+                    return sDate === reportDate;
+                });
                 var totalSales = daySales.reduce(function(sum, s) { return Number(sum) + Number(s.total||0); }, 0);
                 var totalItems = 0;
                 daySales.forEach(function(s) { if (s.items) { s.items.forEach(function(i) { totalItems += Number(i.quantity||0); }); } });
@@ -122,7 +139,7 @@ const AdminReportsComponent = {
                 h+='</tbody></table></div>';
                 
                 var m=document.createElement('div');m.className='modal-overlay';
-                m.innerHTML='<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-calendar-check"></i> Day Report: '+reportDate+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="max-height:70vh;overflow-y:auto;">'+h+'</div><div class="modal-footer"><button class="btn btn-primary" onclick="AdminReportsComponent.printDayDetail(\''+reportDate+'\')"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+                m.innerHTML='<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-calendar-check"></i> Day Report: '+displayDate+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="max-height:70vh;overflow-y:auto;">'+h+'</div><div class="modal-footer"><button class="btn btn-primary" onclick="AdminReportsComponent.printDayDetail(\''+displayDate+'\')"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
                 document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
             });
     },
@@ -130,21 +147,21 @@ const AdminReportsComponent = {
     printDayDetail(reportDate) {
         var content = document.querySelector('.modal-body').innerHTML;
         var w = window.open('', '_blank', 'width=800,height=600');
-        w.document.write('<!DOCTYPE html><html><head><title>Day Report - '+reportDate+'</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter;padding:20px;}h2{color:#1a472a;}table{width:100%;border-collapse:collapse;margin:10px 0;}th{background:#1a472a;color:white;padding:8px;}td{padding:8px;border-bottom:1px solid #ddd;}.stat-card{display:inline-block;width:30%;padding:1rem;margin:0.5rem;background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;border-radius:1rem;text-align:center;}.stat-value{font-size:1.5rem;font-weight:700;}@media print{body{padding:0;}button{display:none;}}</style></head><body><h2><img src="../assets/talaen02.jpg" style="width:40px;height:40px;border-radius:8px;vertical-align:middle;"> Talaen Investment Hardware</h2><h3>Daily Report: '+reportDate+'</h3>'+content+'<br><button onclick="window.print()">🖨️ Print</button></body></html>');
+        w.document.write('<!DOCTYPE html><html><head><title>Day Report - '+reportDate+'</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter;padding:20px;}h2{color:#1a472a;}table{width:100%;border-collapse:collapse;margin:10px 0;}th{background:#1a472a;color:white;padding:8px;}td{padding:8px;border-bottom:1px solid #ddd;}.stat-card{display:inline-block;width:30%;padding:1rem;margin:0.5rem;background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;border-radius:1rem;text-align:center;}.stat-value{font-size:1.5rem;font-weight:700;}@media print{body{padding:0;}button{display:none;}}</style></head><body><h2>Talaen Investment Hardware</h2><h3>Daily Report: '+reportDate+'</h3>'+content+'<br><button onclick="window.print()">Print</button></body></html>');
         w.document.close();
     },
 
     printToday() {
         var content = document.getElementById('todayReport').innerHTML;
         var w = window.open('', '_blank', 'width=800,height=600');
-        w.document.write('<!DOCTYPE html><html><head><title>Daily Report</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter,sans-serif;padding:20px;}h2{color:#1a472a;}.stat-card{display:inline-block;width:45%;padding:1rem;margin:0.5rem;background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;border-radius:1rem;}.stat-value{font-size:2rem;font-weight:700;}table{width:100%;border-collapse:collapse;}th,td{padding:10px;border-bottom:1px solid #ddd;}@media print{body{padding:0;}button{display:none;}}</style></head><body><h2><i class="fas fa-hard-hat"></i> Talaen Investment Hardware</h2><h3>Daily Report - '+new Date().toLocaleDateString('en-KE')+'</h3>'+content+'<br><button onclick="window.print()">🖨️ Print</button></body></html>');
+        w.document.write('<!DOCTYPE html><html><head><title>Daily Report</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter,sans-serif;padding:20px;}h2{color:#1a472a;}.stat-card{display:inline-block;width:45%;padding:1rem;margin:0.5rem;background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;border-radius:1rem;}.stat-value{font-size:2rem;font-weight:700;}table{width:100%;border-collapse:collapse;}th,td{padding:10px;border-bottom:1px solid #ddd;}@media print{body{padding:0;}button{display:none;}}</style></head><body><h2>Talaen Investment Hardware</h2><h3>Daily Report - '+new Date().toLocaleDateString('en-KE')+'</h3>'+content+'<br><button onclick="window.print()">Print</button></body></html>');
         w.document.close();
     },
 
     printHistory() {
         var content = document.getElementById('reportsHistory').innerHTML;
         var w = window.open('', '_blank', 'width=800,height=600');
-        w.document.write('<!DOCTYPE html><html><head><title>Reports History</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter,sans-serif;padding:20px;}h2{color:#1a472a;}table{width:100%;border-collapse:collapse;}th{background:#1a472a;color:white;padding:10px;}td{padding:10px;border-bottom:1px solid #ddd;}@media print{body{padding:0;}button{display:none;}}</style></head><body><h2><i class="fas fa-hard-hat"></i> Talaen Investment Hardware</h2><h3>Daily Reports History</h3>'+content+'<br><button onclick="window.print()">🖨️ Print</button></body></html>');
+        w.document.write('<!DOCTYPE html><html><head><title>Reports History</title><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet"><style>body{font-family:Inter,sans-serif;padding:20px;}h2{color:#1a472a;}table{width:100%;border-collapse:collapse;}th{background:#1a472a;color:white;padding:10px;}td{padding:10px;border-bottom:1px solid #ddd;}@media print{body{padding:0;}button{display:none;}}</style></head><body><h2>Talaen Investment Hardware</h2><h3>Daily Reports History</h3>'+content+'<br><button onclick="window.print()">Print</button></body></html>');
         w.document.close();
     }
 };
