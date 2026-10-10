@@ -177,6 +177,7 @@ async function initDB() {
             address TEXT,
             debtLimit DECIMAL(10,2) DEFAULT 5000,
             totalDebt DECIMAL(10,2) DEFAULT 0,
+            creditBalance DECIMAL(10,2) DEFAULT 0,
             registeredBy VARCHAR(255),
             registeredById INT,
             dateRegistered TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -187,6 +188,7 @@ async function initDB() {
             customerId INT REFERENCES credit_customers(id),
             customerName VARCHAR(255),
             amount DECIMAL(10,2),
+            overpayment DECIMAL(10,2) DEFAULT 0,
             paymentMethod VARCHAR(50) DEFAULT 'cash',
             saleId INT,
             receivedBy VARCHAR(255),
@@ -199,6 +201,7 @@ async function initDB() {
             customerId INT REFERENCES credit_customers(id),
             customerName VARCHAR(255),
             amount DECIMAL(10,2),
+            creditUsed DECIMAL(10,2) DEFAULT 0,
             debtBefore DECIMAL(10,2),
             debtAfter DECIMAL(10,2),
             cashierId INT,
@@ -297,6 +300,10 @@ async function initDB() {
         await pool.query("ALTER TABLE returns_table ADD COLUMN IF NOT EXISTS returnedInUnit VARCHAR(50)");
         await pool.query("ALTER TABLE returns_table ADD COLUMN IF NOT EXISTS conversionFactor INT DEFAULT 0");
         await pool.query("ALTER TABLE returns_table ADD COLUMN IF NOT EXISTS baseQuantity INT DEFAULT 0");
+        // ✅ CREDIT BALANCE additions
+        await pool.query("ALTER TABLE credit_customers ADD COLUMN IF NOT EXISTS creditBalance DECIMAL(10,2) DEFAULT 0");
+        await pool.query("ALTER TABLE debt_payments ADD COLUMN IF NOT EXISTS overpayment DECIMAL(10,2) DEFAULT 0");
+        await pool.query("ALTER TABLE credit_sales ADD COLUMN IF NOT EXISTS creditUsed DECIMAL(10,2) DEFAULT 0");
     } catch (e) {
         console.error('Error adding columns:', e.message);
     }
@@ -1199,12 +1206,10 @@ app.post('/api/sales', verifyToken, async (req, res) => {
             let conversionFactor = parseInt(i.conversionFactor) || 0;
             let baseQuantity = i.quantity;
             
-            // If sold in alternative unit, convert to base units for stock deduction
             if (soldInUnit && conversionFactor > 0) {
                 baseQuantity = i.quantity * conversionFactor;
             }
             
-            // Validate stock
             if (product && baseQuantity > product.stock) {
                 const ds = getDisplayStock(product);
                 return res.status(400).json({ 
@@ -1217,7 +1222,6 @@ app.post('/api/sales', verifyToken, async (req, res) => {
                 "INSERT INTO sale_items (saleId, productId, productName, quantity, price, total, soldInUnit, conversionFactor, baseQuantity) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
                 [saleId, i.productId, i.productName, i.quantity, i.price, i.total || i.quantity * i.price, soldInUnit, conversionFactor, baseQuantity]
             );
-            // Deduct base units from stock
             await pool.query("UPDATE products SET stock = stock - $1 WHERE id = $2", [baseQuantity, i.productId]);
         }
         logActivity(cashierId, cashierName, 'sale', 'Sale: ' + rn + ' - KES ' + (total || 0).toLocaleString());
@@ -1250,16 +1254,15 @@ app.get('/api/sales/search/:receiptNo', verifyToken, async (req, res) => {
         res.status(500).json({ error: 'Error searching sale' });
     }
 });
+
 // ============================================
-// RETURN ENDPOINTS (with dual-unit support)
+// RETURN ENDPOINTS
 // ============================================
 
 app.post('/api/returns', verifyToken, async (req, res) => {
     const { originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnAmount, exchangeProductId, exchangeProductName, exchangeAmount, refundAmount, reason, cashierName, returnedInUnit, conversionFactor } = req.body;
     try {
         let baseQuantity = quantity;
-        
-        // If returned in alternative unit, convert to base units
         if (returnedInUnit && conversionFactor > 0) {
             baseQuantity = quantity * conversionFactor;
         }
@@ -1268,7 +1271,6 @@ app.post('/api/returns', verifyToken, async (req, res) => {
             "INSERT INTO returns_table (originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnedInUnit, conversionFactor, baseQuantity, returnAmount, exchangeProductId, exchangeProductName, exchangeAmount, refundAmount, reason, cashierName, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW())",
             [originalSaleId, originalReceiptNo, customerName, returnType, productId, productName, quantity, returnedInUnit || null, conversionFactor || 0, baseQuantity, returnAmount, exchangeProductId || null, exchangeProductName || null, exchangeAmount || 0, refundAmount || 0, reason, cashierName]
         );
-        // Add back base units to stock
         await pool.query("UPDATE products SET stock = stock + $1 WHERE id = $2", [baseQuantity, productId]);
         if (exchangeProductId) {
             await pool.query("UPDATE products SET stock = stock - 1 WHERE id = $1 AND stock > 0", [exchangeProductId]);
@@ -1332,7 +1334,7 @@ app.get('/api/returns/summary', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// PURCHASE ORDERS (with dual-unit support & camelCase aliases)
+// PURCHASE ORDERS
 // ============================================
 
 app.get('/api/purchase-orders', verifyToken, authorize('admin'), async (req, res) => {
@@ -1370,7 +1372,6 @@ app.post('/api/purchase-orders', verifyToken, authorize('admin'), async (req, re
                 let conversionFactor = parseInt(i.conversionFactor) || 0;
                 let baseQuantity = i.quantity;
                 
-                // If ordered in alternative unit, calculate base quantity
                 if (orderedInUnit && conversionFactor > 0) {
                     baseQuantity = i.quantity * conversionFactor;
                 }
@@ -1397,7 +1398,6 @@ app.put('/api/purchase-orders/:id/receive', verifyToken, authorize('admin'), asy
         const itemsResult = await pool.query("SELECT * FROM po_items WHERE poId = $1", [req.params.id]);
         const items = itemsResult.rows;
         for (let i of items) {
-            // Use basequantity (lowercase from DB) for stock addition (already converted)
             const stockToAdd = i.basequantity || i.quantity;
             
             const pResult = await pool.query("SELECT * FROM products WHERE name=$1 AND brand=$2 AND variant=$3 AND isActive=1", [i.productname, i.brand, i.variant]);
@@ -1414,6 +1414,7 @@ app.put('/api/purchase-orders/:id/receive', verifyToken, authorize('admin'), asy
         res.status(500).json({ success: false, message: 'Error receiving purchase order' });
     }
 });
+
 // ============================================
 // SUPPLIERS
 // ============================================
@@ -1440,13 +1441,13 @@ app.post('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => 
 });
 
 // ============================================
-// CREDIT CUSTOMERS
+// CREDIT CUSTOMERS (with creditBalance)
 // ============================================
 
 app.get('/api/credit-customers', verifyToken, async (req, res) => {
     try {
         const r = await pool.query(
-            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE isactive=1 ORDER BY name"
+            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", COALESCE(creditbalance, 0) AS \"creditBalance\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE isactive=1 ORDER BY name"
         );
         res.json(r.rows);
     } catch (error) {
@@ -1458,17 +1459,17 @@ app.get('/api/credit-customers', verifyToken, async (req, res) => {
 app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
     try {
         const cResult = await pool.query(
-            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE id = $1",
+            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", COALESCE(creditbalance, 0) AS \"creditBalance\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE id = $1",
             [req.params.id]
         );
         const c = cResult.rows;
         if (c.length) {
             const salesResult = await pool.query(
-                "SELECT id, saleid AS \"saleId\", customerid AS \"customerId\", customername AS \"customerName\", amount, debtbefore AS \"debtBefore\", debtafter AS \"debtAfter\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", date FROM credit_sales WHERE customerId = $1 ORDER BY date DESC LIMIT 10",
+                "SELECT id, saleid AS \"saleId\", customerid AS \"customerId\", customername AS \"customerName\", amount, COALESCE(creditused, 0) AS \"creditUsed\", debtbefore AS \"debtBefore\", debtafter AS \"debtAfter\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", date FROM credit_sales WHERE customerId = $1 ORDER BY date DESC LIMIT 10",
                 [req.params.id]
             );
             const paymentsResult = await pool.query(
-                "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, paymentmethod AS \"paymentMethod\", saleid AS \"saleId\", receivedby AS \"receivedBy\", receivedbyid AS \"receivedById\", date FROM debt_payments WHERE customerId = $1 ORDER BY date DESC LIMIT 10",
+                "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, COALESCE(overpayment, 0) AS \"overpayment\", paymentmethod AS \"paymentMethod\", saleid AS \"saleId\", receivedby AS \"receivedBy\", receivedbyid AS \"receivedById\", date FROM debt_payments WHERE customerId = $1 ORDER BY date DESC LIMIT 10",
                 [req.params.id]
             );
             c[0].recentSales = salesResult.rows;
@@ -1485,7 +1486,7 @@ app.post('/api/credit-customers', verifyToken, async (req, res) => {
     const { name, phone, idNumber, address, debtLimit, cashierId, cashierName } = req.body;
     try {
         const r = await pool.query(
-            "INSERT INTO credit_customers (name, phone, idNumber, address, debtLimit, registeredBy, registeredById, dateRegistered) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW()) RETURNING id",
+            "INSERT INTO credit_customers (name, phone, idNumber, address, debtLimit, creditBalance, registeredBy, registeredById, dateRegistered) VALUES ($1, $2, $3, $4, $5, 0, $6, $7, NOW()) RETURNING id",
             [name, phone, idNumber, address, debtLimit || 5000, cashierName || 'Admin', cashierId || null]
         );
         res.json({ success: true, id: r.rows[0].id });
@@ -1516,7 +1517,7 @@ app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => 
     const q = '%' + req.params.query + '%';
     try {
         const r = await pool.query(
-            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE isactive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idnumber ILIKE $3) LIMIT 10",
+            "SELECT id, name, phone, idnumber AS \"idNumber\", address, debtlimit AS \"debtLimit\", totaldebt AS \"totalDebt\", COALESCE(creditbalance, 0) AS \"creditBalance\", registeredby AS \"registeredBy\", registeredbyid AS \"registeredById\", dateregistered AS \"dateRegistered\", isactive AS \"isActive\" FROM credit_customers WHERE isactive=1 AND (name ILIKE $1 OR phone ILIKE $2 OR idnumber ILIKE $3) LIMIT 10",
             [q, q, q]
         );
         res.json(r.rows);
@@ -1527,18 +1528,49 @@ app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => 
 });
 
 // ============================================
-// DEBT PAYMENTS
+// DEBT PAYMENTS (with overpayment → creditBalance)
 // ============================================
 
 app.post('/api/debt-payments', verifyToken, async (req, res) => {
     const { customerId, customerName, amount, paymentMethod, receivedBy, receivedById } = req.body;
     try {
+        // Get current customer to compute overpayment
+        const custResult = await pool.query("SELECT id, totalDebt, COALESCE(creditBalance, 0) as creditbalance FROM credit_customers WHERE id = $1", [customerId]);
+        if (!custResult.rows.length) {
+            return res.status(404).json({ success: false, message: 'Customer not found' });
+        }
+        const currentDebt = Number(custResult.rows[0].totaldebt) || 0;
+        const currentCredit = Number(custResult.rows[0].creditbalance) || 0;
+
+        // Compute overpayment
+        const overpayment = Math.max(0, amount - currentDebt);
+        const appliedToDebt = amount - overpayment;
+        const newDebt = Math.max(0, currentDebt - amount);
+        const newCredit = currentCredit + overpayment;
+
         await pool.query(
-            "INSERT INTO debt_payments (customerId, customerName, amount, paymentMethod, receivedBy, receivedById, date) VALUES ($1, $2, $3, $4, $5, $6, NOW())",
-            [customerId, customerName, amount, paymentMethod || 'cash', receivedBy, receivedById]
+            "INSERT INTO debt_payments (customerId, customerName, amount, overpayment, paymentMethod, receivedBy, receivedById, date) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())",
+            [customerId, customerName, amount, overpayment, paymentMethod || 'cash', receivedBy, receivedById]
         );
-        await pool.query("UPDATE credit_customers SET totalDebt = GREATEST(0, totalDebt - $1) WHERE id = $2", [amount, customerId]);
-        res.json({ success: true });
+
+        await pool.query(
+            "UPDATE credit_customers SET totalDebt = $1, creditBalance = $2 WHERE id = $3",
+            [newDebt, newCredit, customerId]
+        );
+
+        // Log if there was an overpayment
+        if (overpayment > 0) {
+            logActivity(receivedById, receivedBy, 'credit_overpayment',
+                `Overpayment KES ${overpayment.toLocaleString()} added to credit for ${customerName}`);
+        }
+
+        res.json({
+            success: true,
+            appliedToDebt,
+            overpayment,
+            newDebt,
+            newCreditBalance: newCredit
+        });
     } catch (error) {
         console.error('Create debt payment error:', error);
         res.status(500).json({ success: false, message: 'Error creating debt payment' });
@@ -1548,7 +1580,7 @@ app.post('/api/debt-payments', verifyToken, async (req, res) => {
 app.get('/api/debt-payments/:customerId', verifyToken, async (req, res) => {
     try {
         const r = await pool.query(
-            "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, paymentmethod AS \"paymentMethod\", saleid AS \"saleId\", receivedby AS \"receivedBy\", receivedbyid AS \"receivedById\", date FROM debt_payments WHERE customerId = $1 ORDER BY date DESC",
+            "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, COALESCE(overpayment, 0) AS \"overpayment\", paymentmethod AS \"paymentMethod\", saleid AS \"saleId\", receivedby AS \"receivedBy\", receivedbyid AS \"receivedById\", date FROM debt_payments WHERE customerId = $1 ORDER BY date DESC",
             [req.params.customerId]
         );
         res.json(r.rows);
@@ -1561,12 +1593,18 @@ app.get('/api/debt-payments/:customerId', verifyToken, async (req, res) => {
 app.delete('/api/debt-payments/:id', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const paymentResult = await pool.query(
-            "SELECT id, amount, customerid, customername FROM debt_payments WHERE id = $1",
+            "SELECT id, amount, COALESCE(overpayment, 0) as overpayment, customerid, customername FROM debt_payments WHERE id = $1",
             [req.params.id]
         );
         const payment = paymentResult.rows;
         if (!payment.length) return res.json({ success: false });
-        await pool.query("UPDATE credit_customers SET totalDebt = totalDebt + $1 WHERE id = $2", [payment[0].amount, payment[0].customerid]);
+        
+        // Reverse: debt goes up by (amount - overpayment), credit goes down by overpayment
+        const appliedToDebt = Number(payment[0].amount) - Number(payment[0].overpayment);
+        await pool.query(
+            "UPDATE credit_customers SET totalDebt = totalDebt + $1, creditBalance = GREATEST(0, COALESCE(creditBalance, 0) - $2) WHERE id = $3",
+            [appliedToDebt, payment[0].overpayment, payment[0].customerid]
+        );
         await pool.query("DELETE FROM debt_payments WHERE id = $1", [req.params.id]);
         logActivity(null, 'Admin', 'delete_payment', 'Deleted payment: ' + payment[0].customername + ' - KES ' + Number(payment[0].amount).toLocaleString());
         res.json({ success: true });
@@ -1577,25 +1615,59 @@ app.delete('/api/debt-payments/:id', verifyToken, authorize('admin'), async (req
 });
 
 // ============================================
-// CREDIT SALES
+// CREDIT SALES (with auto-apply credit balance)
 // ============================================
 
 app.post('/api/credit-sales', verifyToken, async (req, res) => {
     const { saleId, customerId, customerName, amount, cashierId, cashierName } = req.body;
     try {
-        const cResult = await pool.query("SELECT * FROM credit_customers WHERE id = $1", [customerId]);
+        const cResult = await pool.query("SELECT id, totalDebt, COALESCE(creditBalance, 0) as creditbalance, debtLimit FROM credit_customers WHERE id = $1", [customerId]);
         const c = cResult.rows;
-        if (!c.length) return res.json({ success: false });
-        const debtBefore = Number(c[0].totaldebt);
-        const debtAfter = debtBefore + amount;
-        if (debtAfter > c[0].debtlimit) return res.json({ success: false, message: 'Debt limit exceeded!' });
+        if (!c.length) return res.json({ success: false, message: 'Customer not found' });
+
+        const debtBefore = Number(c[0].totaldebt) || 0;
+        const creditAvailable = Number(c[0].creditbalance) || 0;
+        const debtLimit = Number(c[0].debtlimit) || 5000;
+
+        // Auto-apply credit balance first
+        const creditUsed = Math.min(creditAvailable, amount);
+        const remainingAfterCredit = amount - creditUsed;
+        const newDebt = debtBefore + remainingAfterCredit;
+        const newCreditBalance = creditAvailable - creditUsed;
+
+        // Check debt limit (only on the new debt portion)
+        if (newDebt > debtLimit) {
+            return res.json({
+                success: false,
+                message: `Debt limit exceeded! New debt: KES ${newDebt.toLocaleString()}, Limit: KES ${debtLimit.toLocaleString()}`
+            });
+        }
+
         await pool.query(
-            "INSERT INTO credit_sales (saleId, customerId, customerName, amount, debtBefore, debtAfter, cashierId, cashierName, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())",
-            [saleId, customerId, customerName, amount, debtBefore, debtAfter, cashierId, cashierName]
+            "INSERT INTO credit_sales (saleId, customerId, customerName, amount, creditUsed, debtBefore, debtAfter, cashierId, cashierName, date) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())",
+            [saleId, customerId, customerName, amount, creditUsed, debtBefore, newDebt, cashierId, cashierName]
         );
-        await pool.query("UPDATE credit_customers SET totalDebt = totalDebt + $1 WHERE id = $2", [amount, customerId]);
+
+        await pool.query(
+            "UPDATE credit_customers SET totalDebt = $1, creditBalance = $2 WHERE id = $3",
+            [newDebt, newCreditBalance, customerId]
+        );
+
         await pool.query("UPDATE sales SET isCredit=1, customerId=$1 WHERE id=$2", [customerId, saleId]);
-        res.json({ success: true, debtBefore, debtAfter });
+
+        // Log if credit was applied
+        if (creditUsed > 0) {
+            logActivity(cashierId, cashierName, 'credit_applied',
+                `Applied KES ${creditUsed.toLocaleString()} store credit to sale for ${customerName}`);
+        }
+
+        res.json({
+            success: true,
+            debtBefore,
+            debtAfter: newDebt,
+            creditUsed,
+            newCreditBalance
+        });
     } catch (error) {
         console.error('Create credit sale error:', error);
         res.status(500).json({ success: false, message: 'Error creating credit sale' });
@@ -1605,7 +1677,7 @@ app.post('/api/credit-sales', verifyToken, async (req, res) => {
 app.get('/api/credit-sales', verifyToken, async (req, res) => {
     try {
         const r = await pool.query(
-            "SELECT id, saleid AS \"saleId\", customerid AS \"customerId\", customername AS \"customerName\", amount, debtbefore AS \"debtBefore\", debtafter AS \"debtAfter\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", date FROM credit_sales ORDER BY date DESC LIMIT 100"
+            "SELECT id, saleid AS \"saleId\", customerid AS \"customerId\", customername AS \"customerName\", amount, COALESCE(creditused, 0) AS \"creditUsed\", debtbefore AS \"debtBefore\", debtafter AS \"debtAfter\", cashierid AS \"cashierId\", cashiername AS \"cashierName\", date FROM credit_sales ORDER BY date DESC LIMIT 100"
         );
         res.json(r.rows);
     } catch (error) {
@@ -1614,11 +1686,16 @@ app.get('/api/credit-sales', verifyToken, async (req, res) => {
     }
 });
 
+// ============================================
+// CREDIT SUMMARY (with totalCreditBalance)
+// ============================================
+
 app.get('/api/credit-summary', verifyToken, async (req, res) => {
     try {
         const tdResult = await pool.query("SELECT COALESCE(SUM(totalDebt), 0) as total FROM credit_customers WHERE isActive=1");
+        const tcResult = await pool.query("SELECT COALESCE(SUM(COALESCE(creditBalance, 0)), 0) as total FROM credit_customers WHERE isActive=1");
         const acResult = await pool.query("SELECT COUNT(*) as count FROM credit_customers WHERE isActive=1 AND totalDebt > 0");
-        const tcResult = await pool.query("SELECT COUNT(*) as count FROM credit_customers WHERE isActive=1");
+        const tcntResult = await pool.query("SELECT COUNT(*) as count FROM credit_customers WHERE isActive=1");
         const today = new Date().toISOString().split('T')[0];
         const tsResult = await pool.query(
             "SELECT COALESCE(SUM(amount), 0) as total FROM credit_sales WHERE date::date = $1::date",
@@ -1630,8 +1707,9 @@ app.get('/api/credit-summary', verifyToken, async (req, res) => {
         );
         res.json({
             totalDebt: parseFloat(tdResult.rows[0].total || 0),
+            totalCreditBalance: parseFloat(tcResult.rows[0].total || 0),
             activeCustomers: parseInt(acResult.rows[0].count || 0),
-            totalCustomers: parseInt(tcResult.rows[0].count || 0),
+            totalCustomers: parseInt(tcntResult.rows[0].count || 0),
             todayCreditSales: parseFloat(tsResult.rows[0].total || 0),
             todayPayments: parseFloat(tpResult.rows[0].total || 0)
         });
@@ -1639,6 +1717,7 @@ app.get('/api/credit-summary', verifyToken, async (req, res) => {
         console.error('Credit summary error:', error);
         res.json({
             totalDebt: 0,
+            totalCreditBalance: 0,
             activeCustomers: 0,
             totalCustomers: 0,
             todayCreditSales: 0,
@@ -1646,6 +1725,7 @@ app.get('/api/credit-summary', verifyToken, async (req, res) => {
         });
     }
 });
+
 // ============================================
 // SETTINGS
 // ============================================
@@ -1772,7 +1852,7 @@ app.get('/api/mpesa/transaction/:checkoutRequestID', verifyToken, async (req, re
 });
 
 // ============================================
-// DAILY REPORTS (with camelCase aliases & date support)
+// DAILY REPORTS
 // ============================================
 
 app.get('/api/daily-reports', verifyToken, async (req, res) => {
@@ -1795,7 +1875,6 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
         );
         var report = reportResult.rows;
         if (!report.length) {
-            // Auto‑generate if not exists
             var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [today + '%']);
             var sales = salesResult.rows;
             var itemsSoldResult = await pool.query("SELECT COALESCE(SUM(si.baseQuantity), 0) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
@@ -1821,7 +1900,6 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
 
 app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (req, res) => {
     try {
-        // Accept optional date from request body, default to today
         var targetDate = req.body.date || new Date().toISOString().split('T')[0];
         var salesResult = await pool.query("SELECT * FROM sales WHERE date::text LIKE $1 AND isVoid=0", [targetDate + '%']);
         var sales = salesResult.rows;
@@ -1840,6 +1918,7 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
         res.status(500).json({ success: false, message: 'Error generating daily report' });
     }
 });
+
 // ============================================
 // FRONTEND ROUTE
 // ============================================
