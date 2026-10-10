@@ -1,11 +1,25 @@
 // ============================================
 // ADMIN PURCHASES - With JWT Authentication & Dual-Unit Support
+// Updated: debounced search, cache-based lookups, no N+1 product fetches
 // ============================================
 
 const AdminPurchasesComponent = {
     _poItems: [],
     _editingPOId: null,
     _editingPONumber: null,
+
+    // ✅ History cache
+    _allPOs: [],
+
+    // ✅ Cache of products for the search — shared across keystrokes and addPOItem calls
+    _productsCache: [],
+    _productsCacheFetchedAt: 0,
+    _PRODUCTS_CACHE_TTL_MS: 30000,
+
+    // ✅ Debounce timers
+    _productSearchTimer: null,
+    _poFilterTimer: null,
+    _FILTER_DEBOUNCE_MS: 200,
 
     render() {
         var h = '';
@@ -15,7 +29,8 @@ const AdminPurchasesComponent = {
         h += '<div class="form-group"><label>Notes</label><input type="text" id="poNotes" class="form-control" placeholder="Order notes..."></div>';
         h += '<button class="btn btn-outline" onclick="AdminPurchasesComponent.showAddSupplier()" style="height:42px;"><i class="fas fa-plus"></i> New Supplier</button></div>';
         h += '<hr><h4>Select Products</h4>';
-        h += '<div class="form-group"><label>Search Products</label><input type="text" id="productSearch" class="form-control" placeholder="Select supplier first, then search products..." oninput="AdminPurchasesComponent.searchProducts()"></div>';
+        // ✅ Debounced search
+        h += '<div class="form-group"><label>Search Products</label><input type="text" id="productSearch" class="form-control" placeholder="Select supplier first, then search products..." oninput="AdminPurchasesComponent._onProductSearchInput()"></div>';
         h += '<div id="productResults" style="max-height:300px;overflow-y:auto;margin-bottom:1rem;border:1px solid #ddd;border-radius:0.5rem;display:none;"></div>';
         h += '<div id="poItemsList" style="margin:1rem 0;"><p style="color:#999;text-align:center;">No items added yet.</p></div>';
         h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-top:1rem;">';
@@ -35,11 +50,12 @@ const AdminPurchasesComponent = {
         h += '<button class="btn btn-primary btn-lg" style="width:100%;margin-top:1rem;" id="submitPOBtn" onclick="AdminPurchasesComponent.submitPO()"><i class="fas fa-save"></i> Submit Purchase Order</button>';
         h += '<button class="btn btn-outline" id="cancelEditBtn" style="display:none;width:100%;margin-top:0.5rem;" onclick="AdminPurchasesComponent.cancelEdit()"><i class="fas fa-times"></i> Cancel Edit</button>';
         h += '</div></div>';
-        
+
         // Purchase Orders History with search & filter
         h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-list"></i> Purchase Orders History</h3>';
         h += '<div style="display:flex;gap:0.5rem;flex-wrap:wrap;">';
-        h += '<input type="text" id="poSearchInput" class="form-control" placeholder=" Search by supplier, PO number, or date..." oninput="AdminPurchasesComponent._filterPOs()" style="width:300px;">';
+        // ✅ Debounced PO filter
+        h += '<input type="text" id="poSearchInput" class="form-control" placeholder=" Search by supplier, PO number, or date..." oninput="AdminPurchasesComponent._onPOFilterInput()" style="width:300px;">';
         h += '<select id="poStatusFilter" class="form-control" onchange="AdminPurchasesComponent._filterPOs()" style="width:150px;">';
         h += '<option value="all">All Status</option>';
         h += '<option value="pending">Pending</option>';
@@ -50,20 +66,48 @@ const AdminPurchasesComponent = {
         h += '<option value="list">List All</option>';
         h += '</select>';
         h += '</div></div><div class="card-body"><div id="poHistory">Loading...</div></div></div>';
-        
-        setTimeout(function(){ AdminPurchasesComponent.loadSuppliers(); AdminPurchasesComponent.loadPOs(); }, 200);
+
+        setTimeout(function(){
+            AdminPurchasesComponent.loadSuppliers();
+            AdminPurchasesComponent.loadPOs();
+            // ✅ Warm the products cache in the background so first search is instant
+            AdminPurchasesComponent._getProductsCache().catch(function(){});
+        }, 200);
         return h;
     },
 
-    // ========== FILTERED & GROUPED PO HISTORY ==========
-    _allPOs: [],
+    // ============================================
+    // ✅ Shared products cache
+    // ============================================
+    async _getProductsCache(forceFresh) {
+        var now = Date.now();
+        if (!forceFresh && this._productsCache.length && (now - this._productsCacheFetchedAt) < this._PRODUCTS_CACHE_TTL_MS) {
+            return this._productsCache;
+        }
+        try {
+            var products = await ApiService.get('/products/with-prices');
+            this._productsCache = Array.isArray(products) ? products : [];
+            this._productsCacheFetchedAt = now;
+        } catch(e) {
+            // keep whatever we had
+        }
+        return this._productsCache;
+    },
 
+    _invalidateProductsCache() {
+        this._productsCache = [];
+        this._productsCacheFetchedAt = 0;
+    },
+
+    // ============================================
+    // HISTORY
+    // ============================================
     loadPOs() {
         var self = this;
         ApiService.get('/purchase-orders')
             .then(function(pos){
                 self._allPOs = pos || [];
-                self._renderPOs(pos);
+                self._renderPOs(self._allPOs);
             })
             .catch(function(e){
                 console.error('Error loading POs:', e);
@@ -75,14 +119,14 @@ const AdminPurchasesComponent = {
     _renderPOs(pos) {
         var div = document.getElementById('poHistory');
         if (!div) return;
-        
+
         if (!pos || !pos.length) {
             div.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No purchase orders found.</p>';
             return;
         }
-        
+
         var groupMode = (document.getElementById('poGroupFilter')?.value || 'grouped') === 'grouped';
-        
+
         if (groupMode) {
             this._renderGroupedPOs(pos, div);
         } else {
@@ -115,20 +159,20 @@ const AdminPurchasesComponent = {
             grouped[key].statuses[st] = (grouped[key].statuses[st] || 0) + 1;
             grouped[key].orders.push(po);
         });
-        
+
         var suppliers = Object.values(grouped).sort(function(a, b) {
             return new Date(b.lastDate) - new Date(a.lastDate);
         });
-        
+
         var totalAll = pos.reduce(function(s, po) { return s + Number(po.total || 0); }, 0);
-        
+
         var h = '<div style="margin-bottom:0.5rem;font-weight:600;"> Total: <span style="color:var(--primary);">KES ' + totalAll.toLocaleString() + '</span> | Suppliers: ' + suppliers.length + ' | POs: ' + pos.length + '</div>';
-        
+
         suppliers.forEach(function(g, idx) {
             var statusHTML = '';
             if (g.statuses.pending) statusHTML += '<span class="badge badge-warning">' + g.statuses.pending + ' pending</span> ';
             if (g.statuses.received) statusHTML += '<span class="badge badge-success">' + g.statuses.received + ' received</span> ';
-            
+
             h += '<div class="supplier-group" style="margin-bottom:0.5rem;border:1px solid #ddd;border-radius:0.75rem;overflow:hidden;" data-search="' + g.supplierName.toLowerCase() + '">';
             h += '<div style="background:#f8fafc;padding:0.75rem 1rem;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="AdminPurchasesComponent._toggleSupplier(' + idx + ')">';
             h += '<div>';
@@ -140,7 +184,7 @@ const AdminPurchasesComponent = {
             h += '<br><small>' + statusHTML + '</small>';
             h += '<br><small style="color:#3b82f6;">▶ Click to expand</small>';
             h += '</div></div>';
-            
+
             h += '<div class="supplier-detail" id="supplierDetail_' + idx + '" style="display:none;border-top:1px solid #eee;">';
             h += '<table class="table" style="margin:0;font-size:0.9rem;"><thead><tr><th>PO Number</th><th>Items</th><th>Total</th><th>Status</th><th>Date</th><th>Actions</th></tr></thead><tbody>';
             g.orders.sort(function(a, b) { return new Date(b.date) - new Date(a.date); }).forEach(function(po) {
@@ -160,7 +204,7 @@ const AdminPurchasesComponent = {
             });
             h += '</tbody></table></div></div>';
         });
-        
+
         div.innerHTML = h;
     },
 
@@ -193,25 +237,36 @@ const AdminPurchasesComponent = {
         }
     },
 
+    // ✅ Debounced wrapper
+    _onPOFilterInput: function() {
+        if (this._poFilterTimer) clearTimeout(this._poFilterTimer);
+        var self = this;
+        this._poFilterTimer = setTimeout(function() {
+            self._poFilterTimer = null;
+            self._filterPOs();
+        }, this._FILTER_DEBOUNCE_MS);
+    },
+
     _filterPOs() {
         var search = (document.getElementById('poSearchInput')?.value || '').toLowerCase();
         var statusFilter = document.getElementById('poStatusFilter')?.value || 'all';
         var all = this._allPOs || [];
-        
+
         var filtered = all.filter(function(po) {
-            var matchSearch = !search || 
+            var matchSearch = !search ||
                 (po.supplierName || '').toLowerCase().indexOf(search) > -1 ||
                 (po.poNumber || '').toLowerCase().indexOf(search) > -1 ||
                 (po.date || '').indexOf(search) > -1;
             var matchStatus = statusFilter === 'all' || po.status === statusFilter;
             return matchSearch && matchStatus;
         });
-        
+
         this._renderPOs(filtered);
     },
 
-    // ========== SUPPLIER FUNCTIONS ==========
-    
+    // ============================================
+    // SUPPLIERS
+    // ============================================
     loadSuppliers() {
         ApiService.get('/suppliers')
             .then(function(suppliers){
@@ -243,225 +298,249 @@ const AdminPurchasesComponent = {
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
     },
 
-    // ========== PRODUCT SEARCH & ADD (with dual-unit) ==========
+    // ============================================
+    // PRODUCT SEARCH & ADD
+    // ============================================
 
-    searchProducts() {
+    // ✅ Debounced input handler
+    _onProductSearchInput: function() {
+        if (this._productSearchTimer) clearTimeout(this._productSearchTimer);
+        var self = this;
+        this._productSearchTimer = setTimeout(function() {
+            self._productSearchTimer = null;
+            self.searchProducts();
+        }, this._FILTER_DEBOUNCE_MS);
+    },
+
+    // ✅ Client-side filter against cached product list — no API hit per keystroke
+    async searchProducts() {
         var supplierSelect = document.getElementById('supplierSelect');
         if (!supplierSelect || !supplierSelect.value) { this._showSupplierWarning(); document.getElementById('productSearch').value = ''; return; }
+
         var q = (document.getElementById('productSearch').value || '').toLowerCase();
-        var div = document.getElementById('productResults'); if(q.length < 1){div.style.display='none';return;} div.style.display = 'block';
-        ApiService.get('/products/with-prices')
-            .then(function(products){
-                var filtered = products.filter(function(p){return p.name.toLowerCase().includes(q) || (p.brand||'').toLowerCase().includes(q);});
-                var h = ''; if(filtered.length === 0){h='<p style="padding:1rem;color:#999;">No products found</p>';}
-                else{filtered.forEach(function(p){
-                    var stockDisplay = typeof ProductService !== 'undefined' && ProductService.getStockDisplay 
-                        ? ProductService.getStockDisplay(p) 
-                        : (p.stock + ' ' + (p.unit || 'pcs'));
-                    
-                    h += '<div style="padding:0.75rem;border-bottom:1px solid #eee;cursor:pointer;display:grid;grid-template-columns:1fr auto auto auto auto;gap:0.5rem;align-items:center;" onclick="AdminPurchasesComponent.addPOItem('+p.id+')">';
-                    h += '<div><strong>'+(p.brand||'')+' '+p.name+'</strong><br><small style="color:#999;">'+(p.variant||'')+'</small></div>';
-                    h += '<div style="text-align:center;"><small style="color:#999;">Buy</small><br>KES '+(p.lastPrice||p.cost||0).toLocaleString()+'</div>';
-                    h += '<div style="text-align:center;"><small style="color:#999;">Sell</small><br>KES '+(p.price||0).toLocaleString()+'/' + (p.unit||'pcs') + '</div>';
-                    h += '<div style="text-align:center;"><small style="color:#999;">Stock</small><br>' + p.stock + ' ' + (p.unit||'pcs') + '</div>';
-                    h += '<button class="btn btn-sm btn-success">+ Add</button></div>';
-                });} div.innerHTML = h;
+        var div = document.getElementById('productResults');
+        if (q.length < 1) { div.style.display = 'none'; return; }
+
+        // ✅ Fetch from cache — 30-second TTL
+        var products = await this._getProductsCache();
+
+        var filtered = products.filter(function(p){
+            return (p.name||'').toLowerCase().includes(q) || (p.brand||'').toLowerCase().includes(q);
+        });
+
+        var h = '';
+        if (filtered.length === 0) {
+            h = '<p style="padding:1rem;color:#999;">No products found</p>';
+        } else {
+            // Limit to top 50 results to keep the DOM light
+            filtered.slice(0, 50).forEach(function(p){
+                var stockDisplay = (typeof ProductService !== 'undefined' && ProductService.getStockDisplay)
+                    ? ProductService.getStockDisplay(p)
+                    : (p.stock + ' ' + (p.unit || 'pcs'));
+
+                h += '<div style="padding:0.75rem;border-bottom:1px solid #eee;cursor:pointer;display:grid;grid-template-columns:1fr auto auto auto auto;gap:0.5rem;align-items:center;" onclick="AdminPurchasesComponent.addPOItem(' + p.id + ')">';
+                h += '<div><strong>'+(p.brand||'')+' '+p.name+'</strong><br><small style="color:#999;">'+(p.variant||'')+'</small></div>';
+                h += '<div style="text-align:center;"><small style="color:#999;">Buy</small><br>KES '+(p.lastPrice||p.cost||0).toLocaleString()+'</div>';
+                h += '<div style="text-align:center;"><small style="color:#999;">Sell</small><br>KES '+(p.price||0).toLocaleString()+'/' + (p.unit||'pcs') + '</div>';
+                h += '<div style="text-align:center;"><small style="color:#999;">Stock</small><br>' + p.stock + ' ' + (p.unit||'pcs') + '</div>';
+                h += '<button class="btn btn-sm btn-success">+ Add</button></div>';
             });
+            if (filtered.length > 50) {
+                h += '<p style="padding:0.75rem;color:#999;text-align:center;font-size:0.85rem;">Showing first 50 of ' + filtered.length + ' matches — refine your search</p>';
+            }
+        }
+        div.innerHTML = h;
+        div.style.display = 'block';
     },
 
-    // ✅ REDESIGNED: Clean, well-structured modal
-    addPOItem(productId) {
+    // ✅ Reads product from cache instead of re-fetching the entire list
+    async addPOItem(productId) {
         var supplierSelect = document.getElementById('supplierSelect');
         if (!supplierSelect || !supplierSelect.value) { this._showSupplierWarning(); return; }
+
         var self = this;
-        ApiService.get('/products/with-prices')
-            .then(function(products){
-                var p = products.find(function(x){return x.id == productId;}); if(!p)return;
-                var buyPrice = p.lastPrice || p.cost || 0;
-                var hasAlternativeUnit = !!(p.salesUnit && p.conversionFactor > 0);
-                var conversionFactor = hasAlternativeUnit ? parseInt(p.conversionFactor) : 0;
-                var salesUnit = hasAlternativeUnit ? p.salesUnit : '';
-                
-                var m = document.createElement('div'); m.className = 'modal-overlay';
-                var h = '<div class="modal" style="max-width:500px;">';
-                
-                // Header
-                h += '<div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;">';
-                h += '<h3 style="color:white;margin:0;"><i class="fas fa-cart-plus"></i> Add to Purchase Order</h3>';
-                h += '<button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">✕</button>';
-                h += '</div>';
-                
-                h += '<div class="modal-body">';
-                
-                // Product Info Card
-                h += '<div style="background:#f8fafc;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;text-align:center;">';
-                h += '<h4 style="margin:0 0 0.25rem;">'+(p.brand||'')+' '+p.name+'</h4>';
-                if(p.variant) h += '<p style="color:#666;margin:0 0 0.5rem;">' + p.variant + '</p>';
-                var stockDisplay = typeof ProductService !== 'undefined' && ProductService.getStockDisplay 
-                    ? ProductService.getStockDisplay(p) 
-                    : (p.stock + ' ' + (p.unit||'pcs'));
-                h += '<p style="color:#666;margin:0;"><i class="fas fa-boxes"></i> Current Stock: <strong>' + stockDisplay + '</strong></p>';
-                h += '</div>';
-                
-                // Prices Card
-                h += '<div style="background:#f5f5f5;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;">';
-                h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">';
-                h += '<div style="text-align:center;">';
-                h += '<small style="color:#666;display:block;margin-bottom:0.25rem;"><i class="fas fa-tag"></i> Buy Price (per ' + (p.unit||'pcs') + ')</small>';
-                h += '<input type="number" id="modalBuyPrice" class="form-control" value="'+buyPrice+'" step="0.01" style="text-align:center;font-weight:700;font-size:1.1rem;">';
-                h += '</div>';
-                h += '<div style="text-align:center;">';
-                h += '<small style="color:#666;display:block;margin-bottom:0.25rem;"><i class="fas fa-money-bill-wave"></i> Sell Price</small>';
-                h += '<div style="font-weight:700;font-size:1.1rem;color:#10b981;">KES '+(p.price||0).toLocaleString()+'/' + (p.unit||'pcs') + '</div>';
-                h += '</div>';
-                h += '</div>';
-                h += '</div>';
-                
-                // Order Unit (if dual-unit)
-                if (hasAlternativeUnit) {
-                    h += '<div style="background:#fff8e1;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;border:1px solid #f59e0b;">';
-                    h += '<p style="color:#f59e0b;font-weight:600;margin:0 0 0.75rem;"><i class="fas fa-sync-alt"></i> Order Unit</p>';
-                    h += '<div style="display:flex;gap:0.5rem;">';
-                    h += '<label style="flex:1;padding:0.75rem;border:2px solid var(--primary);border-radius:0.75rem;text-align:center;cursor:pointer;" class="order-unit-option" data-unit="base">';
-                    h += '<input type="radio" name="orderUnit" value="base" checked style="display:none;">';
-                    h += '<div style="font-weight:700;">' + (p.unit||'pcs').charAt(0).toUpperCase() + (p.unit||'pcs').slice(1) + '</div>';
-                    h += '<div style="font-size:0.8rem;color:#666;">Base Unit</div>';
-                    h += '</label>';
-                    h += '<label style="flex:1;padding:0.75rem;border:2px solid #ccc;border-radius:0.75rem;text-align:center;cursor:pointer;" class="order-unit-option" data-unit="sales">';
-                    h += '<input type="radio" name="orderUnit" value="sales" style="display:none;">';
-                    h += '<div style="font-weight:700;">' + salesUnit.charAt(0).toUpperCase() + salesUnit.slice(1) + '</div>';
-                    h += '<div style="font-size:0.8rem;color:#666;">1 = ' + conversionFactor + ' ' + (p.unit||'pcs') + '</div>';
-                    h += '</label>';
-                    h += '</div>';
-                    h += '<div id="conversionInfo" style="margin-top:0.5rem;padding:0.5rem;background:#f0fdf4;border-radius:0.5rem;font-size:0.85rem;color:#10b981;display:none;"></div>';
-                    h += '</div>';
-                }
-                
-                // Quantity & Discount
-                h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">';
-                h += '<div class="form-group" style="margin-bottom:0;">';
-                h += '<label>Quantity</label>';
-                h += '<input type="number" id="modalQty" class="form-control" value="1" min="1" style="font-size:1.2rem;text-align:center;" autofocus>';
-                if (hasAlternativeUnit) {
-                    h += '<small id="qtyHint" style="color:#666;display:block;text-align:center;">Enter in <strong>' + (p.unit||'pcs') + '</strong></small>';
-                }
-                h += '</div>';
-                h += '<div class="form-group" style="margin-bottom:0;">';
-                h += '<label>Discount (KES)</label>';
-                h += '<input type="number" id="modalDiscount" class="form-control" value="0" min="0" style="font-size:1.2rem;text-align:center;">';
-                h += '</div>';
-                h += '</div>';
-                
-                // Total
-                h += '<div style="background:#f0fdf4;border-radius:0.75rem;padding:1rem;text-align:center;margin-bottom:1rem;">';
-                h += '<span style="font-size:1.1rem;color:#666;">Total: </span>';
-                h += '<span id="modalTotal" style="font-size:1.3rem;font-weight:700;color:#10b981;">KES ' + buyPrice.toLocaleString() + '</span>';
-                h += '</div>';
-                
-                h += '</div>'; // modal-body
-                
-                // Footer
-                h += '<div class="modal-footer">';
-                h += '<button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>';
-                h += '<button class="btn btn-success" id="confirmAddBtn"><i class="fas fa-plus"></i> Add to Order</button>';
-                h += '</div>';
-                
-                h += '</div>'; // modal
-                
-                m.innerHTML = h;
-                document.body.appendChild(m); 
-                m.onclick = function(e) { if (e.target === m) m.remove(); };
-                
-                // Unit selection handler
-                if (hasAlternativeUnit) {
-                    m.querySelectorAll('.order-unit-option').forEach(function(label) {
-                        label.addEventListener('click', function() {
-                            var radio = label.querySelector('input[type="radio"]');
-                            radio.checked = true;
-                            m.querySelectorAll('.order-unit-option').forEach(l => l.style.borderColor = '#ccc');
-                            label.style.borderColor = 'var(--primary)';
-                            var qtyHint = m.querySelector('#qtyHint');
-                            var convInfo = m.querySelector('#conversionInfo');
-                            if (radio.value === 'sales') {
-                                if (qtyHint) qtyHint.innerHTML = 'Enter in <strong>' + salesUnit + '</strong> (converted on receive)';
-                                if (convInfo) {
-                                    convInfo.style.display = 'block';
-                                    convInfo.innerHTML = '📦 1 ' + salesUnit + ' = <strong>' + conversionFactor + ' ' + (p.unit||'pcs') + '</strong> | Receiving adds <strong>' + conversionFactor + ' × qty</strong> base units';
-                                }
-                            } else {
-                                if (qtyHint) qtyHint.innerHTML = 'Enter in <strong>' + (p.unit||'pcs') + '</strong>';
-                                if (convInfo) convInfo.style.display = 'none';
-                            }
-                            updateModalTotal();
-                        });
-                    });
-                }
-                
-                var updateModalTotal = function() { 
-                    var q = parseInt(m.querySelector('#modalQty').value) || 1; 
-                    var d = parseFloat(m.querySelector('#modalDiscount').value) || 0; 
-                    var bp = parseFloat(m.querySelector('#modalBuyPrice')?.value) || buyPrice; 
-                    var t = bp * q - d; 
-                    m.querySelector('#modalTotal').textContent = 'KES ' + t.toLocaleString(); 
-                };
-                m.querySelector('#modalQty').oninput = updateModalTotal; 
-                m.querySelector('#modalDiscount').oninput = updateModalTotal; 
-                m.querySelector('#modalBuyPrice').oninput = updateModalTotal;
-                
-                m.querySelector('#confirmAddBtn').onclick = function() { 
-                    var qty = parseInt(m.querySelector('#modalQty').value) || 1; 
-                    if (qty <= 0) return; 
-                    var disc = parseFloat(m.querySelector('#modalDiscount').value) || 0; 
-                    var bp = parseFloat(m.querySelector('#modalBuyPrice')?.value) || buyPrice; 
-                    var itemTotal = (bp * qty) - disc; 
-                    if (itemTotal <= 0) { showStyledAlert('Error', 'Total cannot be zero', 'times-circle', '#ef4444'); return; }
-                    
-                    var orderedInUnit = null;
-                    var convFactor = 0;
-                    var baseQty = qty;
-                    if (hasAlternativeUnit) {
-                        var selectedUnit = m.querySelector('input[name="orderUnit"]:checked')?.value || 'base';
-                        if (selectedUnit === 'sales') {
-                            orderedInUnit = p.salesUnit;
-                            convFactor = parseInt(p.conversionFactor);
-                            baseQty = qty * convFactor;
+        var products = await this._getProductsCache();
+        var p = products.find(function(x){return x.id == productId;});
+        if (!p) return;
+
+        var buyPrice = p.lastPrice || p.cost || 0;
+        var hasAlternativeUnit = !!(p.salesUnit && p.conversionFactor > 0);
+        var conversionFactor = hasAlternativeUnit ? parseInt(p.conversionFactor) : 0;
+        var salesUnit = hasAlternativeUnit ? p.salesUnit : '';
+
+        var m = document.createElement('div'); m.className = 'modal-overlay';
+        var h = '<div class="modal" style="max-width:500px;">';
+
+        h += '<div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;">';
+        h += '<h3 style="color:white;margin:0;"><i class="fas fa-cart-plus"></i> Add to Purchase Order</h3>';
+        h += '<button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">✕</button>';
+        h += '</div>';
+
+        h += '<div class="modal-body">';
+
+        h += '<div style="background:#f8fafc;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;text-align:center;">';
+        h += '<h4 style="margin:0 0 0.25rem;">'+(p.brand||'')+' '+p.name+'</h4>';
+        if(p.variant) h += '<p style="color:#666;margin:0 0 0.5rem;">' + p.variant + '</p>';
+        var stockDisplay = (typeof ProductService !== 'undefined' && ProductService.getStockDisplay)
+            ? ProductService.getStockDisplay(p)
+            : (p.stock + ' ' + (p.unit||'pcs'));
+        h += '<p style="color:#666;margin:0;"><i class="fas fa-boxes"></i> Current Stock: <strong>' + stockDisplay + '</strong></p>';
+        h += '</div>';
+
+        h += '<div style="background:#f5f5f5;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;">';
+        h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">';
+        h += '<div style="text-align:center;">';
+        h += '<small style="color:#666;display:block;margin-bottom:0.25rem;"><i class="fas fa-tag"></i> Buy Price (per ' + (p.unit||'pcs') + ')</small>';
+        h += '<input type="number" id="modalBuyPrice" class="form-control" value="'+buyPrice+'" step="0.01" style="text-align:center;font-weight:700;font-size:1.1rem;">';
+        h += '</div>';
+        h += '<div style="text-align:center;">';
+        h += '<small style="color:#666;display:block;margin-bottom:0.25rem;"><i class="fas fa-money-bill-wave"></i> Sell Price</small>';
+        h += '<div style="font-weight:700;font-size:1.1rem;color:#10b981;">KES '+(p.price||0).toLocaleString()+'/' + (p.unit||'pcs') + '</div>';
+        h += '</div>';
+        h += '</div>';
+        h += '</div>';
+
+        if (hasAlternativeUnit) {
+            h += '<div style="background:#fff8e1;border-radius:0.75rem;padding:1rem;margin-bottom:1rem;border:1px solid #f59e0b;">';
+            h += '<p style="color:#f59e0b;font-weight:600;margin:0 0 0.75rem;"><i class="fas fa-sync-alt"></i> Order Unit</p>';
+            h += '<div style="display:flex;gap:0.5rem;">';
+            h += '<label style="flex:1;padding:0.75rem;border:2px solid var(--primary);border-radius:0.75rem;text-align:center;cursor:pointer;" class="order-unit-option" data-unit="base">';
+            h += '<input type="radio" name="orderUnit" value="base" checked style="display:none;">';
+            h += '<div style="font-weight:700;">' + (p.unit||'pcs').charAt(0).toUpperCase() + (p.unit||'pcs').slice(1) + '</div>';
+            h += '<div style="font-size:0.8rem;color:#666;">Base Unit</div>';
+            h += '</label>';
+            h += '<label style="flex:1;padding:0.75rem;border:2px solid #ccc;border-radius:0.75rem;text-align:center;cursor:pointer;" class="order-unit-option" data-unit="sales">';
+            h += '<input type="radio" name="orderUnit" value="sales" style="display:none;">';
+            h += '<div style="font-weight:700;">' + salesUnit.charAt(0).toUpperCase() + salesUnit.slice(1) + '</div>';
+            h += '<div style="font-size:0.8rem;color:#666;">1 = ' + conversionFactor + ' ' + (p.unit||'pcs') + '</div>';
+            h += '</label>';
+            h += '</div>';
+            h += '<div id="conversionInfo" style="margin-top:0.5rem;padding:0.5rem;background:#f0fdf4;border-radius:0.5rem;font-size:0.85rem;color:#10b981;display:none;"></div>';
+            h += '</div>';
+        }
+
+        h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">';
+        h += '<div class="form-group" style="margin-bottom:0;">';
+        h += '<label>Quantity</label>';
+        h += '<input type="number" id="modalQty" class="form-control" value="1" min="1" style="font-size:1.2rem;text-align:center;" autofocus>';
+        if (hasAlternativeUnit) {
+            h += '<small id="qtyHint" style="color:#666;display:block;text-align:center;">Enter in <strong>' + (p.unit||'pcs') + '</strong></small>';
+        }
+        h += '</div>';
+        h += '<div class="form-group" style="margin-bottom:0;">';
+        h += '<label>Discount (KES)</label>';
+        h += '<input type="number" id="modalDiscount" class="form-control" value="0" min="0" style="font-size:1.2rem;text-align:center;">';
+        h += '</div>';
+        h += '</div>';
+
+        h += '<div style="background:#f0fdf4;border-radius:0.75rem;padding:1rem;text-align:center;margin-bottom:1rem;">';
+        h += '<span style="font-size:1.1rem;color:#666;">Total: </span>';
+        h += '<span id="modalTotal" style="font-size:1.3rem;font-weight:700;color:#10b981;">KES ' + buyPrice.toLocaleString() + '</span>';
+        h += '</div>';
+
+        h += '</div>';
+
+        h += '<div class="modal-footer">';
+        h += '<button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button>';
+        h += '<button class="btn btn-success" id="confirmAddBtn"><i class="fas fa-plus"></i> Add to Order</button>';
+        h += '</div>';
+
+        h += '</div>';
+
+        m.innerHTML = h;
+        document.body.appendChild(m);
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
+
+        if (hasAlternativeUnit) {
+            m.querySelectorAll('.order-unit-option').forEach(function(label) {
+                label.addEventListener('click', function() {
+                    var radio = label.querySelector('input[type="radio"]');
+                    radio.checked = true;
+                    m.querySelectorAll('.order-unit-option').forEach(l => l.style.borderColor = '#ccc');
+                    label.style.borderColor = 'var(--primary)';
+                    var qtyHint = m.querySelector('#qtyHint');
+                    var convInfo = m.querySelector('#conversionInfo');
+                    if (radio.value === 'sales') {
+                        if (qtyHint) qtyHint.innerHTML = 'Enter in <strong>' + salesUnit + '</strong> (converted on receive)';
+                        if (convInfo) {
+                            convInfo.style.display = 'block';
+                            convInfo.innerHTML = '📦 1 ' + salesUnit + ' = <strong>' + conversionFactor + ' ' + (p.unit||'pcs') + '</strong> | Receiving adds <strong>' + conversionFactor + ' × qty</strong> base units';
                         }
+                    } else {
+                        if (qtyHint) qtyHint.innerHTML = 'Enter in <strong>' + (p.unit||'pcs') + '</strong>';
+                        if (convInfo) convInfo.style.display = 'none';
                     }
-                    
-                    self._poItems.push({ 
-                        productName: p.name, 
-                        brand: p.brand||'', 
-                        variant: p.variant||'', 
-                        quantity: qty, 
-                        orderedInUnit: orderedInUnit,
-                        conversionFactor: convFactor,
-                        baseQuantity: baseQty,
-                        unitPrice: bp, 
-                        sellingPrice: p.price||0, 
-                        lastPrice: bp, 
-                        currentStock: p.stock, 
-                        discount: disc, 
-                        total: itemTotal 
-                    }); 
-                    self._renderPOItems(); 
-                    document.getElementById('productResults').style.display = 'none'; 
-                    document.getElementById('productSearch').value = ''; 
-                    m.remove(); 
-                };
+                    updateModalTotal();
+                });
             });
+        }
+
+        var updateModalTotal = function() {
+            var q = parseInt(m.querySelector('#modalQty').value) || 1;
+            var d = parseFloat(m.querySelector('#modalDiscount').value) || 0;
+            var bp = parseFloat(m.querySelector('#modalBuyPrice')?.value) || buyPrice;
+            var t = bp * q - d;
+            m.querySelector('#modalTotal').textContent = 'KES ' + t.toLocaleString();
+        };
+        m.querySelector('#modalQty').oninput = updateModalTotal;
+        m.querySelector('#modalDiscount').oninput = updateModalTotal;
+        m.querySelector('#modalBuyPrice').oninput = updateModalTotal;
+
+        m.querySelector('#confirmAddBtn').onclick = function() {
+            var qty = parseInt(m.querySelector('#modalQty').value) || 1;
+            if (qty <= 0) return;
+            var disc = parseFloat(m.querySelector('#modalDiscount').value) || 0;
+            var bp = parseFloat(m.querySelector('#modalBuyPrice')?.value) || buyPrice;
+            var itemTotal = (bp * qty) - disc;
+            if (itemTotal <= 0) { showStyledAlert('Error', 'Total cannot be zero', 'times-circle', '#ef4444'); return; }
+
+            var orderedInUnit = null;
+            var convFactor = 0;
+            var baseQty = qty;
+            if (hasAlternativeUnit) {
+                var selectedUnit = m.querySelector('input[name="orderUnit"]:checked')?.value || 'base';
+                if (selectedUnit === 'sales') {
+                    orderedInUnit = p.salesUnit;
+                    convFactor = parseInt(p.conversionFactor);
+                    baseQty = qty * convFactor;
+                }
+            }
+
+            self._poItems.push({
+                productName: p.name,
+                brand: p.brand||'',
+                variant: p.variant||'',
+                quantity: qty,
+                orderedInUnit: orderedInUnit,
+                conversionFactor: convFactor,
+                baseQuantity: baseQty,
+                unitPrice: bp,
+                sellingPrice: p.price||0,
+                lastPrice: bp,
+                currentStock: p.stock,
+                discount: disc,
+                total: itemTotal
+            });
+            self._renderPOItems();
+            document.getElementById('productResults').style.display = 'none';
+            document.getElementById('productSearch').value = '';
+            m.remove();
+        };
     },
 
-    // ========== PO ITEMS RENDERING ==========
+    // ============================================
+    // PO ITEMS RENDERING
+    // ============================================
 
     _renderPOItems() {
-        var div = document.getElementById('poItemsList'); 
+        var div = document.getElementById('poItemsList');
         if(this._poItems.length === 0){
             div.innerHTML='<p style="color:#999;text-align:center;">No items added yet.</p>';
             this.calculateTotal();
             return;
         }
         var h = '<table class="table"><thead><tr><th>Product</th><th>Brand</th><th>Variant</th><th>Qty</th><th>Unit</th><th>Buy Price</th><th>Sell Price</th><th>Discount</th><th>Total</th><th></th></tr></thead><tbody>';
-        this._poItems.forEach(function(i,idx){ 
+        this._poItems.forEach(function(i,idx){
             var unitDisplay = '';
             if (i.orderedInUnit && i.conversionFactor > 0) {
                 unitDisplay = i.orderedInUnit + ' (' + i.baseQuantity + ' base units)';
@@ -477,10 +556,10 @@ const AdminPurchasesComponent = {
             h += '<td>'+(i.discount?'-KES '+i.discount.toLocaleString():'0')+'</td>';
             h += '<td>KES '+i.total.toLocaleString()+'</td>';
             h += '<td><button class="btn btn-sm btn-danger" onclick="AdminPurchasesComponent.removeItem('+idx+')">✕</button></td>';
-            h += '</tr>'; 
+            h += '</tr>';
         });
-        h += '</tbody></table>'; 
-        div.innerHTML = h; 
+        h += '</tbody></table>';
+        div.innerHTML = h;
         this.calculateTotal();
     },
 
@@ -503,7 +582,9 @@ const AdminPurchasesComponent = {
         var prof = document.getElementById('poProfit'); if(prof) { prof.textContent = profit.toLocaleString(); prof.style.color = profit >= 0 ? '#10b981' : '#ef4444'; }
     },
 
-    // ========== SUBMIT & RECEIVE ==========
+    // ============================================
+    // SUBMIT & RECEIVE
+    // ============================================
 
     submitPO() {
         var supplierSelect = document.getElementById('supplierSelect');
@@ -517,7 +598,7 @@ const AdminPurchasesComponent = {
         var total = totalAfterItems - overallDiscount; var notes = document.getElementById('poNotes')?.value || '';
         var self = this; var btn = document.getElementById('submitPOBtn');
         if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...'; }
-        
+
         var itemsWithUnits = this._poItems.map(function(item) {
             return {
                 productName: item.productName,
@@ -535,7 +616,7 @@ const AdminPurchasesComponent = {
                 total: item.total
             };
         });
-        
+
         ApiService.post('/purchase-orders', {
             supplierName: supplierName,
             supplierId: supplierSelect.value,
@@ -550,55 +631,63 @@ const AdminPurchasesComponent = {
                 self._poItems = []; self._renderPOItems(); document.getElementById('poNotes').value = ''; document.getElementById('poDiscount').value = '0';
                 self._editingPOId = null; self._editingPONumber = null;
                 self.loadPOs(); self.calculateTotal();
+                // ✅ Fresh PO changes last-price — clear product cache so next search picks up new prices
+                self._invalidateProductsCache();
                 showStyledAlert('Success', 'PO ' + d.poNumber + ' created!', 'check-circle', '#10b981');
             } else { showStyledAlert('Error', d.message || 'Failed', 'times-circle', '#ef4444'); }
         }).catch(function(e) { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Submit Purchase Order'; } });
     },
 
+    // ✅ Uses _allPOs cache instead of fetching again
     printExistingPO(poNumber) {
-        ApiService.get('/purchase-orders').then(function(pos){
-            var po = pos.find(function(p){return p.poNumber === poNumber;}); if(!po)return;
-            var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;"><div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;"><strong>TALAEN INVESTMENT HARDWARE</strong><br><strong>PURCHASE ORDER</strong><br><strong>'+po.poNumber+'</strong></div><p><strong>Supplier:</strong> '+po.supplierName+'</p><p><strong>Status:</strong> '+po.status.toUpperCase()+'</p><table style="width:100%;border-collapse:collapse;"><tr style="border-bottom:2px solid #333;"><th>Product</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th></tr>';
-            (po.items||[]).forEach(function(i){
-                var unitDisplay = i.orderedInUnit || '-';
-                if (i.conversionFactor > 0) unitDisplay = i.quantity + ' ' + i.orderedInUnit + ' (' + i.baseQuantity + ' base)';
-                h+='<tr><td>'+i.productName+'</td><td>'+i.quantity+'</td><td>'+unitDisplay+'</td><td>'+i.unitPrice.toLocaleString()+'</td><td>'+i.total.toLocaleString()+'</td></tr>';
-            });
-            h += '</table><p><strong>Total:</strong> KES '+Number(po.total).toLocaleString()+'</p></div>';
-            var w = window.open('', '_blank', 'width=500,height=600'); w.document.write('<!DOCTYPE html><html><head><title>PO</title><style>body{font-family:Inter;padding:20px;}button{background:#1a472a;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;}</style></head><body><button onclick="window.print()">Print</button><br><br>'+h+'</body></html>'); w.document.close();
+        var po = (this._allPOs || []).find(function(p){return p.poNumber === poNumber;});
+        if (!po) {
+            showStyledAlert('Not Found', 'PO not found in cache. Please refresh.', 'info-circle', '#3b82f6');
+            return;
+        }
+        var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;"><div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;"><strong>TALAEN INVESTMENT HARDWARE</strong><br><strong>PURCHASE ORDER</strong><br><strong>'+po.poNumber+'</strong></div><p><strong>Supplier:</strong> '+po.supplierName+'</p><p><strong>Status:</strong> '+po.status.toUpperCase()+'</p><table style="width:100%;border-collapse:collapse;"><tr style="border-bottom:2px solid #333;"><th>Product</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th></tr>';
+        (po.items||[]).forEach(function(i){
+            var unitDisplay = i.orderedInUnit || '-';
+            if (i.conversionFactor > 0) unitDisplay = i.quantity + ' ' + i.orderedInUnit + ' (' + i.baseQuantity + ' base)';
+            h+='<tr><td>'+i.productName+'</td><td>'+i.quantity+'</td><td>'+unitDisplay+'</td><td>'+i.unitPrice.toLocaleString()+'</td><td>'+i.total.toLocaleString()+'</td></tr>';
         });
+        h += '</table><p><strong>Total:</strong> KES '+Number(po.total).toLocaleString()+'</p></div>';
+        var w = window.open('', '_blank', 'width=500,height=600'); w.document.write('<!DOCTYPE html><html><head><title>PO</title><style>body{font-family:Inter;padding:20px;}button{background:#1a472a;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;}</style></head><body><button onclick="window.print()">Print</button><br><br>'+h+'</body></html>'); w.document.close();
     },
 
+    // ✅ Uses _allPOs cache
     editPO(poId) {
         var self = this;
-        ApiService.get('/purchase-orders').then(function(pos){
-            var po = pos.find(function(p){return p.id === poId;}); if (!po) return;
-            self._poItems = [];
-            (po.items || []).forEach(function(i) { 
-                self._poItems.push({ 
-                    productName: i.productName, 
-                    brand: i.brand||'', 
-                    variant: i.variant||'', 
-                    quantity: i.quantity, 
-                    orderedInUnit: i.orderedInUnit || null,
-                    conversionFactor: i.conversionFactor || 0,
-                    baseQuantity: i.baseQuantity || i.quantity,
-                    unitPrice: i.unitPrice, 
-                    sellingPrice: i.sellingPrice||0, 
-                    lastPrice: i.lastPrice||i.unitPrice, 
-                    currentStock: i.currentStock||0, 
-                    discount: i.discount || 0, 
-                    total: i.total 
-                }); 
+        var po = (this._allPOs || []).find(function(p){return p.id === poId;});
+        if (!po) {
+            showStyledAlert('Not Found', 'PO not found in cache. Please refresh.', 'info-circle', '#3b82f6');
+            return;
+        }
+        self._poItems = [];
+        (po.items || []).forEach(function(i) {
+            self._poItems.push({
+                productName: i.productName,
+                brand: i.brand||'',
+                variant: i.variant||'',
+                quantity: i.quantity,
+                orderedInUnit: i.orderedInUnit || null,
+                conversionFactor: i.conversionFactor || 0,
+                baseQuantity: i.baseQuantity || i.quantity,
+                unitPrice: i.unitPrice,
+                sellingPrice: i.sellingPrice||0,
+                lastPrice: i.lastPrice||i.unitPrice,
+                currentStock: i.currentStock||0,
+                discount: i.discount || 0,
+                total: i.total
             });
-            var sel = document.getElementById('supplierSelect'); if (sel && po.supplierId) sel.value = po.supplierId;
-            if (document.getElementById('poNotes')) document.getElementById('poNotes').value = po.notes || '';
-            self._renderPOItems(); self.calculateTotal();
-            self._editingPOId = poId; self._editingPONumber = po.poNumber;
-            var btn = document.getElementById('submitPOBtn'); if (btn) { btn.innerHTML = '<i class="fas fa-save"></i> Update Purchase Order'; }
-            var cancelBtn = document.getElementById('cancelEditBtn'); if (cancelBtn) cancelBtn.style.display = 'block';
-            window.scrollTo({ top: 0, behavior: 'smooth' });
         });
+        var sel = document.getElementById('supplierSelect'); if (sel && po.supplierId) sel.value = po.supplierId;
+        if (document.getElementById('poNotes')) document.getElementById('poNotes').value = po.notes || '';
+        self._renderPOItems(); self.calculateTotal();
+        self._editingPOId = poId; self._editingPONumber = po.poNumber;
+        var btn = document.getElementById('submitPOBtn'); if (btn) { btn.innerHTML = '<i class="fas fa-save"></i> Update Purchase Order'; }
+        var cancelBtn = document.getElementById('cancelEditBtn'); if (cancelBtn) cancelBtn.style.display = 'block';
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     },
 
     cancelEdit() {
@@ -616,7 +705,7 @@ const AdminPurchasesComponent = {
         var total = totalAfterItems - overallDiscount; var notes = document.getElementById('poNotes')?.value || '';
         var supplierSelect = document.getElementById('supplierSelect'); var supplierName = supplierSelect.options[supplierSelect.selectedIndex].text;
         var btn = document.getElementById('submitPOBtn'); if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...'; }
-        
+
         var itemsWithUnits = this._poItems.map(function(item) {
             return {
                 productName: item.productName,
@@ -634,7 +723,9 @@ const AdminPurchasesComponent = {
                 total: item.total
             };
         });
-        
+
+        // ⚠️ NOTE: this route does not exist on the current backend.
+        //    If you use this feature, add POST /api/purchase-orders/:id/update to server.js.
         ApiService.put('/purchase-orders/' + this._editingPOId + '/update', {
             supplierName: supplierName,
             supplierId: supplierSelect.value,
@@ -645,11 +736,13 @@ const AdminPurchasesComponent = {
         .then(function(d){
             if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Submit Purchase Order'; }
             var cancelBtn = document.getElementById('cancelEditBtn'); if (cancelBtn) cancelBtn.style.display = 'none';
-            if (d.success) { 
+            if (d && d.success) {
                 self._poItems = []; self._renderPOItems(); self._editingPOId = null; self._editingPONumber = null;
                 document.getElementById('poNotes').value = ''; document.getElementById('poDiscount').value = '0'; self.loadPOs(); self.calculateTotal();
                 showStyledAlert('Success', 'PO updated!', 'check-circle', '#10b981');
-            } else { showStyledAlert('Error', d.message || 'Failed', 'times-circle', '#ef4444'); }
+            } else {
+                showStyledAlert('Error', (d && d.message) || 'Update failed — the /update endpoint may not exist on the server.', 'times-circle', '#ef4444');
+            }
         }).catch(function(e) { if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save"></i> Submit Purchase Order'; } });
     },
 
@@ -659,6 +752,8 @@ const AdminPurchasesComponent = {
             try {
                 await ApiService.put('/purchase-orders/'+id+'/receive');
                 await ProductService.refresh();
+                // ✅ Clear our own products cache so new lastPrice is fetched next time
+                self._invalidateProductsCache();
                 self.loadPOs();
                 showStyledAlert('Success', 'Stock received and converted to base units!', 'check-circle', '#10b981');
             }
