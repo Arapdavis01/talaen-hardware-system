@@ -1,6 +1,7 @@
 // ============================================
 // APP - Main Application Entry Point
 // Updated: parallel bootstrap, no double-load, loading screen stays until ready
+// Fixed: skip initial data fetch when not logged in (eliminates 401 noise)
 // ============================================
 
 const App = {
@@ -15,7 +16,6 @@ const App = {
             var ls = document.getElementById('loading-screen');
             if (ls) {
                 var msg = ls.querySelector('.loading-message') || ls;
-                // Only append if we haven't already
                 if (!document.getElementById('loading-timeout-msg')) {
                     var p = document.createElement('p');
                     p.id = 'loading-timeout-msg';
@@ -27,20 +27,19 @@ const App = {
         }, 20000);
 
         try {
-            // ✅ Parallel bootstrap — the two big fetches fire together
-            //    ProductService.refresh() forces a fresh network hit
-            //    SaleService.getAll()  will hit its own cache or fetch fresh
-            await Promise.all([
-                ProductService.refresh(),
-                SaleService.getAll()
-            ]);
+            // ✅ Only fetch app data if we actually have a session.
+            //    Unauthenticated visitors see the public dashboard, and none
+            //    of the /products or /sales endpoints would succeed anyway.
+            if (localStorage.getItem('token')) {
+                await Promise.all([
+                    ProductService.refresh(),
+                    SaleService.getAll()
+                ]);
+            }
 
-            // ✅ Router no longer needs to reload this data.
-            //    AppRouter.init() → _loadInitialData() will see fresh caches
-            //    and skip the network round-trip.
+            // Router handles its own data loading (and skips it when no token)
             await AppRouter.init();
 
-            // ✅ Only hide the loading screen once everything is ready
             if (loadingScreen) {
                 loadingScreen.style.display = 'none';
             }
@@ -50,18 +49,15 @@ const App = {
         } catch (error) {
             console.error('Error initializing application:', error);
 
-            // Clear the safety-net timer
             if (this._loadingTimeout) {
                 clearTimeout(this._loadingTimeout);
                 this._loadingTimeout = null;
             }
 
-            // Hide the loading screen so the user can see the error
             if (loadingScreen) {
                 loadingScreen.style.display = 'none';
             }
 
-            // Show a helpful error message
             var app = document.getElementById('app');
             if (app) {
                 var msg = (error && error.message) ? error.message : 'Unknown error';
@@ -81,7 +77,6 @@ const App = {
             }
 
         } finally {
-            // Clear the safety-net timer regardless of outcome
             if (this._loadingTimeout) {
                 clearTimeout(this._loadingTimeout);
                 this._loadingTimeout = null;
