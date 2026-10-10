@@ -2,6 +2,7 @@
 // API SERVICE - With JWT Authentication
 // Updated: request timeout, in-flight dedup, robust error handling, SPA-safe 401
 // Fixed: prevent infinite reload loop when unauthenticated
+// Fixed: strip custom options (cache/fresh/timeout) before passing to fetch()
 // ============================================
 
 const ApiService = {
@@ -51,31 +52,41 @@ const ApiService = {
      * Returns the raw Response object so callers can read it however they want.
      *
      * @param {string} endpoint - '/products' or full URL
-     * @param {object} options  - fetch options + { timeout } override
+     * @param {object} options  - fetch options + { timeout, cache, fresh }
      */
     async request(endpoint, options = {}) {
         const token = this.getToken();
         const url = endpoint.startsWith('http') ? endpoint : this.BASE + endpoint;
 
+        // ✅ Extract our custom options so they don't leak into fetch's RequestInit.
+        //    fetch() has its own `cache` property that expects an enum value
+        //    ('default', 'no-store', etc.) — passing a number like 60000 throws.
+        const {
+            cache: _cacheOption,      // consumed by get()  → not for fetch
+            fresh: _freshOption,      // consumed by get()  → not for fetch
+            timeout: _timeoutOption,  // our own timeout   → not for fetch
+            ...fetchOptions
+        } = options;
+
         const headers = {
             'Content-Type': 'application/json',
-            ...options.headers
+            ...fetchOptions.headers
         };
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
         // ✅ Timeout via AbortController
-        const timeoutMs = options.timeout || this.TIMEOUT_MS;
+        const timeoutMs = _timeoutOption || this.TIMEOUT_MS;
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         // Merge the abort signal with any caller-provided one
-        const mergedSignal = options.signal || controller.signal;
+        const mergedSignal = fetchOptions.signal || controller.signal;
 
         try {
             const response = await fetch(url, {
-                ...options,
+                ...fetchOptions,
                 headers,
                 signal: mergedSignal
             });
