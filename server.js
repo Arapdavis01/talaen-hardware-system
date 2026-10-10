@@ -10,6 +10,7 @@
  *  ✅ Parallel queries via Promise.all
  *  ✅ Combined aggregate queries (single round-trip for summaries)
  *  ✅ Tuned pool (max, timeouts) + pool error handler
+ *  ✅ NEW: GET /api/debt-payments — recent payments across all customers (1 query)
  *
  * ⚙️  FIRST:  npm i compression node-cache
  */
@@ -364,6 +365,7 @@ async function initDB() {
         `CREATE INDEX IF NOT EXISTS idx_login_attempts    ON login_attempts(username, attempt_time DESC)`,
         `CREATE INDEX IF NOT EXISTS idx_credit_sales_cust ON credit_sales(customerid, date DESC)`,
         `CREATE INDEX IF NOT EXISTS idx_debt_payments_cust ON debt_payments(customerid, date DESC)`,
+        `CREATE INDEX IF NOT EXISTS idx_debt_payments_date ON debt_payments(date DESC)`,
         `CREATE INDEX IF NOT EXISTS idx_credit_refunds_cust ON credit_refunds(customerid, date DESC)`,
         `CREATE INDEX IF NOT EXISTS idx_activity_log_date ON activity_log(date DESC)`,
         `CREATE INDEX IF NOT EXISTS idx_po_items_match    ON po_items(productname, brand, variant)`,
@@ -1570,6 +1572,28 @@ app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => 
 // ============================================
 // DEBT PAYMENTS
 // ============================================
+
+// ✅ NEW: Recent debt payments across ALL customers (single query)
+// ⚠️  MUST be declared BEFORE /api/debt-payments/:customerId
+app.get('/api/debt-payments', verifyToken, authorize('admin'), async (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit) || 10, 500);
+        const r = await pool.query(`
+            SELECT dp.id, dp.customerid AS "customerId", dp.customername AS "customerName",
+                   dp.amount, COALESCE(dp.overpayment, 0) AS "overpayment",
+                   dp.paymentmethod AS "paymentMethod", dp.saleid AS "saleId",
+                   dp.receivedby AS "receivedBy", dp.receivedbyid AS "receivedById", dp.date
+            FROM debt_payments dp
+            ORDER BY dp.date DESC
+            LIMIT $1
+        `, [limit]);
+        res.json(r.rows);
+    } catch (error) {
+        console.error('Get recent debt payments error:', error);
+        res.json([]);
+    }
+});
+
 app.post('/api/debt-payments', verifyToken, async (req, res) => {
     const { customerId, customerName, amount, paymentMethod, receivedBy, receivedById } = req.body;
     try {
