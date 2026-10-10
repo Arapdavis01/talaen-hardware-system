@@ -1,5 +1,5 @@
 // ============================================
-// CASHIER DASHBOARD - With JWT Authentication & Dual-Unit Support
+// CASHIER DASHBOARD - With JWT Authentication & Dual-Unit Support + Credit Refunds
 // ============================================
 
 const CashierDashboardComponent = {
@@ -9,8 +9,8 @@ const CashierDashboardComponent = {
     _allFilteredReturns: [],
     _allDailyReports: [],
     _allDebtPayments: [],
+    _allRefunds: [],
 
-    // ✅ Helper to get current user from JWT
     _getCurrentUser() {
         const userJson = localStorage.getItem('user');
         try {
@@ -30,10 +30,8 @@ const CashierDashboardComponent = {
         h += '<button class="btn btn-lg" style="background:white;color:var(--primary);padding:0.75rem 2rem;font-size:1.1rem;" onclick="AppRouter.navigate(\'pos\')">';
         h += '<i class="fas fa-shopping-cart"></i> START NEW SALE (POS)</button></div>';
         
-        // Announcement Banner
         h += '<div id="announcementBanner" style="display:none;text-align:center;padding:1rem;margin-bottom:1.5rem;background:linear-gradient(135deg,#fef3c7,#fde68a);border-radius:1rem;font-size:1.2rem;font-weight:700;color:#92400e;border:2px solid #f59e0b;"></div>';
         
-        // Tab Navigation
         h += '<div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap;justify-content:center;">';
         h += '<button class="btn btn-sm ' + (this._currentView === 'overview' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'overview\')"><i class="fas fa-home"></i> Overview</button>';
         h += '<button class="btn btn-sm ' + (this._currentView === 'sales' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'sales\')"><i class="fas fa-receipt"></i> Sales</button>';
@@ -147,6 +145,7 @@ const CashierDashboardComponent = {
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-bar"></i></div><div class="stat-label">My Total Sales</div><div class="stat-value">KES 0</div><div class="stat-sub">0 transactions</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-box"></i></div><div class="stat-label">Available Products</div><div class="stat-value">0</div><div class="stat-sub">Ready to sell</div></div>';
         h += '<div class="stat-card" id="creditStatCard"><div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Outstanding Debt</div><div class="stat-value" style="color:#ef4444;">KES 0</div><div class="stat-sub">Loading...</div></div>';
+        h += '<div class="stat-card" id="refundStatCard"><div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Today Refunds</div><div class="stat-value" style="color:#f43f5e;">KES 0</div><div class="stat-sub">Paid out today</div></div>';
         h += '</div>';
         
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-users"></i> Credit Customers with Debt</h3></div><div class="card-body"><div id="creditCustomersList">Loading...</div></div></div>';
@@ -220,7 +219,6 @@ const CashierDashboardComponent = {
         sales.forEach(function(sale) {
             var itemCount = sale.items ? sale.items.length : 0;
             
-            // 🔥 Build items preview with dual-unit info
             var itemsPreview = itemCount + ' items';
             if (sale.items && sale.items.length > 0) {
                 var previewItems = sale.items.slice(0, 2);
@@ -305,7 +303,6 @@ const CashierDashboardComponent = {
         });
     },
 
-    // 🔥 Updated receipt builder with dual-unit display
     _buildReceiptHTML(sale) {
         var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;">';
         h += '<div style="text-align:center;border-bottom:2px dashed #ccc;padding-bottom:10px;margin-bottom:10px;">';
@@ -321,7 +318,6 @@ const CashierDashboardComponent = {
         if(sale.mpesaRef) h += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>M-Pesa Ref:</span><span style="color:#10b981;">' + sale.mpesaRef + '</span></div>';
         h += '<div style="display:flex;justify-content:space-between;padding:2px 0;"><span>Cashier:</span><span>' + (sale.cashierName||'N/A') + '</span></div></div>';
         
-        // 🔥 Items with dual-unit display
         if(sale.items&&sale.items.length>0){
             h+='<table style="width:100%;border-collapse:collapse;margin:15px 0;"><thead><tr style="border-bottom:2px solid #333;"><th style="text-align:left;padding:4px;">Item</th><th style="text-align:center;padding:4px;">Qty</th><th style="text-align:right;padding:4px;">Price</th><th style="text-align:right;padding:4px;">Total</th></tr></thead><tbody>';
             sale.items.forEach(function(item){
@@ -425,7 +421,6 @@ const CashierDashboardComponent = {
             var refundDisplay = refundAmount > 0 ? 'KES ' + refundAmount.toLocaleString() : '-';
             var refundColor = refundAmount > 0 ? '#10b981' : '#999';
             
-            // 🔥 Unit display for returns
             var unitDisplay = '';
             if (ret.returnedInUnit && ret.conversionFactor > 0) {
                 unitDisplay = ret.returnedInUnit;
@@ -449,7 +444,9 @@ const CashierDashboardComponent = {
         var h = '';
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;"><h3 class="card-title"><i class="fas fa-users"></i> All Credit Customers</h3><button class="btn btn-success btn-sm" onclick="POSComponent.showRegisterCustomer()"><i class="fas fa-user-plus"></i> Register New</button></div><div class="card-body"><div id="creditTabCustomersList">Loading...</div></div></div>';
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-shopping-cart"></i> Recent Credit Sales</h3><small style="color:#f59e0b;">(Active Debtors Only)</small></div><div class="card-body"><div id="recentCreditSalesList">Loading...</div></div></div>';
-        h += '<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;"><h3 class="card-title"><i class="fas fa-money-bill"></i> Recent Debt Payments</h3><small style="color:#999;">Last 10</small></div><div class="card-body"><div style="display:flex;gap:0.5rem;margin-bottom:1rem;"><input type="text" id="debtPaymentSearch" class="form-control" placeholder="🔍 Search customer..." style="flex:1;" oninput="CashierDashboardComponent._filterDebtPayments()"><span id="debtPaymentTotal" style="font-weight:700;padding:0.5rem 1rem;background:#f5f5f5;border-radius:0.5rem;">💰 Total: KES 0</span></div><div id="recentDebtPaymentsList">Loading...</div><div id="debtPaymentsPagination" style="text-align:center;margin-top:0.5rem;color:#999;"></div></div></div>';
+        h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;"><h3 class="card-title"><i class="fas fa-money-bill"></i> Recent Debt Payments</h3><small style="color:#999;">Last 10</small></div><div class="card-body"><div style="display:flex;gap:0.5rem;margin-bottom:1rem;"><input type="text" id="debtPaymentSearch" class="form-control" placeholder="🔍 Search customer..." style="flex:1;" oninput="CashierDashboardComponent._filterDebtPayments()"><span id="debtPaymentTotal" style="font-weight:700;padding:0.5rem 1rem;background:#f5f5f5;border-radius:0.5rem;">💰 Total: KES 0</span></div><div id="recentDebtPaymentsList">Loading...</div><div id="debtPaymentsPagination" style="text-align:center;margin-top:0.5rem;color:#999;"></div></div></div>';
+        // ✅ NEW: Recent Refunds section
+        h += '<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;"><h3 class="card-title"><i class="fas fa-hand-holding-usd"></i> Recent Credit Refunds</h3><small style="color:#999;">Last 10</small></div><div class="card-body"><div style="display:flex;gap:0.5rem;margin-bottom:1rem;"><input type="text" id="refundSearch" class="form-control" placeholder="🔍 Search customer..." style="flex:1;" oninput="CashierDashboardComponent._filterRefunds()"><span id="refundTotal" style="font-weight:700;padding:0.5rem 1rem;background:#f5f5f5;border-radius:0.5rem;">💸 Total: KES 0</span></div><div id="recentRefundsList">Loading...</div></div></div>';
         return h;
     },
 
@@ -463,14 +460,34 @@ const CashierDashboardComponent = {
                 if (customers.length === 0) { 
                     custList.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No credit customers registered.</p>'; 
                 } else {
-                    var tHTML = '<div style="max-height:400px;overflow-y:auto;"><table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>ID Number</th><th>Debt Limit</th><th>Total Debt</th><th>Available</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+                    // ✅ NEW: Include Store Credit column
+                    var tHTML = '<div style="max-height:400px;overflow-y:auto;"><table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>Debt Limit</th><th>Total Debt</th><th>Store Credit</th><th>Available</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
                     customers.sort(function(a,b){return (b.totalDebt||0)-(a.totalDebt||0);});
                     customers.forEach(function(c){
-                        var pct = c.debtLimit>0?Math.round((c.totalDebt/c.debtLimit)*100):0;
-                        var available = (c.debtLimit||0)-(c.totalDebt||0);
+                        var debt = Number(c.totalDebt||0);
+                        var creditBal = Number(c.creditBalance||0);
+                        var limit = Number(c.debtLimit||0);
+                        var available = limit - debt + creditBal;
+                        var pct = limit>0?Math.round((debt/limit)*100):0;
                         var sColor = pct>80?'#ef4444':pct>50?'#f59e0b':'#10b981';
-                        var sText = pct>80?'Critical':pct>50?'Warning':c.totalDebt>0?'Active':'Clear';
-                        tHTML += '<tr><td><strong>'+c.name+'</strong></td><td>'+(c.phone||'-')+'</td><td>'+(c.idNumber||'-')+'</td><td>KES '+(c.debtLimit||0).toLocaleString()+'</td><td style="color:#ef4444;font-weight:700;">KES '+(c.totalDebt||0).toLocaleString()+'</td><td style="color:'+sColor+';">KES '+available.toLocaleString()+'</td><td><div style="background:#eee;border-radius:10px;height:8px;width:100px;margin-bottom:2px;"><div style="background:'+sColor+';height:8px;border-radius:10px;width:'+pct+'%;"></div></div><small style="color:'+sColor+';">'+pct+'%</small></td><td><span style="background:'+sColor+'20;color:'+sColor+';padding:0.2rem 0.5rem;border-radius:1rem;font-size:0.8rem;font-weight:600;">'+sText+'</span></td><td style="white-space:nowrap;"><button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails('+c.id+')"><i class="fas fa-eye"></i></button> <button class="btn btn-sm btn-success" onclick="POSComponent.showDebtPayment('+c.id+')"><i class="fas fa-money-bill"></i></button></td></tr>';
+                        var badge = debt>0?'<span style="background:#fef3c7;color:#f59e0b;padding:0.2rem 0.5rem;border-radius:1rem;font-size:0.75rem;font-weight:600;">Owing</span>':creditBal>0?'<span style="background:#ede9fe;color:#6d28d9;padding:0.2rem 0.5rem;border-radius:1rem;font-size:0.75rem;font-weight:600;">Has Credit</span>':'<span style="background:#d1fae5;color:#065f46;padding:0.2rem 0.5rem;border-radius:1rem;font-size:0.75rem;font-weight:600;">Clear</span>';
+                        
+                        tHTML += '<tr>';
+                        tHTML += '<td><strong>'+c.name+'</strong></td>';
+                        tHTML += '<td>'+(c.phone||'-')+'</td>';
+                        tHTML += '<td>KES '+limit.toLocaleString()+'</td>';
+                        tHTML += '<td style="color:#ef4444;font-weight:700;">KES '+debt.toLocaleString()+'</td>';
+                        tHTML += '<td style="color:'+(creditBal>0?'#8b5cf6':'#999')+';font-weight:700;">'+(creditBal>0?'KES '+creditBal.toLocaleString():'—')+'</td>';
+                        tHTML += '<td style="color:'+sColor+';">KES '+available.toLocaleString()+'</td>';
+                        tHTML += '<td>'+badge+'</td>';
+                        tHTML += '<td style="white-space:nowrap;">';
+                        tHTML += '<button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails('+c.id+')" title="View"><i class="fas fa-eye"></i></button> ';
+                        tHTML += '<button class="btn btn-sm btn-success" onclick="POSComponent.showDebtPayment('+c.id+')" title="Record Payment"><i class="fas fa-money-bill"></i></button> ';
+                        // ✅ NEW: Refund button
+                        if (creditBal > 0) {
+                            tHTML += '<button class="btn btn-sm" style="background:#f43f5e;color:white;" onclick="CashierDashboardComponent._showRefund('+c.id+')" title="Refund Credit"><i class="fas fa-hand-holding-usd"></i></button>';
+                        }
+                        tHTML += '</td></tr>';
                     });
                     tHTML += '</tbody></table></div>'; 
                     custList.innerHTML = tHTML;
@@ -523,11 +540,12 @@ const CashierDashboardComponent = {
                     var totalP = allPayments.reduce(function(s,p){return s+Number(p.amount||0);},0);
                     var totalEl = document.getElementById('debtPaymentTotal'); 
                     if(totalEl) totalEl.innerHTML = '💰 Total: KES ' + totalP.toLocaleString();
-                    var payHTML = '<div style="max-height:300px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Method</th><th>Received By</th><th>Action</th></tr></thead><tbody>';
+                    var payHTML = '<div style="max-height:300px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Credit Added</th><th>Method</th><th>Received By</th></tr></thead><tbody>';
                     rp.forEach(function(p){
-                        var dStr = p.date?new Date(p.date).toLocaleDateString('en-KE')+', '+new Date(p.date).toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'-';
+                        var dStr = p.date?new Date(p.date).toLocaleDateString('en-KE')+', '+new Date(p.date).toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit'}):'-';
                         var mColor = p.paymentMethod==='mpesa'?'#10b981':'#3b82f6';
-                        payHTML += '<tr class="payment-row" data-search="'+(p.customerName||'').toLowerCase()+'"><td>'+dStr+'</td><td><strong>'+(p.customerName||'N/A')+'</strong></td><td style="font-weight:700;color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td style="color:'+mColor+';font-weight:600;">'+(p.paymentMethod||'CASH').toUpperCase()+'</td><td>'+(p.receivedBy||'N/A')+'</td><td><button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails('+(p.customerId||0)+')"><i class="fas fa-eye"></i></button></td></tr>';
+                        var overpay = Number(p.overpayment||0);
+                        payHTML += '<tr class="payment-row" data-search="'+(p.customerName||'').toLowerCase()+'"><td>'+dStr+'</td><td><strong>'+(p.customerName||'N/A')+'</strong></td><td style="font-weight:700;color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;"><i class="fas fa-piggy-bank"></i> +KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td style="color:'+mColor+';font-weight:600;">'+(p.paymentMethod||'CASH').toUpperCase()+'</td><td>'+(p.receivedBy||'N/A')+'</td></tr>';
                     });
                     payHTML += '</tbody></table></div>'; 
                     payDiv.innerHTML = payHTML;
@@ -538,12 +556,123 @@ const CashierDashboardComponent = {
         } catch(e) {
             console.error('Error loading debt payments:', e);
         }
+        
+        // ✅ NEW: Load recent refunds
+        try {
+            var refunds = await ApiService.get('/credit-refunds');
+            this._allRefunds = refunds || [];
+            var refDiv = document.getElementById('recentRefundsList');
+            if(refDiv){
+                if(!refunds || refunds.length===0){refDiv.innerHTML='<p style="text-align:center;color:#999;padding:2rem;">No credit refunds recorded yet.</p>';}
+                else{
+                    var rr = refunds.slice(0,10);
+                    var totalR = refunds.reduce(function(s,r){return s+Number(r.amount||0);},0);
+                    var refTotalEl = document.getElementById('refundTotal'); 
+                    if(refTotalEl) refTotalEl.innerHTML = '💸 Total: KES ' + totalR.toLocaleString();
+                    var refHTML = '<div style="max-height:300px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Reason</th><th>Processed By</th></tr></thead><tbody>';
+                    rr.forEach(function(r){
+                        var dStr = r.date?new Date(r.date).toLocaleDateString('en-KE')+', '+new Date(r.date).toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit'}):'-';
+                        refHTML += '<tr class="refund-row" data-search="'+(r.customerName||'').toLowerCase()+'"><td>'+dStr+'</td><td><strong>'+(r.customerName||'N/A')+'</strong></td><td style="font-weight:700;color:#f43f5e;"><i class="fas fa-hand-holding-usd"></i> KES '+Number(r.amount||0).toLocaleString()+'</td><td><small>'+(r.reason||'-')+'</small></td><td>'+(r.processedBy||'-')+'</td></tr>';
+                    });
+                    refHTML += '</tbody></table></div>'; 
+                    refDiv.innerHTML = refHTML;
+                }
+            }
+        } catch(e) {
+            console.error('Error loading refunds:', e);
+        }
     },
 
     _filterDebtPayments() {
         var s = (document.getElementById('debtPaymentSearch')?.value || '').toLowerCase();
         document.querySelectorAll('.payment-row').forEach(function(r) { 
             r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; 
+        });
+    },
+
+    _filterRefunds() {
+        var s = (document.getElementById('refundSearch')?.value || '').toLowerCase();
+        document.querySelectorAll('.refund-row').forEach(function(r) { 
+            r.style.display = (r.getAttribute('data-search')||'').includes(s) ? '' : 'none'; 
+        });
+    },
+
+    // ✅ NEW: Refund modal (same as admin)
+    async _showRefund(id) {
+        try {
+            const c = await ApiService.get('/credit-customers/'+id); if(!c) return;
+            var creditBal = Number(c.creditBalance||0);
+            if (creditBal <= 0) {
+                this._showMessage('This customer has no store credit to refund.', 'warning');
+                return;
+            }
+            var m = document.createElement('div'); m.className = 'modal-overlay';
+            var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#f43f5e,#e11d48);color:white;"><h3 style="color:white;"><i class="fas fa-hand-holding-usd"></i> Refund Store Credit</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
+            h += '<div style="text-align:center;padding:1rem;background:#ede9fe;border-radius:0.75rem;margin-bottom:1rem;">';
+            h += '<div style="font-size:0.85rem;color:#666;">Available Store Credit</div>';
+            h += '<div style="font-size:1.75rem;font-weight:700;color:#8b5cf6;">KES ' + creditBal.toLocaleString() + '</div>';
+            h += '<div style="font-size:0.8rem;color:#666;">Customer: <strong>' + c.name + '</strong></div>';
+            h += '</div>';
+            h += '<div class="form-group"><label>Refund Amount (KES) *</label><input type="number" id="refundAmount" class="form-control" min="1" max="' + creditBal + '" autofocus oninput="CashierDashboardComponent._previewRefund(' + id + ')" style="font-size:1.2rem;text-align:center;"></div>';
+            h += '<div class="form-group"><label>Reason</label><input type="text" id="refundReason" class="form-control" placeholder="e.g., Customer requested cash back"></div>';
+            h += '<div class="form-group"><label>Method</label><select id="refundMethod" class="form-control"><option value="cash">Cash</option></select></div>';
+            h += '<div id="refundPreview" style="padding:0.75rem;border-radius:0.5rem;font-size:0.9rem;display:none;"></div>';
+            h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn" style="background:#f43f5e;color:white;" id="confirmRefundBtn"><i class="fas fa-hand-holding-usd"></i> Process Refund</button></div></div>';
+            m.innerHTML = h;
+            document.body.appendChild(m); m.onclick = function(e){ if(e.target===m) m.remove(); };
+            m.querySelector('#refundAmount').focus();
+            
+            m.querySelector('#confirmRefundBtn').onclick = async function(){
+                var amount = parseFloat(m.querySelector('#refundAmount').value) || 0;
+                var reason = m.querySelector('#refundReason').value.trim() || 'Customer requested refund';
+                if (amount <= 0) { CashierDashboardComponent._showMessage('Enter valid amount!', 'danger'); return; }
+                if (amount > creditBal) { CashierDashboardComponent._showMessage('Amount exceeds credit balance!', 'danger'); return; }
+                const user = JSON.parse(localStorage.getItem('user') || '{}');
+                const result = await ApiService.post('/credit-refunds', {
+                    customerId: id,
+                    customerName: c.name,
+                    amount: amount,
+                    paymentMethod: m.querySelector('#refundMethod').value,
+                    reason: reason,
+                    processedBy: user.fullName || 'Cashier',
+                    processedById: user.id || null
+                });
+                if (result && result.success) {
+                    m.remove();
+                    await CashierDashboardComponent._loadCreditSales();
+                    CashierDashboardComponent._showMessage('Refunded KES ' + amount.toLocaleString() + ' to ' + c.name, 'success');
+                } else {
+                    CashierDashboardComponent._showMessage((result && result.message) || 'Failed', 'danger');
+                }
+            };
+        } catch(e) { console.error('Refund modal error:', e); }
+    },
+
+    _previewRefund(customerId) {
+        var amount = parseFloat(document.getElementById('refundAmount')?.value) || 0;
+        var preview = document.getElementById('refundPreview');
+        if (!preview) return;
+        
+        var custList = this._allRefunds || [];
+        // Find customer from any cached list - use direct fetch approach
+        ApiService.get('/credit-customers/'+customerId).then(function(c){
+            var creditBal = Number(c.creditBalance||0);
+            if (amount <= 0) { preview.style.display = 'none'; return; }
+            
+            if (amount > creditBal) {
+                preview.style.display = 'block';
+                preview.style.background = '#fef2f2';
+                preview.style.border = '1px solid #ef4444';
+                preview.innerHTML = '<strong style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Amount exceeds available credit!</strong><br>Maximum: KES ' + creditBal.toLocaleString();
+                return;
+            }
+            var remaining = creditBal - amount;
+            preview.style.display = 'block';
+            preview.style.background = '#f0fdf4';
+            preview.style.border = '1px solid #10b981';
+            preview.innerHTML = '<strong style="color:#10b981;"><i class="fas fa-check"></i> Refund Preview:</strong><br>' +
+                'KES ' + amount.toLocaleString() + ' will be paid out as cash.<br>' +
+                '<strong>Remaining credit: KES ' + remaining.toLocaleString() + '</strong>';
         });
     },
 
@@ -644,11 +773,12 @@ const CashierDashboardComponent = {
         var statsDiv = document.getElementById('cashierStats');
         if (statsDiv) {
             var creditHTML = document.getElementById('creditStatCard') ? document.getElementById('creditStatCard').outerHTML : '';
+            var refundHTML = document.getElementById('refundStatCard') ? document.getElementById('refundStatCard').outerHTML : '';
             statsDiv.innerHTML = 
                 '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-label">My Today Sales</div><div class="stat-value">KES ' + (data.totalToday||0).toLocaleString() + '</div><div class="stat-sub">' + (data.countToday||0) + ' transactions</div></div>' +
                 '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-bar"></i></div><div class="stat-label">My Total Sales</div><div class="stat-value">KES ' + (data.totalAll||0).toLocaleString() + '</div><div class="stat-sub">' + (data.countAll||0) + ' transactions</div></div>' +
                 '<div class="stat-card"><div class="stat-icon"><i class="fas fa-box"></i></div><div class="stat-label">Available Products</div><div class="stat-value">' + products.length + '</div><div class="stat-sub">' + products.reduce(function(s,p){return s+(p.stock||0);},0) + ' units in stock</div></div>' +
-                creditHTML;
+                creditHTML + refundHTML;
         }
         ApiService.get('/settings').then(function(s) {
             var banner = document.getElementById('announcementBanner');
@@ -666,6 +796,11 @@ const CashierDashboardComponent = {
             var creditCard = document.getElementById('creditStatCard');
             if (creditCard && creditData) {
                 creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Outstanding Debt</div><div class="stat-value" style="color:#ef4444;">KES ' + (creditData.totalDebt || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' customers with debt</div>';
+            }
+            // ✅ NEW: Refund stat card
+            var refundCard = document.getElementById('refundStatCard');
+            if (refundCard && creditData) {
+                refundCard.innerHTML = '<div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Today Refunds</div><div class="stat-value" style="color:#f43f5e;">KES ' + (creditData.todayRefunds || 0).toLocaleString() + '</div><div class="stat-sub">Paid out today</div>';
             }
             var customers = await ApiService.get('/credit-customers');
             var debtors = customers.filter(function(c) { return c.totalDebt > 0; });
@@ -690,5 +825,4 @@ const CashierDashboardComponent = {
     }
 };
 
-// Make globally available
 window.CashierDashboardComponent = CashierDashboardComponent;
