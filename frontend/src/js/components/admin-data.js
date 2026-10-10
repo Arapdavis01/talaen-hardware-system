@@ -1,25 +1,26 @@
 /**
  * Talaen Hardware System - Admin Data Component
  * Data management, backup, and import/export
- * Updated with JWT Authentication
+ * Updated: parallel fetches, cache reuse, batched writes, working activity log
  */
 
 const AdminDataComponent = {
+    // ✅ Cached customer count (populated async after render)
+    _customerCount: 0,
+
+    // ✅ Concurrency limit for bulk operations
+    _BULK_CONCURRENCY: 5,
+
     render() {
-        // ✅ Get user info from JWT
         const userJson = localStorage.getItem('user');
         let user = null;
-        try {
-            user = userJson ? JSON.parse(userJson) : null;
-        } catch (e) {
-            user = null;
-        }
-        
-        // ✅ Get data with JWT token
+        try { user = userJson ? JSON.parse(userJson) : null; } catch (e) { user = null; }
+
         const products = ProductService._cache || [];
         const sales = SaleService._cache || [];
-        const customers = this._getCustomerCount();
-        
+        // ✅ Use cached count; async update fills it in after render
+        const customers = this._customerCount;
+
         return `
             <!-- Data Management -->
             <div class="card" style="margin-bottom: 1.5rem;">
@@ -30,7 +31,6 @@ const AdminDataComponent = {
                 </div>
                 <div class="card-body">
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem;">
-                        <!-- Export -->
                         <div style="text-align: center; padding: 1.5rem; border: 2px dashed var(--gray-300); border-radius: var(--radius-lg);">
                             <i class="fas fa-download" style="font-size: 3rem; color: var(--primary); margin-bottom: 1rem;"></i>
                             <h4 style="color: var(--primary);">Export Data</h4>
@@ -39,8 +39,7 @@ const AdminDataComponent = {
                                 <i class="fas fa-download"></i> Export Backup
                             </button>
                         </div>
-                        
-                        <!-- Import -->
+
                         <div style="text-align: center; padding: 1.5rem; border: 2px dashed var(--gray-300); border-radius: var(--radius-lg);">
                             <i class="fas fa-upload" style="font-size: 3rem; color: var(--secondary); margin-bottom: 1rem;"></i>
                             <h4 style="color: var(--secondary);">Import Data</h4>
@@ -49,8 +48,7 @@ const AdminDataComponent = {
                                 <i class="fas fa-upload"></i> Import Backup
                             </button>
                         </div>
-                        
-                        <!-- Clear Data -->
+
                         <div style="text-align: center; padding: 1.5rem; border: 2px dashed var(--gray-300); border-radius: var(--radius-lg);">
                             <i class="fas fa-trash-alt" style="font-size: 3rem; color: var(--danger); margin-bottom: 1rem;"></i>
                             <h4 style="color: var(--danger);">Clear All Data</h4>
@@ -62,7 +60,7 @@ const AdminDataComponent = {
                     </div>
                 </div>
             </div>
-            
+
             <!-- Export Options -->
             <div class="card" style="margin-bottom: 1.5rem;">
                 <div class="card-header">
@@ -87,7 +85,7 @@ const AdminDataComponent = {
                     </div>
                 </div>
             </div>
-            
+
             <!-- Storage Info -->
             <div class="card" style="margin-bottom: 1.5rem;">
                 <div class="card-header">
@@ -109,18 +107,18 @@ const AdminDataComponent = {
                         </div>
                         <div class="stat-card" style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.8), rgba(16, 185, 129, 0.6));">
                             <div class="stat-label">Customers</div>
-                            <div class="stat-value">${customers}</div>
+                            <div class="stat-value" id="adminDataCustomerCount">${customers}</div>
                             <div class="stat-sub">Registered customers</div>
                         </div>
                         <div class="stat-card" style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.8), rgba(59, 130, 246, 0.6));">
                             <div class="stat-label">Admin</div>
-                            <div class="stat-value">${user ? user.fullName || user.username : 'N/A'}</div>
+                            <div class="stat-value">${user ? (user.fullName || user.username) : 'N/A'}</div>
                             <div class="stat-sub">Logged in as</div>
                         </div>
                     </div>
                 </div>
             </div>
-            
+
             <!-- Activity Logs -->
             <div class="card">
                 <div class="card-header">
@@ -142,28 +140,41 @@ const AdminDataComponent = {
         `;
     },
 
-    // ✅ Get customer count from API with JWT
-    async _getCustomerCount() {
+    /**
+     * Called by the router right after render() puts the HTML in the DOM.
+     * Loads activity logs and the customer count asynchronously.
+     */
+    afterRender() {
+        // ✅ Activity logs — always load (this was broken before)
+        this.loadActivityLogs();
+        // ✅ Customer count — fetch and update the DOM element when ready
+        this._refreshCustomerCount();
+    },
+
+    // ✅ Fetch and update the customer count element
+    async _refreshCustomerCount() {
         try {
-            const customers = await ApiService.get('/credit-customers');
-            return customers ? customers.length : 0;
+            var customers = await ApiService.get('/credit-customers');
+            this._customerCount = customers ? customers.length : 0;
+            var el = document.getElementById('adminDataCustomerCount');
+            if (el) el.textContent = this._customerCount;
         } catch (e) {
-            return 0;
+            // non-fatal
         }
     },
 
     // ============================================
-    // ACTIVITY LOGS - Using JWT
+    // ACTIVITY LOGS
     // ============================================
-    
+
     async loadActivityLogs() {
         const container = document.getElementById('activityLogsContainer');
         if (!container) return;
-        
+
         try {
-            // ✅ REPLACED: fetch with ApiService
-            const logs = await ApiService.get('/activity');
-            
+            // ✅ Bounded fetch — the backend caps at 100 anyway, but be explicit
+            const logs = await ApiService.get('/activity?limit=100');
+
             if (!logs || logs.length === 0) {
                 container.innerHTML = `
                     <table class="table">
@@ -186,7 +197,7 @@ const AdminDataComponent = {
                 `;
                 return;
             }
-            
+
             let html = `<table class="table">
                 <thead>
                     <tr>
@@ -197,17 +208,18 @@ const AdminDataComponent = {
                     </tr>
                 </thead>
                 <tbody>`;
-            
-            logs.slice(0, 50).forEach(log => {
-                const badgeClass = 
+
+            // ✅ Build one string, assign once — faster than concatenating per row
+            const rows = logs.slice(0, 50).map(log => {
+                const badgeClass =
                     log.action && log.action.includes('login') ? 'badge-info' :
                     log.action && log.action.includes('failed') ? 'badge-danger' :
                     log.action && log.action.includes('delete') ? 'badge-danger' :
                     log.action && log.action.includes('create') ? 'badge-success' :
                     log.action && log.action.includes('update') ? 'badge-warning' :
                     'badge-info';
-                
-                html += `
+
+                return `
                     <tr>
                         <td>${log.date ? new Date(log.date).toLocaleString('en-KE') : '-'}</td>
                         <td>${log.userName || 'System'}</td>
@@ -215,15 +227,16 @@ const AdminDataComponent = {
                         <td>${log.details || '-'}</td>
                     </tr>
                 `;
-            });
-            
+            }).join('');
+
+            html += rows;
             html += `</tbody></table>`;
             html += `<div style="text-align:center;margin-top:1rem;font-size:0.85rem;color:#999;">
                 Showing last ${Math.min(logs.length, 50)} of ${logs.length} entries
             </div>`;
-            
+
             container.innerHTML = html;
-            
+
         } catch (error) {
             console.error('Error loading activity logs:', error);
             container.innerHTML = `
@@ -234,7 +247,6 @@ const AdminDataComponent = {
         }
     },
 
-    // ✅ Clear activity logs with JWT
     async clearActivityLogs() {
         UIService.confirm(
             'Clear Activity Logs',
@@ -244,7 +256,6 @@ const AdminDataComponent = {
         ).then(async confirmed => {
             if (confirmed) {
                 try {
-                    // ✅ REPLACED: fetch with ApiService
                     const result = await ApiService.delete('/activity');
                     if (result.success) {
                         UIService.showAlert('Activity logs cleared!', 'success');
@@ -259,104 +270,213 @@ const AdminDataComponent = {
         });
     },
 
-    /**
-     * Export all data
-     */
+    // ============================================
+    // EXPORT ALL DATA (backup JSON)
+    // ✅ Parallel fetches instead of sequential
+    // ============================================
     async exportData() {
         try {
-            // ✅ Fetch all data with JWT
-            const products = await ApiService.get('/products');
-            const sales = await ApiService.get('/sales');
-            const customers = await ApiService.get('/credit-customers');
-            const settings = await ApiService.get('/settings');
-            
+            var results = await Promise.all([
+                ApiService.get('/products?limit=5000'),
+                ApiService.get('/sales?limit=5000'),
+                ApiService.get('/credit-customers'),
+                ApiService.get('/settings')
+            ]);
+
             const backupData = {
                 version: '2.0',
                 exportedAt: new Date().toISOString(),
-                products: products || [],
-                sales: sales || [],
-                customers: customers || [],
-                settings: settings || {}
+                products: results[0] || [],
+                sales: results[1] || [],
+                customers: results[2] || [],
+                settings: results[3] || {}
             };
-            
-            const blob = new Blob([JSON.stringify(backupData, null, 2)], { 
-                type: 'application/json' 
-            });
+
+            const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
             a.download = `talaen_backup_${Date.now()}.json`;
             a.click();
             URL.revokeObjectURL(url);
-            
-            UIService.showAlert('Data exported successfully!', 'success');
+
+            UIService.showAlert(
+                `Backup exported: ${backupData.products.length} products, ${backupData.sales.length} sales, ${backupData.customers.length} customers`,
+                'success'
+            );
         } catch (error) {
             console.error('Export error:', error);
             UIService.showAlert('Error exporting data', 'danger');
         }
     },
 
-    /**
-     * Import data
-     */
+    // ============================================
+    // IMPORT (batched, with progress)
+    // ============================================
     async importData() {
-        try {
-            const input = document.createElement('input');
-            input.type = 'file';
-            input.accept = '.json';
-            
-            input.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                
-                const reader = new FileReader();
-                reader.onload = async (event) => {
-                    try {
-                        const backupData = JSON.parse(event.target.result);
-                        
-                        // ✅ Validate backup data
-                        if (!backupData.products || !backupData.sales) {
-                            UIService.showAlert('Invalid backup file format', 'danger');
-                            return;
-                        }
-                        
-                        // ✅ Import products with JWT
-                        for (const product of backupData.products) {
-                            await ApiService.post('/products', product);
-                        }
-                        
-                        // ✅ Import sales with JWT
-                        for (const sale of backupData.sales) {
-                            await ApiService.post('/sales', sale);
-                        }
-                        
-                        UIService.showAlert(
-                            `Data imported successfully! Products: ${backupData.products.length}, Sales: ${backupData.sales.length}`,
-                            'success'
-                        );
-                        
-                        // Refresh data
-                        await ProductService.refresh();
-                        await SaleService.getAll();
-                        AppRouter.render();
-                        
-                    } catch (error) {
-                        UIService.showAlert('Error importing data: ' + error.message, 'danger');
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.json';
+
+        input.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (event) => {
+                try {
+                    const backupData = JSON.parse(event.target.result);
+
+                    if (!backupData.products || !backupData.sales) {
+                        UIService.showAlert('Invalid backup file format', 'danger');
+                        return;
                     }
-                };
-                reader.readAsText(file);
+
+                    const totalProducts = backupData.products.length;
+                    const totalSales = backupData.sales.length;
+
+                    if (totalProducts + totalSales === 0) {
+                        UIService.showAlert('Backup file is empty', 'warning');
+                        return;
+                    }
+
+                    UIService.confirm(
+                        'Import Data',
+                        `This will import <strong>${totalProducts} products</strong> and <strong>${totalSales} sales</strong>.<br><br>Continue?`,
+                        'Start Import',
+                        'primary'
+                    ).then(async (confirmed) => {
+                        if (!confirmed) return;
+
+                        // ✅ Progress modal
+                        const progressModal = document.createElement('div');
+                        progressModal.className = 'modal-overlay';
+                        progressModal.style.zIndex = '10000';
+                        progressModal.innerHTML = `
+                            <div class="modal" style="max-width:420px;">
+                                <div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;">
+                                    <h3 style="color:white;"><i class="fas fa-spinner fa-spin"></i> Importing...</h3>
+                                </div>
+                                <div class="modal-body">
+                                    <div id="importStatus" style="margin-bottom:0.75rem;text-align:center;">Preparing...</div>
+                                    <div style="background:#e5e7eb;border-radius:8px;overflow:hidden;height:20px;">
+                                        <div id="importProgress" style="height:100%;background:linear-gradient(90deg,#1a472a,#c49a2b);transition:width 0.2s;width:0%;"></div>
+                                    </div>
+                                    <div id="importPercent" style="text-align:center;margin-top:0.5rem;font-weight:600;">0%</div>
+                                </div>
+                            </div>
+                        `;
+                        document.body.appendChild(progressModal);
+
+                        const setProgress = (done, total, label) => {
+                            const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+                            const bar = document.getElementById('importProgress');
+                            const pctEl = document.getElementById('importPercent');
+                            const statusEl = document.getElementById('importStatus');
+                            if (bar) bar.style.width = pct + '%';
+                            if (pctEl) pctEl.textContent = pct + '%';
+                            if (statusEl) statusEl.textContent = label;
+                        };
+
+                        try {
+                            // ✅ Batch import with concurrency limit
+                            const total = totalProducts + totalSales;
+                            let done = 0;
+                            let errors = 0;
+
+                            // Products first
+                            await this._runWithConcurrency(
+                                backupData.products,
+                                this._BULK_CONCURRENCY,
+                                async (product) => {
+                                    try {
+                                        await ApiService.post('/products', product);
+                                    } catch (e) {
+                                        errors++;
+                                    } finally {
+                                        done++;
+                                        setProgress(done, total, `Importing products (${done}/${total})`);
+                                    }
+                                }
+                            );
+
+                            // Then sales
+                            await this._runWithConcurrency(
+                                backupData.sales,
+                                this._BULK_CONCURRENCY,
+                                async (sale) => {
+                                    try {
+                                        await ApiService.post('/sales', sale);
+                                    } catch (e) {
+                                        errors++;
+                                    } finally {
+                                        done++;
+                                        setProgress(done, total, `Importing sales (${done}/${total})`);
+                                    }
+                                }
+                            );
+
+                            progressModal.remove();
+
+                            if (errors > 0) {
+                                UIService.showAlert(
+                                    `Import finished with ${errors} failed record${errors !== 1 ? 's' : ''}. Imported: ${total - errors} / ${total}.`,
+                                    'warning'
+                                );
+                            } else {
+                                UIService.showAlert(
+                                    `Import complete! ${totalProducts} products, ${totalSales} sales.`,
+                                    'success'
+                                );
+                            }
+
+                            // Refresh caches
+                            await Promise.all([
+                                ProductService.refresh(),
+                                SaleService.getAll(),
+                                this._refreshCustomerCount()
+                            ]);
+                            AppRouter.render();
+
+                        } catch (err) {
+                            progressModal.remove();
+                            UIService.showAlert('Error during import: ' + err.message, 'danger');
+                        }
+                    });
+
+                } catch (error) {
+                    UIService.showAlert('Error reading backup file: ' + error.message, 'danger');
+                }
             };
-            
-            input.click();
-            
-        } catch (error) {
-            UIService.showAlert(error.message || 'Import failed', 'danger');
-        }
+            reader.readAsText(file);
+        };
+
+        input.click();
     },
 
     /**
-     * Clear all data
+     * Run an array of items through an async function with a concurrency cap.
+     * Prevents 2,000 simultaneous POSTs (which would crash the browser and backend)
+     * while still being much faster than fully sequential.
      */
+    async _runWithConcurrency(items, concurrency, fn) {
+        const queue = items.slice();
+        const workers = [];
+        for (let i = 0; i < concurrency; i++) {
+            workers.push((async () => {
+                while (queue.length > 0) {
+                    const item = queue.shift();
+                    if (item === undefined) break;
+                    await fn(item);
+                }
+            })());
+        }
+        await Promise.all(workers);
+    },
+
+    // ============================================
+    // CLEAR ALL DATA (batched)
+    // ============================================
     clearData() {
         UIService.confirm(
             'Clear All Data',
@@ -364,168 +484,231 @@ const AdminDataComponent = {
             'Clear All Data',
             'danger'
         ).then(confirmed => {
-            if (confirmed) {
-                UIService.confirm(
-                    'Final Warning',
-                    'Are you absolutely sure? Type "DELETE" to confirm.',
-                    'I understand, delete everything',
-                    'danger'
-                ).then(async doubleConfirmed => {
-                    if (doubleConfirmed) {
-                        try {
-                            // ✅ Delete all products with JWT
-                            const products = await ApiService.get('/products');
-                            if (products) {
-                                for (const product of products) {
-                                    await ApiService.delete(`/products/${product.id}`);
-                                }
-                            }
-                            
-                            UIService.showAlert('All data has been cleared!', 'success');
-                            await ProductService.refresh();
-                            await SaleService.getAll();
-                            setTimeout(() => AppRouter.render(), 500);
-                        } catch (error) {
-                            UIService.showAlert('Error clearing data', 'danger');
-                        }
+            if (!confirmed) return;
+            UIService.confirm(
+                'Final Warning',
+                'Are you absolutely sure? This deletes everything permanently.',
+                'I understand, delete everything',
+                'danger'
+            ).then(async doubleConfirmed => {
+                if (!doubleConfirmed) return;
+
+                try {
+                    // ✅ Use cache — no need to re-fetch products we already have
+                    const products = ProductService._cache && ProductService._cache.length
+                        ? ProductService._cache
+                        : (await ApiService.get('/products?limit=5000')) || [];
+
+                    if (!products.length) {
+                        UIService.showAlert('No products to delete', 'info');
+                        return;
                     }
-                });
-            }
+
+                    // Progress modal
+                    const progressModal = document.createElement('div');
+                    progressModal.className = 'modal-overlay';
+                    progressModal.style.zIndex = '10000';
+                    progressModal.innerHTML = `
+                        <div class="modal" style="max-width:420px;">
+                            <div class="modal-header" style="background:linear-gradient(135deg,#ef4444,#dc2626);color:white;">
+                                <h3 style="color:white;"><i class="fas fa-trash"></i> Clearing Data...</h3>
+                            </div>
+                            <div class="modal-body">
+                                <div id="clearStatus" style="margin-bottom:0.75rem;text-align:center;">Starting...</div>
+                                <div style="background:#e5e7eb;border-radius:8px;overflow:hidden;height:20px;">
+                                    <div id="clearProgress" style="height:100%;background:#ef4444;transition:width 0.2s;width:0%;"></div>
+                                </div>
+                                <div id="clearPercent" style="text-align:center;margin-top:0.5rem;font-weight:600;">0%</div>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(progressModal);
+
+                    let done = 0;
+                    const total = products.length;
+                    const errors = [];
+
+                    await this._runWithConcurrency(products, this._BULK_CONCURRENCY, async (product) => {
+                        try {
+                            await ApiService.delete(`/products/${product.id}`);
+                        } catch (e) {
+                            errors.push(product.id);
+                        } finally {
+                            done++;
+                            const pct = Math.round((done / total) * 100);
+                            const bar = document.getElementById('clearProgress');
+                            const pctEl = document.getElementById('clearPercent');
+                            const statusEl = document.getElementById('clearStatus');
+                            if (bar) bar.style.width = pct + '%';
+                            if (pctEl) pctEl.textContent = pct + '%';
+                            if (statusEl) statusEl.textContent = `Deleting products (${done}/${total})`;
+                        }
+                    });
+
+                    progressModal.remove();
+
+                    UIService.showAlert(
+                        errors.length === 0
+                            ? 'All data has been cleared!'
+                            : `Cleared ${total - errors.length} of ${total} products. ${errors.length} failed.`,
+                        errors.length === 0 ? 'success' : 'warning'
+                    );
+
+                    await Promise.all([
+                        ProductService.refresh(),
+                        SaleService.getAll(),
+                        this._refreshCustomerCount()
+                    ]);
+                    setTimeout(() => AppRouter.render(), 500);
+
+                } catch (error) {
+                    UIService.showAlert('Error clearing data: ' + error.message, 'danger');
+                }
+            });
         });
     },
 
-    /**
-     * Export products CSV
-     */
+    // ============================================
+    // EXPORT CSV: PRODUCTS
+    // ✅ Uses ProductService cache
+    // ============================================
     async exportProductsCSV() {
         try {
-            // ✅ Fetch products with JWT
-            const products = await ApiService.get('/products');
-            
-            if (!products || products.length === 0) {
+            const products = (ProductService._cache && ProductService._cache.length)
+                ? ProductService._cache
+                : (await ApiService.get('/products?limit=5000')) || [];
+
+            if (!products.length) {
                 UIService.showAlert('No products to export', 'warning');
                 return;
             }
-            
+
             let csv = 'ID,SKU,Name,Brand,Variant,Category,Price,Cost,Stock,Unit,Min Stock\n';
-            products.forEach(p => {
-                csv += `${p.id},${p.sku || ''},"${p.name}","${p.brand || ''}","${p.variant || ''}","${p.category || ''}",${p.price},${p.cost||0},${p.stock},${p.unit||'pcs'},${p.minStock||10}\n`;
-            });
-            
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `products_${Date.now()}.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
-            UIService.showAlert('Products exported!', 'success');
+            for (const p of products) {
+                csv += `${p.id},${p.sku || ''},"${(p.name || '').replace(/"/g, '""')}","${(p.brand || '').replace(/"/g, '""')}","${(p.variant || '').replace(/"/g, '""')}","${(p.category || '').replace(/"/g, '""')}",${p.price},${p.cost || 0},${p.stock},${p.unit || 'pcs'},${p.minStock || 10}\n`;
+            }
+
+            this._downloadFile(csv, `products_${Date.now()}.csv`, 'text/csv');
+            UIService.showAlert(`Exported ${products.length} products`, 'success');
         } catch (error) {
             UIService.showAlert('Error exporting products', 'danger');
         }
     },
 
-    /**
-     * Export sales CSV
-     */
+    // ============================================
+    // EXPORT CSV: SALES
+    // ✅ Uses SaleService cache
+    // ============================================
     async exportSalesCSV() {
         try {
-            // ✅ Fetch sales with JWT
-            const sales = await ApiService.get('/sales');
-            
-            if (!sales || sales.length === 0) {
+            const sales = (SaleService._cache && SaleService._cache.length)
+                ? SaleService._cache
+                : (await ApiService.get('/sales?limit=5000')) || [];
+
+            if (!sales.length) {
                 UIService.showAlert('No sales to export', 'warning');
                 return;
             }
-            
+
             let csv = 'Receipt,Customer,Date,Payment Method,Subtotal,Tax,Discount,Total,Items\n';
-            sales.forEach(s => {
+            for (const s of sales) {
                 const items = s.items ? s.items.map(i => `${i.productName}(${i.quantity}x${i.price})`).join('; ') : '';
-                csv += `${s.receiptNo || ''},"${s.customerName || 'Walk-in'}",${s.date || ''},${s.paymentMethod || 'cash'},${s.subtotal||0},${s.tax||0},${s.discount||0},${s.total||0},"${items}"\n`;
-            });
-            
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `sales_${Date.now()}.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
-            UIService.showAlert('Sales exported!', 'success');
+                csv += `${s.receiptNo || ''},"${(s.customerName || 'Walk-in').replace(/"/g, '""')}",${s.date || ''},${s.paymentMethod || 'cash'},${s.subtotal || 0},${s.tax || 0},${s.discount || 0},${s.total || 0},"${items.replace(/"/g, '""')}"\n`;
+            }
+
+            this._downloadFile(csv, `sales_${Date.now()}.csv`, 'text/csv');
+            UIService.showAlert(`Exported ${sales.length} sales`, 'success');
         } catch (error) {
             UIService.showAlert('Error exporting sales', 'danger');
         }
     },
 
-    /**
-     * Export inventory report
-     */
+    // ============================================
+    // EXPORT INVENTORY REPORT
+    // ✅ Uses ProductService cache
+    // ============================================
     async exportInventoryReport() {
         try {
-            // ✅ Fetch products with JWT
-            const products = await ApiService.get('/products');
-            
-            if (!products || products.length === 0) {
+            const products = (ProductService._cache && ProductService._cache.length)
+                ? ProductService._cache
+                : (await ApiService.get('/products?limit=5000')) || [];
+
+            if (!products.length) {
                 UIService.showAlert('No products for inventory report', 'warning');
                 return;
             }
-            
-            const inventory = products.reduce((s, p) => ({
-                totalItems: s.totalItems + (p.stock || 0),
-                totalValue: s.totalValue + ((p.price || 0) * (p.stock || 0))
-            }), { totalItems: 0, totalValue: 0 });
-            
+
+            let totalItems = 0;
+            let totalValue = 0;
+            for (const p of products) {
+                totalItems += Number(p.stock || 0);
+                totalValue += Number(p.price || 0) * Number(p.stock || 0);
+            }
+
             let report = 'TALAEN INVESTMENT HARDWARE - INVENTORY REPORT\n';
             report += `Generated: ${new Date().toLocaleString()}\n`;
             report += '='.repeat(60) + '\n\n';
             report += 'PRODUCT, CATEGORY, STOCK, UNIT, PRICE, VALUE\n';
             report += '-'.repeat(60) + '\n';
-            
-            products.forEach(p => {
-                report += `"${p.name}","${p.category || 'General'}",${p.stock||0},${p.unit||'pcs'},${p.price||0},${(p.price||0) * (p.stock||0)}\n`;
-            });
-            
+
+            for (const p of products) {
+                report += `"${(p.name || '').replace(/"/g, '""')}","${(p.category || 'General').replace(/"/g, '""')}",${p.stock || 0},${p.unit || 'pcs'},${p.price || 0},${(p.price || 0) * (p.stock || 0)}\n`;
+            }
+
             report += '\n' + '='.repeat(60) + '\n';
             report += `TOTAL PRODUCTS: ${products.length}\n`;
-            report += `TOTAL ITEMS: ${inventory.totalItems}\n`;
-            report += `TOTAL VALUE: KES ${inventory.totalValue.toLocaleString()}\n`;
-            
-            const blob = new Blob([report], { type: 'text/plain' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `inventory_report_${Date.now()}.txt`;
-            a.click();
-            URL.revokeObjectURL(url);
+            report += `TOTAL ITEMS: ${totalItems}\n`;
+            report += `TOTAL VALUE: KES ${totalValue.toLocaleString()}\n`;
+
+            this._downloadFile(report, `inventory_report_${Date.now()}.txt`, 'text/plain');
             UIService.showAlert('Inventory report generated!', 'success');
         } catch (error) {
             UIService.showAlert('Error generating inventory report', 'danger');
         }
     },
 
-    /**
-     * Print barcodes
-     */
+    // ✅ Small helper for consistent downloads
+    _downloadFile(content, filename, mimeType) {
+        const blob = new Blob([content], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    },
+
+    // ============================================
+    // PRINT BARCODES
+    // ✅ Uses cache, adds filter + select-all
+    // ============================================
     async printBarcodes() {
         try {
-            // ✅ Fetch products with JWT
-            const products = await ApiService.get('/products');
-            
-            if (!products || products.length === 0) {
+            const products = (ProductService._cache && ProductService._cache.length)
+                ? ProductService._cache
+                : (await ApiService.get('/products?limit=5000')) || [];
+
+            if (!products.length) {
                 UIService.showAlert('No products to print barcodes', 'warning');
                 return;
             }
-            
+
             UIService.showModal(
                 'Print Barcodes',
                 `
-                    <p>Select products to print barcodes:</p>
-                    <div style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 0.5rem;">
+                    <div style="display:flex;gap:0.5rem;align-items:center;margin-bottom:0.75rem;">
+                        <input type="text" id="barcodeSearch" class="form-control" placeholder="🔍 Filter products..." oninput="AdminDataComponent._filterBarcodeList()" style="flex:1;">
+                        <button class="btn btn-sm btn-outline" onclick="AdminDataComponent._barcodeSelectAll(true)">Select All</button>
+                        <button class="btn btn-sm btn-outline" onclick="AdminDataComponent._barcodeSelectAll(false)">Clear</button>
+                    </div>
+                    <div id="barcodeList" style="max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 0.5rem;">
                         ${products.map(p => `
-                            <div style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--gray-200);">
-                                <input type="checkbox" id="barcode_${p.id}" checked>
-                                <label for="barcode_${p.id}" style="flex:1;">
-                                    <strong>${p.name}</strong> 
+                            <div class="barcode-item-row" data-search="${((p.name || '') + ' ' + (p.sku || '') + ' ' + (p.brand || '')).toLowerCase()}" style="display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; border-bottom: 1px solid var(--gray-200);">
+                                <input type="checkbox" class="barcode-check" id="barcode_${p.id}" data-id="${p.id}" checked>
+                                <label for="barcode_${p.id}" style="flex:1;cursor:pointer;">
+                                    <strong>${p.name}</strong>
                                     <span style="color:#999;font-size:0.8rem;">SKU: ${p.sku || 'N/A'} | KES ${p.price}</span>
                                 </label>
                             </div>
@@ -544,21 +727,24 @@ const AdminDataComponent = {
                         class: 'btn-primary',
                         icon: 'fas fa-print',
                         onClick: (modal) => {
-                            const selected = products.filter(p => 
-                                document.getElementById(`barcode_${p.id}`)?.checked
+                            // ✅ Read selection from DOM checkboxes (they reflect filter state)
+                            const selectedIds = new Set(
+                                Array.from(document.querySelectorAll('.barcode-check:checked'))
+                                    .map(cb => cb.dataset.id)
                             );
-                            
+                            const selected = products.filter(p => selectedIds.has(String(p.id)));
+
                             if (selected.length === 0) {
                                 UIService.showAlert('Select at least one product', 'warning');
                                 return;
                             }
-                            
+
                             const printWindow = window.open('', '_blank');
                             if (!printWindow) {
                                 UIService.showAlert('Please allow popups to print barcodes', 'warning');
                                 return;
                             }
-                            
+
                             printWindow.document.write(`
                                 <html>
                                 <head>
@@ -566,9 +752,9 @@ const AdminDataComponent = {
                                     <style>
                                         body { font-family: 'Courier New', monospace; padding: 20px; }
                                         .barcode-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-                                        .barcode-item { 
-                                            display: inline-block; 
-                                            padding: 15px; 
+                                        .barcode-item {
+                                            display: inline-block;
+                                            padding: 15px;
                                             text-align: center;
                                             border: 1px solid #ddd;
                                             border-radius: 8px;
@@ -610,16 +796,37 @@ const AdminDataComponent = {
                     }
                 ]
             );
+
+            // ✅ Small delay so the modal is in the DOM before attaching listeners
+            setTimeout(() => {
+                const search = document.getElementById('barcodeSearch');
+                if (search) search.focus();
+            }, 100);
+
         } catch (error) {
             UIService.showAlert('Error loading products', 'danger');
         }
+    },
+
+    // ✅ Filter the barcode list by name / SKU / brand
+    _filterBarcodeList() {
+        const q = (document.getElementById('barcodeSearch')?.value || '').toLowerCase();
+        document.querySelectorAll('.barcode-item-row').forEach(row => {
+            const text = row.dataset.search || '';
+            row.style.display = (!q || text.indexOf(q) > -1) ? '' : 'none';
+        });
+    },
+
+    // ✅ Select or clear all visible checkboxes
+    _barcodeSelectAll(checked) {
+        document.querySelectorAll('.barcode-item-row').forEach(row => {
+            if (row.style.display !== 'none') {
+                const cb = row.querySelector('.barcode-check');
+                if (cb) cb.checked = checked;
+            }
+        });
     }
 };
-
-// ✅ Load activity logs when component is rendered
-if (document.querySelector('[data-component="admin-data"]')) {
-    setTimeout(() => AdminDataComponent.loadActivityLogs(), 300);
-}
 
 // Make globally available
 window.AdminDataComponent = AdminDataComponent;
