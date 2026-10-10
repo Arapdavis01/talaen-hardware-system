@@ -1,5 +1,6 @@
 // ============================================
 // ADMIN SALES - With JWT Authentication, Dual-Unit Support & Load More
+// Updated: debounced filter, cached credit-sales lookup, smarter hasMore
 // ============================================
 
 const AdminSalesComponent = {
@@ -9,6 +10,15 @@ const AdminSalesComponent = {
     _isLoadingMore: false,
     _hasMore: true,
     _pageSize: 500,
+
+    // ✅ Debounce timer for the search box
+    _filterTimer: null,
+    _FILTER_DEBOUNCE_MS: 200,
+
+    // ✅ Shared credit-sales cache (for the credit details modal)
+    _creditSalesCache: null,
+    _creditSalesFetchedAt: 0,
+    _CREDIT_SALES_TTL_MS: 30000,
 
     // ============================================
     // RENDER
@@ -24,9 +34,16 @@ const AdminSalesComponent = {
         var todayCount   = Number(stats.today?.count   || 0);
         var avgTransaction = totalCount > 0 ? totalRevenue / totalCount : 0;
 
+        // ✅ Smarter "has more": if we have fewer than a full page worth of
+        //    items AND we haven't explicitly paginated yet, there's nothing more.
+        //    Otherwise trust the last known state.
+        if (sales.length < this._pageSize) {
+            this._hasMore = false;
+        }
+
         var h = '';
 
-        // ---- Stat cards (with IDs for live update after Load More) ----
+        // ---- Stat cards ----
         h += '<div class="stats-grid">';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-label">Total Revenue</div><div class="stat-value" id="statTotalRevenue">KES ' + totalRevenue.toLocaleString() + '</div><div class="stat-sub">All time</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-receipt"></i></div><div class="stat-label">Total Transactions</div><div class="stat-value" id="statTotalCount">' + totalCount + '</div><div class="stat-sub" id="statTotalCountSub">' + todayCount + ' today</div></div>';
@@ -61,7 +78,8 @@ const AdminSalesComponent = {
 
         // ---- Sales table ----
         h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-history"></i> Sales History</h3><div style="display:flex;gap:0.5rem;flex-wrap:wrap;">';
-        h += '<input type="text" id="saleSearch" class="form-control" placeholder="Search receipt, customer, cashier..." style="width:220px;" oninput="AdminSalesComponent._filterSales()">';
+        // ✅ Debounced search input
+        h += '<input type="text" id="saleSearch" class="form-control" placeholder="Search receipt, customer, cashier..." style="width:220px;" oninput="AdminSalesComponent._onSearchInput()">';
         h += '<select id="saleFilter" class="form-control" style="width:140px;" onchange="AdminSalesComponent._filterSales()"><option value="all">All Time</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option></select>';
         h += '<button class="btn btn-secondary" onclick="AdminSalesComponent.exportSales()"><i class="fas fa-download"></i> Export CSV</button>';
         h += '</div></div><div class="card-body"><div class="table-container" style="overflow-x:auto;">';
@@ -83,7 +101,12 @@ const AdminSalesComponent = {
         var btnInfo = sales.length > 0 ? 'Showing ' + sales.length + ' sales' : '';
 
         h += '<div id="loadMoreContainer" style="text-align:center;padding:1.25rem 0 0.5rem;">';
-        h += '<button id="loadMoreSalesBtn" class="btn btn-secondary" onclick="AdminSalesComponent.loadMore()" ' + (this._hasMore ? '' : 'disabled') + '>' + (this._hasMore ? btnLabel : '<i class="fas fa-check"></i> All Sales Loaded') + '</button>';
+        if (!this._hasMore && sales.length > 0) {
+            h += '<button id="loadMoreSalesBtn" class="btn btn-secondary" disabled><i class="fas fa-check"></i> All Sales Loaded</button>';
+            if (btnInfo) btnInfo = 'Showing all ' + sales.length + ' sales';
+        } else {
+            h += '<button id="loadMoreSalesBtn" class="btn btn-secondary" onclick="AdminSalesComponent.loadMore()">' + btnLabel + '</button>';
+        }
         h += '<div id="loadMoreInfo" style="color:#999;font-size:0.85rem;margin-top:0.5rem;">' + btnInfo + '</div>';
         h += '</div>';
 
@@ -141,14 +164,16 @@ const AdminSalesComponent = {
         this._setLoadMoreBtnState('loading');
 
         try {
-            // Current offset = however many sales are already in cache
+            // ✅ Offset = whatever's already in cache. Backend treats offset as-is.
             const offset = (SaleService._cache || []).length;
-            const page   = Math.floor(offset / this._pageSize) + 1;
 
             const result = await SaleService.getAllPaginated({
-                page: page,
+                page: Math.floor(offset / this._pageSize) + 1,
                 limit: this._pageSize
             });
+
+            // If the backend returned fewer than pageSize, that's the end
+            const gotFullPage = result.sales && result.sales.length === this._pageSize;
 
             if (!result.sales || result.sales.length === 0) {
                 this._hasMore = false;
@@ -156,7 +181,7 @@ const AdminSalesComponent = {
                 return;
             }
 
-            // Dedupe by id (safety net against double-clicks or overlapping pages)
+            // Dedupe by id (safety net)
             const existingIds = new Set((SaleService._cache || []).map(function(s) { return s.id; }));
             const newSales = [];
             result.sales.forEach(function(s) {
@@ -189,7 +214,8 @@ const AdminSalesComponent = {
                 this._filterSales();
             }
 
-            this._hasMore = result.pagination.hasMore;
+            // ✅ Trust the backend's hasMore, but also short-circuit on a short page
+            this._hasMore = gotFullPage && result.pagination && result.pagination.hasMore;
             this._setLoadMoreBtnState(this._hasMore ? 'ready' : 'end');
 
         } catch (error) {
@@ -244,7 +270,7 @@ const AdminSalesComponent = {
     },
 
     // ============================================
-    // VIEW RECEIPT (unchanged)
+    // VIEW RECEIPT
     // ============================================
     viewReceipt(receiptNo) {
         var sales = SaleService._cache || [];
@@ -270,7 +296,7 @@ const AdminSalesComponent = {
     },
 
     // ============================================
-    // PRINT RECEIPT (unchanged)
+    // PRINT RECEIPT
     // ============================================
     printReceipt(receiptNo) {
         var sales = SaleService._cache || [];
@@ -293,65 +319,82 @@ const AdminSalesComponent = {
     },
 
     // ============================================
-    // CREDIT DETAILS (unchanged)
+    // ✅ Shared credit-sales cache
     // ============================================
-    viewCreditDetails(saleId) {
+    async _getCreditSalesCache(forceFresh) {
+        var now = Date.now();
+        if (!forceFresh && this._creditSalesCache && (now - this._creditSalesFetchedAt) < this._CREDIT_SALES_TTL_MS) {
+            return this._creditSalesCache;
+        }
+        try {
+            var data = await ApiService.get('/credit-sales?limit=1000');
+            this._creditSalesCache = Array.isArray(data) ? data : [];
+            this._creditSalesFetchedAt = now;
+        } catch(e) {
+            if (!this._creditSalesCache) this._creditSalesCache = [];
+        }
+        return this._creditSalesCache;
+    },
+
+    // ============================================
+    // CREDIT DETAILS — now uses cached lookup
+    // ============================================
+    async viewCreditDetails(saleId) {
         var sales = SaleService._cache || [];
         var sale = sales.find(function(s) { return s.id === saleId; });
         if (!sale) return;
 
-        ApiService.get('/credit-sales').then(function(creditSales) {
-            var creditSale = creditSales.find(function(cs) { return cs.saleId === saleId; });
+        var creditSales = await this._getCreditSalesCache();
+        var creditSale = creditSales.find(function(cs) { return cs.saleId === saleId; });
 
-            var m = document.createElement('div'); m.className = 'modal-overlay';
-            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-file-invoice"></i> Credit Sale Details</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
+        var m = document.createElement('div'); m.className = 'modal-overlay';
+        var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-file-invoice"></i> Credit Sale Details</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
 
-            h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">';
-            h += '<div style="background:#f5f5f5;padding:1rem;border-radius:0.5rem;">';
-            h += '<strong>Receipt:</strong> ' + sale.receiptNo + '<br>';
-            h += '<strong>Customer:</strong> ' + (sale.customerName || 'Walk-in') + '<br>';
-            h += '<strong>Date:</strong> ' + new Date(sale.date).toLocaleDateString('en-KE') + '<br>';
-            h += '<strong>Cashier:</strong> ' + (sale.cashierName || 'N/A');
+        h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">';
+        h += '<div style="background:#f5f5f5;padding:1rem;border-radius:0.5rem;">';
+        h += '<strong>Receipt:</strong> ' + sale.receiptNo + '<br>';
+        h += '<strong>Customer:</strong> ' + (sale.customerName || 'Walk-in') + '<br>';
+        h += '<strong>Date:</strong> ' + new Date(sale.date).toLocaleDateString('en-KE') + '<br>';
+        h += '<strong>Cashier:</strong> ' + (sale.cashierName || 'N/A');
+        h += '</div>';
+
+        if (creditSale) {
+            h += '<div style="background:#fff8e1;padding:1rem;border-radius:0.5rem;">';
+            h += '<strong>Debt Before:</strong> KES ' + Number(creditSale.debtBefore || 0).toLocaleString() + '<br>';
+            h += '<strong>Credit Amount:</strong> KES ' + Number(creditSale.amount || 0).toLocaleString() + '<br>';
+            h += '<strong>Debt After:</strong> <span style="color:#ef4444;font-weight:700;">KES ' + Number(creditSale.debtAfter || 0).toLocaleString() + '</span>';
             h += '</div>';
+        }
+        h += '</div>';
 
-            if (creditSale) {
-                h += '<div style="background:#fff8e1;padding:1rem;border-radius:0.5rem;">';
-                h += '<strong>Debt Before:</strong> KES ' + Number(creditSale.debtBefore || 0).toLocaleString() + '<br>';
-                h += '<strong>Credit Amount:</strong> KES ' + Number(creditSale.amount || 0).toLocaleString() + '<br>';
-                h += '<strong>Debt After:</strong> <span style="color:#ef4444;font-weight:700;">KES ' + Number(creditSale.debtAfter || 0).toLocaleString() + '</span>';
-                h += '</div>';
-            }
-            h += '</div>';
+        h += '<h4>Items</h4>';
+        h += '<table class="table"><thead><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th></tr></thead><tbody>';
+        if (sale.items) {
+            sale.items.forEach(function(item) {
+                var unitDisplay = '';
+                if (item.soldInUnit && item.conversionFactor > 0) {
+                    unitDisplay = item.soldInUnit;
+                }
+                h += '<tr>';
+                h += '<td>' + item.productName + '</td>';
+                h += '<td>' + item.quantity + '</td>';
+                h += '<td>' + (unitDisplay || '-') + '</td>';
+                h += '<td>KES ' + Number(item.price || 0).toLocaleString() + '</td>';
+                h += '<td>KES ' + Number(item.total || (item.price * item.quantity) || 0).toLocaleString() + '</td>';
+                h += '</tr>';
+            });
+        }
+        h += '</tbody></table>';
+        h += '<div style="text-align:right;font-size:1.2rem;font-weight:700;margin-top:1rem;">Total: KES ' + Number(sale.total || 0).toLocaleString() + '</div>';
 
-            h += '<h4>Items</h4>';
-            h += '<table class="table"><thead><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Price</th><th>Total</th></tr></thead><tbody>';
-            if (sale.items) {
-                sale.items.forEach(function(item) {
-                    var unitDisplay = '';
-                    if (item.soldInUnit && item.conversionFactor > 0) {
-                        unitDisplay = item.soldInUnit;
-                    }
-                    h += '<tr>';
-                    h += '<td>' + item.productName + '</td>';
-                    h += '<td>' + item.quantity + '</td>';
-                    h += '<td>' + (unitDisplay || '-') + '</td>';
-                    h += '<td>KES ' + Number(item.price || 0).toLocaleString() + '</td>';
-                    h += '<td>KES ' + Number(item.total || (item.price * item.quantity) || 0).toLocaleString() + '</td>';
-                    h += '</tr>';
-                });
-            }
-            h += '</tbody></table>';
-            h += '<div style="text-align:right;font-size:1.2rem;font-weight:700;margin-top:1rem;">Total: KES ' + Number(sale.total || 0).toLocaleString() + '</div>';
-
-            h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-            m.innerHTML = h;
-            document.body.appendChild(m);
-            m.onclick = function(e) { if (e.target === m) m.remove(); };
-        });
+        h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+        m.innerHTML = h;
+        document.body.appendChild(m);
+        m.onclick = function(e) { if (e.target === m) m.remove(); };
     },
 
     // ============================================
-    // EXPORT CSV (unchanged)
+    // EXPORT CSV
     // ============================================
     exportSales() {
         var sales = SaleService._cache || [];
@@ -394,39 +437,54 @@ const AdminSalesComponent = {
     },
 
     // ============================================
-    // FILTER SALES (unchanged)
+    // FILTER SALES — now debounced
     // ============================================
+    _onSearchInput: function() {
+        if (this._filterTimer) clearTimeout(this._filterTimer);
+        var self = this;
+        this._filterTimer = setTimeout(function() {
+            self._filterTimer = null;
+            self._filterSales();
+        }, this._FILTER_DEBOUNCE_MS);
+    },
+
     _filterSales() {
         var search = (document.getElementById('saleSearch')?.value || '').toLowerCase();
         var filter = document.getElementById('saleFilter')?.value || 'all';
         var rows = document.querySelectorAll('#salesTable tbody tr');
         var visibleCount = 0;
 
-        rows.forEach(function(row) {
-            var text = (row.dataset.search || '');
+        // ✅ Compute "now" once
+        var now = new Date();
+        var todayStr = now.toDateString();
+        var weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        var nowMonth = now.getMonth();
+        var nowYear = now.getFullYear();
+
+        for (var i = 0; i < rows.length; i++) {
+            var row = rows[i];
+            var text = row.dataset.search || '';
             var dateStr = row.dataset.date;
-            var date = dateStr ? new Date(dateStr) : null;
-            var now = new Date();
             var show = true;
 
             if (search) {
-                show = text.includes(search);
+                show = text.indexOf(search) > -1;
             }
 
-            if (show && date) {
+            if (show && dateStr && filter !== 'all') {
+                var date = new Date(dateStr);
                 if (filter === 'today') {
-                    show = date.toDateString() === now.toDateString();
+                    show = date.toDateString() === todayStr;
                 } else if (filter === 'week') {
-                    var weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
                     show = date >= weekAgo;
                 } else if (filter === 'month') {
-                    show = date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+                    show = date.getMonth() === nowMonth && date.getFullYear() === nowYear;
                 }
             }
 
             row.style.display = show ? '' : 'none';
             if (show) visibleCount++;
-        });
+        }
 
         var existingMsg = document.getElementById('noSaleResults');
         if (existingMsg) existingMsg.remove();
