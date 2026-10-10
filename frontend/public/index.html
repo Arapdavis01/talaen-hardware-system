@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="../src/styles/components.css?v=221700">
     <link rel="stylesheet" href="../src/styles/layout.css?v=221700">
 </head>
-<body oncontextmenu="return false;">
+<body>
     <div class="particles" id="particles"></div>
     <div id="app">
         <div id="loading-screen" class="loading-screen">
@@ -49,21 +49,5 @@
     <script src="../src/js/components/admin-settings.js?v=221700"></script>
     <script src="../src/js/router.js?v=221700"></script>
     <script src="../src/js/app.js?v=221700"></script>
-    
-    <!-- Disable Right Click & Developer Tools -->
-    <script>
-    document.addEventListener('contextmenu', function(e) {
-        e.preventDefault();
-        return false;
-    });
-    
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'F12' || e.keyCode === 123) { e.preventDefault(); return false; }
-        if (e.ctrlKey && e.shiftKey && e.keyCode === 73) { e.preventDefault(); return false; }
-        if (e.ctrlKey && e.shiftKey && e.keyCode === 74) { e.preventDefault(); return false; }
-        if (e.ctrlKey && e.keyCode === 85) { e.preventDefault(); return false; }
-        if (e.ctrlKey && e.shiftKey && e.keyCode === 67) { e.preventDefault(); return false; }
-    });
-    </script>
 </body>
 </html>
