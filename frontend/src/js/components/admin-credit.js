@@ -1,5 +1,6 @@
 // ============================================
 // ADMIN CREDIT - With JWT Authentication, Credit Balance & Refunds
+// Updated: single-query recent payments, parallel loads, debounced filters
 // ============================================
 
 const AdminCreditComponent = {
@@ -9,10 +10,21 @@ const AdminCreditComponent = {
     _modalCustomers: [],
     _modalFilterType: 'all',
 
+    // ✅ Debounce timers
+    _modalCustomerFilterTimer: null,
+    _paymentFilterTimer: null,
+    _refundFilterTimer: null,
+    _FILTER_DEBOUNCE_MS: 200,
+
+    // ✅ Cached credit sales list (shared across modals)
+    _creditSalesCache: null,
+    _creditSalesFetchedAt: 0,
+    _CREDIT_SALES_TTL_MS: 30000,
+
     render() {
         var h = '';
         h += '<div class="welcome-banner"><h2><i class="fas fa-credit-card"></i> Credit Management</h2><p>Manage customer credit accounts, debt limits, payments, and refunds</p></div>';
-        
+
         h += '<div class="stats-grid" id="creditSummary" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">';
         h += '<div class="stat-card" onclick="AdminCreditComponent.showAllCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Total Customers</div><div class="stat-value" style="color:#3b82f6;">0</div><div class="stat-sub">Click to view</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES 0</div><div class="stat-sub">All customers</div></div>';
@@ -22,34 +34,40 @@ const AdminCreditComponent = {
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES 0</div><div class="stat-sub">Received today</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Today Refunds</div><div class="stat-value" style="color:#f43f5e;">KES 0</div><div class="stat-sub">Paid out today</div></div>';
         h += '</div>';
-        
+
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-shopping-cart"></i> Recent Credit Sales <span style="font-size:0.8rem;color:#999;">(Active Debtors Only)</span></h3></div><div class="card-body"><div id="recentCreditSales">Loading...</div></div></div>';
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-money-bill"></i> Recent Debt Payments</h3></div><div class="card-body"><div id="recentPayments">Loading...</div></div></div>';
         h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-hand-holding-usd"></i> Recent Credit Refunds <span style="font-size:0.8rem;color:#999;">(Overpayments returned to customer)</span></h3></div><div class="card-body"><div id="recentRefunds">Loading...</div></div></div>';
-        
+
         setTimeout(function() { AdminCreditComponent.loadAll(); }, 200);
         return h;
     },
 
+    // ✅ Parallel after summary loads
     async loadAll() {
-        try { 
-            await this.loadSummary(); 
-            await this.loadRecentSales(); 
-            await this.loadRecentPayments(); 
-            await this.loadRecentRefunds();
+        try {
+            await this.loadSummary();
+            await Promise.all([
+                this.loadRecentSales(),
+                this.loadRecentPayments(),
+                this.loadRecentRefunds()
+            ]);
+        } catch(e) {
+            console.error('LoadAll error:', e);
         }
-        catch(e) { console.error('LoadAll error:', e); }
     },
 
     async loadSummary() {
         try {
-            const data = await ApiService.get('/credit-summary');
-            const customers = await ApiService.get('/credit-customers');
+            const [data, customers] = await Promise.all([
+                ApiService.get('/credit-summary'),
+                ApiService.get('/credit-customers')
+            ]);
             this._allCustomers = customers || [];
             var div = document.getElementById('creditSummary');
             if (div && data) {
                 div.style.gridTemplateColumns = 'repeat(auto-fit, minmax(180px, 1fr))';
-                div.innerHTML = 
+                div.innerHTML =
                     '<div class="stat-card" onclick="AdminCreditComponent.showAllCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Total Customers</div><div class="stat-value" style="color:#3b82f6;">'+(data.totalCustomers||0)+'</div><div class="stat-sub">Click to view</div></div>'+
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES '+(Number(data.totalDebt||0)).toLocaleString()+'</div><div class="stat-sub">All customers</div></div>'+
                     '<div class="stat-card" onclick="AdminCreditComponent.showDebtCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-user-clock"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">'+(data.activeCustomers||0)+'</div><div class="stat-sub">Click to view</div></div>'+
@@ -59,6 +77,22 @@ const AdminCreditComponent = {
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Today Refunds</div><div class="stat-value" style="color:#f43f5e;">KES '+(Number(data.todayRefunds||0)).toLocaleString()+'</div><div class="stat-sub">Paid out today</div></div>';
             }
         } catch(e) { console.error('Error loading summary:', e); }
+    },
+
+    // ✅ Shared cache for credit sales (used by view modals)
+    async _getAllCreditSales(forceFresh) {
+        const now = Date.now();
+        if (!forceFresh && this._creditSalesCache && (now - this._creditSalesFetchedAt) < this._CREDIT_SALES_TTL_MS) {
+            return this._creditSalesCache;
+        }
+        try {
+            const r = await ApiService.get('/credit-sales?limit=1000');
+            this._creditSalesCache = Array.isArray(r) ? r : [];
+            this._creditSalesFetchedAt = now;
+        } catch(e) {
+            this._creditSalesCache = this._creditSalesCache || [];
+        }
+        return this._creditSalesCache;
     },
 
     showAllCustomersModal() { this._showCustomersModal('all', 'All Registered Customers', this._allCustomers); },
@@ -71,7 +105,8 @@ const AdminCreditComponent = {
         var h = '<div class="modal" style="max-width:95%;width:1300px;"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">';
         h += '<h3 style="color:white;margin:0;"><i class="fas fa-users"></i> '+title+' <span style="font-size:0.9rem;opacity:0.8;">('+customerList.length+' customers)</span></h3>';
         h += '<div style="display:flex;gap:0.5rem;align-items:center;">';
-        h += '<div style="position:relative;"><i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#999;"></i><input type="text" id="modalCustomerSearch" class="form-control" placeholder="Search name, phone, or ID..." oninput="AdminCreditComponent._filterModalCustomers()" style="padding-left:30px;width:250px;"></div>';
+        // ✅ Debounced search
+        h += '<div style="position:relative;"><i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#999;"></i><input type="text" id="modalCustomerSearch" class="form-control" placeholder="Search name, phone, or ID..." oninput="AdminCreditComponent._onModalCustomerSearchInput()" style="padding-left:30px;width:250px;"></div>';
         h += '<button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showRegisterCustomer()"><i class="fas fa-user-plus"></i> Register</button>';
         h += '<button class="btn btn-sm" style="color:white;background:rgba(255,255,255,0.2);" onclick="this.closest(\'.modal-overlay\').remove()">X</button>';
         h += '</div></div><div class="modal-body" style="max-height:70vh;overflow-y:auto;"><div id="modalCustomerTable"></div></div>';
@@ -81,10 +116,26 @@ const AdminCreditComponent = {
         this._renderModalTable(customerList);
     },
 
+    // ✅ Debounced wrapper
+    _onModalCustomerSearchInput() {
+        if (this._modalCustomerFilterTimer) clearTimeout(this._modalCustomerFilterTimer);
+        var self = this;
+        this._modalCustomerFilterTimer = setTimeout(function() {
+            self._modalCustomerFilterTimer = null;
+            self._filterModalCustomers();
+        }, this._FILTER_DEBOUNCE_MS);
+    },
+
     _filterModalCustomers() {
         var search = (document.getElementById('modalCustomerSearch')?.value || '').toLowerCase().trim();
         var filtered = this._modalCustomers || [];
-        if (search) { filtered = filtered.filter(function(c){ return (c.name||'').toLowerCase().indexOf(search)>-1 || (c.phone||'').toLowerCase().indexOf(search)>-1 || (c.idNumber||'').toLowerCase().indexOf(search)>-1; }); }
+        if (search) {
+            filtered = filtered.filter(function(c){
+                return (c.name||'').toLowerCase().indexOf(search)>-1 ||
+                       (c.phone||'').toLowerCase().indexOf(search)>-1 ||
+                       (c.idNumber||'').toLowerCase().indexOf(search)>-1;
+            });
+        }
         this._renderModalTable(filtered);
     },
 
@@ -112,7 +163,6 @@ const AdminCreditComponent = {
             h += '<button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewProducts('+c.id+')" title="View Products"><i class="fas fa-box"></i></button> ';
             h += '<button class="btn btn-sm btn-info" onclick="AdminCreditComponent.viewHistory('+c.id+')" title="History"><i class="fas fa-history"></i></button> ';
             h += '<button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showPayment('+c.id+')" title="Record Payment"><i class="fas fa-money-bill"></i></button> ';
-            // ✅ NEW: Refund button — only if customer has credit
             if (creditBal > 0) {
                 h += '<button class="btn btn-sm" style="background:#f43f5e;color:white;" onclick="AdminCreditComponent.showRefund('+c.id+')" title="Refund Store Credit"><i class="fas fa-hand-holding-usd"></i></button> ';
             }
@@ -125,7 +175,7 @@ const AdminCreditComponent = {
 
     async loadRecentSales() {
         try {
-            const sales = await ApiService.get('/credit-sales');
+            const sales = await this._getAllCreditSales();
             const customers = this._allCustomers.length ? this._allCustomers : await ApiService.get('/credit-customers');
             var div = document.getElementById('recentCreditSales'); if (!div) return;
             if (!sales||!sales.length||!customers||!customers.length) { div.innerHTML = '<p style="text-align:center;color:#10b981;padding:2rem;"><i class="fas fa-check-circle" style="font-size:2rem;"></i><br>No active credit sales.</p>'; return; }
@@ -153,27 +203,49 @@ const AdminCreditComponent = {
         } catch(e) { console.error('Load recent sales error:', e); }
     },
 
+    // ✅ FIXED: single API call instead of 1 call per customer
     async loadRecentPayments() {
         try {
-            const customers = this._allCustomers.length ? this._allCustomers : await ApiService.get('/credit-customers');
-            var allPayments = [];
-            if (customers && customers.length) {
-                for (var i = 0; i < customers.length; i++) {
-                    var payments = await ApiService.get('/debt-payments/' + customers[i].id);
-                    if (payments && payments.length) { payments.forEach(function(p){ p.customerName = customers[i].name; p.customerId = customers[i].id; allPayments.push(p); }); }
+            let allPayments = [];
+
+            // Try the fast path first
+            try {
+                const r = await ApiService.get('/debt-payments?limit=200');
+                if (Array.isArray(r)) {
+                    allPayments = r;
+                }
+            } catch (fastPathError) {
+                // Fallback: old behavior if endpoint not yet deployed
+                console.warn('Fast /debt-payments endpoint unavailable — falling back to per-customer fetches.');
+                const customers = this._allCustomers.length ? this._allCustomers : await ApiService.get('/credit-customers');
+                if (customers && customers.length) {
+                    for (var i = 0; i < customers.length; i++) {
+                        var payments = await ApiService.get('/debt-payments/' + customers[i].id);
+                        if (payments && payments.length) {
+                            payments.forEach(function(p){ p.customerName = customers[i].name; p.customerId = customers[i].id; allPayments.push(p); });
+                        }
+                    }
                 }
             }
+
             allPayments.sort(function(a,b){return new Date(b.date)-new Date(a.date);});
             this._allPayments = allPayments;
             var div = document.getElementById('recentPayments');
-            if (div) { if (!allPayments.length) { div.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No payments recorded yet.</p>'; return; } this._renderPaymentsTable(allPayments.slice(0,10), div); }
+            if (div) {
+                if (!allPayments.length) {
+                    div.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No payments recorded yet.</p>';
+                    return;
+                }
+                this._renderPaymentsTable(allPayments.slice(0,10), div);
+            }
         } catch(e) { console.error('Payments error:', e); }
     },
 
     _renderPaymentsTable(payments, div) {
         if (!payments.length) { div.innerHTML = '<p style="text-align:center;color:#999;">No payments.</p>'; return; }
         var total = payments.reduce(function(s,p){return s+Number(p.amount||0);},0);
-        var h = '<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center;"><select id="paymentFilter" class="form-control" onchange="AdminCreditComponent._filterPayments()" style="width:150px;"><option value="10">Last 10</option><option value="25">Last 25</option><option value="50">Last 50</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option><option value="all">All Time</option></select><input type="text" id="paymentSearch" class="form-control" placeholder="Search..." oninput="AdminCreditComponent._filterPayments()" style="width:200px;"><span style="margin-left:auto;font-weight:600;color:#10b981;">Total: KES '+total.toLocaleString()+'</span></div>';
+        // ✅ Debounced search input
+        var h = '<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center;"><select id="paymentFilter" class="form-control" onchange="AdminCreditComponent._filterPayments()" style="width:150px;"><option value="10">Last 10</option><option value="25">Last 25</option><option value="50">Last 50</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option><option value="all">All Time</option></select><input type="text" id="paymentSearch" class="form-control" placeholder="Search..." oninput="AdminCreditComponent._onPaymentSearchInput()" style="width:200px;"><span style="margin-left:auto;font-weight:600;color:#10b981;">Total: KES '+total.toLocaleString()+'</span></div>';
         h += '<table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Credit Added</th><th>Method</th><th>Received By</th><th>Action</th></tr></thead><tbody>';
         payments.forEach(function(p){
             var badge = p.paymentMethod==='mpesa'?'<span class="badge badge-info">M-PESA</span>':'<span class="badge badge-success">CASH</span>';
@@ -181,6 +253,15 @@ const AdminCreditComponent = {
             h += '<tr><td><small>'+(p.date?new Date(p.date).toLocaleString('en-KE'):'-')+'</small></td><td><strong>'+(p.customerName||'-')+'</strong></td><td style="color:#10b981;font-weight:600;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;"><i class="fas fa-piggy-bank"></i> +KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td>'+badge+'</td><td>'+(p.receivedBy||'-')+'</td><td><button class="btn btn-sm btn-danger" onclick="AdminCreditComponent.deletePayment('+p.id+','+p.customerId+',\''+(p.customerName||'').replace(/'/g,"\\'")+'\','+p.amount+')"><i class="fas fa-trash"></i></button></td></tr>';
         });
         h += '</tbody></table>'; div.innerHTML = h;
+    },
+
+    _onPaymentSearchInput() {
+        if (this._paymentFilterTimer) clearTimeout(this._paymentFilterTimer);
+        var self = this;
+        this._paymentFilterTimer = setTimeout(function() {
+            self._paymentFilterTimer = null;
+            self._filterPayments();
+        }, this._FILTER_DEBOUNCE_MS);
     },
 
     _filterPayments() {
@@ -197,28 +278,26 @@ const AdminCreditComponent = {
         var div = document.getElementById('recentPayments'); if (div) this._renderPaymentsTable(filtered, div);
     },
 
-    // ✅ NEW: Load all refunds
     async loadRecentRefunds() {
         try {
             const refunds = await ApiService.get('/credit-refunds');
             this._allRefunds = refunds || [];
             var div = document.getElementById('recentRefunds');
             if (!div) return;
-            if (!refunds || !refunds.length) { 
-                div.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No credit refunds recorded yet.</p>'; 
-                return; 
+            if (!refunds || !refunds.length) {
+                div.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No credit refunds recorded yet.</p>';
+                return;
             }
             this._renderRefundsTable(refunds.slice(0, 10), div);
         } catch(e) { console.error('Refunds error:', e); }
     },
 
-    // ✅ NEW: Render refunds table
     _renderRefundsTable(refunds, div) {
         if (!refunds.length) { div.innerHTML = '<p style="text-align:center;color:#999;">No refunds.</p>'; return; }
         var total = refunds.reduce(function(s,r){return s+Number(r.amount||0);},0);
         var h = '<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center;">';
         h += '<select id="refundFilter" class="form-control" onchange="AdminCreditComponent._filterRefunds()" style="width:150px;"><option value="10">Last 10</option><option value="25">Last 25</option><option value="50">Last 50</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option><option value="all">All Time</option></select>';
-        h += '<input type="text" id="refundSearch" class="form-control" placeholder="Search customer..." oninput="AdminCreditComponent._filterRefunds()" style="width:200px;">';
+        h += '<input type="text" id="refundSearch" class="form-control" placeholder="Search customer..." oninput="AdminCreditComponent._onRefundSearchInput()" style="width:200px;">';
         h += '<span style="margin-left:auto;font-weight:600;color:#f43f5e;">Total Refunded: KES '+total.toLocaleString()+'</span></div>';
         h += '<table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Method</th><th>Reason</th><th>Processed By</th></tr></thead><tbody>';
         refunds.forEach(function(r){
@@ -236,6 +315,15 @@ const AdminCreditComponent = {
         div.innerHTML = h;
     },
 
+    _onRefundSearchInput() {
+        if (this._refundFilterTimer) clearTimeout(this._refundFilterTimer);
+        var self = this;
+        this._refundFilterTimer = setTimeout(function() {
+            self._refundFilterTimer = null;
+            self._filterRefunds();
+        }, this._FILTER_DEBOUNCE_MS);
+    },
+
     _filterRefunds() {
         var filter = document.getElementById('refundFilter')?.value || '10';
         var search = (document.getElementById('refundSearch')?.value || '').toLowerCase();
@@ -250,10 +338,11 @@ const AdminCreditComponent = {
         var div = document.getElementById('recentRefunds'); if (div) this._renderRefundsTable(filtered, div);
     },
 
+    // ✅ Uses shared cache instead of re-fetching all credit sales
     async viewProducts(cid) {
         try {
             const c = await ApiService.get('/credit-customers/'+cid);
-            const sales = await ApiService.get('/credit-sales');
+            const sales = await this._getAllCreditSales();
             var cs = sales ? sales.filter(function(s){return s.customerId==cid;}) : [];
             var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;">Products - '+(c?c.name:'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(c?c.totalDebt||0:0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(c?c.debtLimit||0:0).toLocaleString()+(c&&Number(c.creditBalance||0)>0?' | <strong style="color:#8b5cf6;">Store Credit:</strong> KES '+Number(c.creditBalance).toLocaleString():'')+'</p>';
             if(!cs.length) h+='<p style="text-align:center;color:#999;">No purchases.</p>';
@@ -265,10 +354,11 @@ const AdminCreditComponent = {
         } catch(e) {}
     },
 
+    // ✅ Uses shared cache
     async viewCustomerSales(cid) {
         try {
             const c = await ApiService.get('/credit-customers/'+cid);
-            const sales = await ApiService.get('/credit-sales');
+            const sales = await this._getAllCreditSales();
             var cs = sales ? sales.filter(function(s){return s.customerId==cid;}) : [];
             var tc = cs.reduce(function(s,sl){return s+Number(sl.amount||0);},0);
             var creditBal = Number(c?c.creditBalance||0:0);
@@ -292,24 +382,32 @@ const AdminCreditComponent = {
                     h+='<tr><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;">+KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td>'+(p.paymentMethod||'cash').toUpperCase()+'</td><td>'+(p.receivedBy||'-')+'</td></tr>';
                 });
                 h+='</tbody></table>'; }
-            // ✅ NEW: Refunds section
-            if(c&&c.refunds&&c.refunds.length){ 
-                var tr=c.refunds.reduce(function(s,r){return s+Number(r.amount||0);},0); 
+            if(c&&c.refunds&&c.refunds.length){
+                var tr=c.refunds.reduce(function(s,r){return s+Number(r.amount||0);},0);
                 h+='<h4 style="color:#f43f5e;">Refunds Paid Out (Total: KES '+tr.toLocaleString()+')</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Reason</th><th>Processed By</th></tr></thead><tbody>';
                 c.refunds.forEach(function(r){
                     h+='<tr><td>'+(r.date?new Date(r.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#f43f5e;font-weight:600;"><i class="fas fa-hand-holding-usd"></i> KES '+Number(r.amount||0).toLocaleString()+'</td><td>'+(r.paymentMethod||'cash').toUpperCase()+'</td><td><small>'+(r.reason||'-')+'</small></td><td>'+(r.processedBy||'-')+'</td></tr>';
                 });
-                h+='</tbody></table>'; 
+                h+='</tbody></table>';
             }
             h+='</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
             var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
         } catch(e) {}
     },
 
+    // ✅ Uses SaleService cache first, then narrow server fetch
     async viewSaleProducts(sid) {
         try {
-            const sales = await ApiService.get('/sales');
-            var s = sales ? sales.find(function(sl){return sl.id==sid;}) : null; if(!s) return;
+            var s = (SaleService._cache || []).find(function(sl){return sl.id==sid;});
+            if (!s) {
+                // Bounded fetch — not the whole table
+                const sales = await ApiService.get('/sales?limit=500');
+                s = sales ? sales.find(function(sl){return sl.id==sid;}) : null;
+            }
+            if (!s) {
+                showStyledAlert('Not Found', 'Sale details not available in cache.', 'info-circle', '#3b82f6');
+                return;
+            }
             var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#3b82f6,#2563eb);color:white;"><h3 style="color:white;">Items - '+(s.receiptNo||'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
             if(s.items&&s.items.length){ h+='<table class="table"><thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead><tbody>';
                 s.items.forEach(function(i){ h+='<tr><td>'+i.productName+'</td><td>'+i.quantity+'</td><td>KES '+Number(i.price||0).toLocaleString()+'</td><td>KES '+(Number(i.price||0)*i.quantity).toLocaleString()+'</td></tr>'; });
@@ -328,7 +426,7 @@ const AdminCreditComponent = {
             if(c.payments&&c.payments.length){ h+='<h4>Payments</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>'; c.payments.forEach(function(p){ h+='<tr><td>'+new Date(p.date).toLocaleDateString('en-KE')+'</td><td style="color:#10b981;">KES '+Number(p.amount).toLocaleString()+'</td><td>'+p.paymentMethod+'</td><td>'+p.receivedBy+'</td></tr>'; }); h+='</tbody></table>'; }
             if(c.refunds&&c.refunds.length){ h+='<h4 style="color:#f43f5e;">Refunds Paid</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Processed By</th></tr></thead><tbody>'; c.refunds.forEach(function(r){ h+='<tr><td>'+new Date(r.date).toLocaleDateString('en-KE')+'</td><td style="color:#f43f5e;">KES '+Number(r.amount).toLocaleString()+'</td><td>'+r.paymentMethod+'</td><td>'+r.processedBy+'</td></tr>'; }); h+='</tbody></table>'; }
             h+='</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-            var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;document.body.appendChild(m);m.onclick=function(e){if(e.target===m)e.currentTarget.remove();};
+            var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
         } catch(e) {}
     },
 
@@ -358,7 +456,6 @@ const AdminCreditComponent = {
         } catch(e) {}
     },
 
-    // Record Payment modal (unchanged)
     async showPayment(id) {
         try {
             const c = await ApiService.get('/credit-customers/'+id); if(!c) return;
@@ -402,11 +499,11 @@ const AdminCreditComponent = {
         if (!c) { preview.style.display = 'none'; return; }
         var debt = Number(c.totalDebt||0);
         if (amount <= 0) { preview.style.display = 'none'; return; }
-        
+
         var appliedToDebt = Math.min(amount, debt);
         var overpayment = Math.max(0, amount - debt);
         var newDebt = Math.max(0, debt - amount);
-        
+
         preview.style.display = 'block';
         if (overpayment > 0) {
             preview.style.background = '#ede9fe';
@@ -423,7 +520,6 @@ const AdminCreditComponent = {
         }
     },
 
-    // ✅ NEW: Refund Modal
     async showRefund(id) {
         try {
             const c = await ApiService.get('/credit-customers/'+id); if(!c) return;
@@ -447,7 +543,7 @@ const AdminCreditComponent = {
             m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){ if(e.target===m) m.remove(); };
             m.querySelector('#refundAmount').focus();
-            
+
             m.querySelector('#confirmRefundBtn').onclick = async function(){
                 var amount = parseFloat(m.querySelector('#refundAmount').value) || 0;
                 var reason = m.querySelector('#refundReason').value.trim() || 'Customer requested refund';
@@ -466,8 +562,8 @@ const AdminCreditComponent = {
                 if (result && result.success) {
                     m.remove();
                     await AdminCreditComponent.loadAll();
-                    showStyledAlert('Refunded', 
-                        'KES ' + amount.toLocaleString() + ' refunded to ' + c.name + 
+                    showStyledAlert('Refunded',
+                        'KES ' + amount.toLocaleString() + ' refunded to ' + c.name +
                         '<br><small>New credit balance: KES ' + (result.newCreditBalance||0).toLocaleString() + '</small>',
                         'check-circle', '#10b981');
                 } else {
@@ -485,7 +581,7 @@ const AdminCreditComponent = {
         if (!c) { preview.style.display = 'none'; return; }
         var creditBal = Number(c.creditBalance||0);
         if (amount <= 0) { preview.style.display = 'none'; return; }
-        
+
         if (amount > creditBal) {
             preview.style.display = 'block';
             preview.style.background = '#fef2f2';
