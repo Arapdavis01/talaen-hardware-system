@@ -2,6 +2,7 @@
 // APP ROUTER - With JWT Authentication
 // Updated: parallel loads, interval cleanup on navigation, SPA-safe logout
 // Fixed: clearer admin-route error + login modal fallback
+// Fixed: skip initial data fetch when not logged in (no 401 noise)
 // ============================================
 
 const AppRouter = {
@@ -33,7 +34,11 @@ const AppRouter = {
     },
 
     // ✅ Parallel loading — products and sales fetched together
+    //    Skips entirely if not logged in (public page needs no data)
     _loadInitialData: async function() {
+        // Skip if not logged in — no token means nothing to load yet
+        if (!localStorage.getItem('token')) return;
+
         try {
             await Promise.all([
                 ProductService.getAll(),
@@ -96,15 +101,17 @@ const AppRouter = {
 
         this._currentView = view;
 
-        // ✅ Parallel data refresh (each service also has its own cache, so this is cheap)
-        try {
-            await Promise.all([
-                ProductService.getAll(),
-                SaleService.getAll()
-            ]);
-        } catch (e) {
-            // Non-fatal — the views render from whatever cache they have
-            console.warn('navigate() data refresh warning:', e.message);
+        // ✅ Parallel data refresh (only when logged in)
+        if (user) {
+            try {
+                await Promise.all([
+                    ProductService.getAll(),
+                    SaleService.getAll()
+                ]);
+            } catch (e) {
+                // Non-fatal — the views render from whatever cache they have
+                console.warn('navigate() data refresh warning:', e.message);
+            }
         }
 
         await this.render();
@@ -558,8 +565,6 @@ document.addEventListener('DOMContentLoaded', function() {
     AppRouter.init();
 });
 
-// ✅ Clean up intervals when the tab is being hidden or the page is unloading.
-//    Prevents ghost intervals from lingering on mobile backgrounds.
 document.addEventListener('visibilitychange', function() {
     if (document.hidden) {
         // Dashboards already skip work when hidden, but this is belt-and-braces
