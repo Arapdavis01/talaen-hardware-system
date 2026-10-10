@@ -9,9 +9,9 @@
 }
 
 .navbar-content {
-    max-width: 1400px;
+    max-width: var(--container-max-width);
     margin: 0 auto;
-    padding: var(--spacing-md) var(--spacing-lg);
+    padding: clamp(0.75rem, 1.2vw, 1.5rem) var(--container-padding);
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -30,8 +30,8 @@
 }
 
 .logo-icon {
-    width: 40px;
-    height: 40px;
+    width: clamp(40px, 3.2vw, 56px);
+    height: clamp(40px, 3.2vw, 56px);
     background: linear-gradient(135deg, var(--primary), var(--secondary));
     border-radius: 12px;
     display: flex;
@@ -51,20 +51,20 @@
 }
 
 .logo-sub {
-    font-size: 0.7rem;
+    font-size: clamp(0.7rem, 0.65rem + 0.2vw, 0.85rem);
     color: var(--gray-500);
     letter-spacing: 1px;
 }
 
 .nav-links {
     display: flex;
-    gap: 0.5rem;
+    gap: clamp(0.25rem, 0.4vw, 0.75rem);
     align-items: center;
     flex-wrap: wrap;
 }
 
 .nav-link {
-    padding: 0.5rem 1rem;
+    padding: clamp(0.5rem, 0.6vw, 0.85rem) clamp(0.85rem, 1vw, 1.4rem);
     border-radius: var(--radius-lg);
     text-decoration: none;
     color: var(--gray-700);
@@ -78,6 +78,7 @@
     background: none;
     font-size: var(--font-size-sm);
     font-family: var(--font-primary);
+    white-space: nowrap;
 }
 
 .nav-link:hover,
@@ -87,7 +88,7 @@
     transform: translateY(-2px);
 }
 
-/* ========== SIDEBAR LAYOUT (for larger systems) ========== */
+/* ========== SIDEBAR LAYOUT ========== */
 .app-layout {
     display: grid;
     grid-template-columns: 280px 1fr;
@@ -110,13 +111,13 @@
 /* ========== POS LAYOUT ========== */
 .pos-grid {
     display: grid;
-    grid-template-columns: 1fr 420px;
+    grid-template-columns: 1fr minmax(380px, 30%);
     gap: var(--spacing-lg);
 }
 
 .products-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: var(--spacing-md);
     max-height: 550px;
     overflow-y: auto;
@@ -217,33 +218,69 @@
     position: absolute;
     bottom: -20px;
     right: -20px;
-    font-size: 8rem;
+    font-size: clamp(5rem, 8vw, 10rem);
     opacity: 0.1;
 }
 
-/* ========== RESPONSIVE ========== */
+/* ========== LARGE SCREEN ENHANCEMENTS ========== */
+@media (min-width: 1600px) {
+    .products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+        max-height: 650px;
+    }
+    .product-item {
+        padding: var(--spacing-xl);
+    }
+    .app-layout {
+        grid-template-columns: 300px 1fr;
+    }
+}
+
+@media (min-width: 1920px) {
+    .products-grid {
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+        max-height: 720px;
+    }
+    .pos-grid {
+        grid-template-columns: 1fr minmax(420px, 28%);
+    }
+    .app-layout {
+        grid-template-columns: 320px 1fr;
+    }
+}
+
+/* ========== RESPONSIVE (mobile fallback) ========== */
 @media (max-width: 768px) {
     .pos-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .stats-grid {
         grid-template-columns: 1fr;
     }
-    
+
     .container {
         padding: var(--spacing-md);
     }
-    
+
     .app-layout {
         grid-template-columns: 1fr;
     }
-    
+
     .sidebar {
         display: none;
     }
-    
+
     .navbar-content {
         padding: var(--spacing-sm) var(--spacing-md);
+    }
+
+    .nav-links {
+        gap: 0.25rem;
+    }
+
+    .nav-link {
+        padding: 0.4rem 0.65rem;
+        font-size: var(--font-size-xs);
     }
 }
