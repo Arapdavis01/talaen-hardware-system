@@ -1,10 +1,11 @@
 // ============================================
 // NAVBAR - With JWT Authentication
 // Updated: SPA-safe redirects, unified logout with router cleanup
+// Fixed: badge computation no longer crashes when user is null
 // ============================================
 
 const NavbarComponent = {
-    // ✅ Cache the parsed user for this render cycle (avoids 3 parses)
+    // ✅ Cache the parsed user for this render cycle
     _getUser() {
         const userJson = localStorage.getItem('user');
         if (!userJson) return null;
@@ -23,10 +24,12 @@ const NavbarComponent = {
         const isAdmin = isLoggedIn && user.role === 'admin';
         const isCashier = isLoggedIn && user.role === 'cashier';
 
-        // ✅ Reusable badge builder
-        const userBadge = isAdmin
-            ? '<span class="badge badge-success" style="margin:0 0.5rem;"><i class="fas fa-user-shield"></i> ' + (user.fullName || user.username || 'Admin') + '</span>'
-            : '<span class="badge badge-info" style="margin:0 0.5rem;"><i class="fas fa-user"></i> ' + (user.fullName || user.username || 'Cashier') + '</span>';
+        // ✅ Only compute the badge when logged in — safe against null user
+        const userBadge = isLoggedIn
+            ? (isAdmin
+                ? '<span class="badge badge-success" style="margin:0 0.5rem;"><i class="fas fa-user-shield"></i> ' + (user.fullName || user.username || 'Admin') + '</span>'
+                : '<span class="badge badge-info" style="margin:0 0.5rem;"><i class="fas fa-user"></i> ' + (user.fullName || user.username || 'Cashier') + '</span>')
+            : '';
 
         // ✅ Reusable active-view helper
         const active = (view) => activeView === view ? ' active' : '';
