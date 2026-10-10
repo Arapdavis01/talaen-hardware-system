@@ -2,8 +2,8 @@
 .btn {
     display: inline-flex;
     align-items: center;
-    gap: var(--spacing-sm);
-    padding: clamp(0.625rem, 0.6vw, 0.85rem) clamp(1.25rem, 1.4vw, 1.85rem);
+    gap: 0.4rem;
+    padding: 0.5rem 1rem;
     font-size: var(--font-size-sm);
     font-weight: 600;
     border-radius: var(--radius-lg);
@@ -13,7 +13,7 @@
     position: relative;
     overflow: hidden;
     text-decoration: none;
-    line-height: 1.5;
+    line-height: 1.4;
 }
 
 .btn::before {
@@ -72,12 +72,12 @@
 }
 
 .btn-sm {
-    padding: clamp(0.3rem, 0.35vw, 0.5rem) clamp(0.75rem, 0.9vw, 1.15rem);
+    padding: 0.3rem 0.7rem;
     font-size: var(--font-size-xs);
 }
 
 .btn-lg {
-    padding: clamp(0.85rem, 0.9vw, 1.1rem) clamp(1.75rem, 1.8vw, 2.35rem);
+    padding: 0.7rem 1.5rem;
     font-size: var(--font-size-lg);
 }
 
@@ -96,7 +96,7 @@
 .card {
     background: var(--glass-bg);
     backdrop-filter: blur(10px);
-    border-radius: var(--radius-2xl);
+    border-radius: var(--radius-xl);
     border: 1px solid var(--glass-border);
     box-shadow: var(--glass-shadow);
     transition: all 0.4s;
@@ -104,23 +104,23 @@
 }
 
 .card:hover {
-    transform: translateY(-4px);
-    box-shadow: var(--shadow-xl);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
 }
 
 .card-header {
-    padding: var(--spacing-lg) var(--spacing-xl);
+    padding: 0.85rem 1.25rem;
     border-bottom: 1px solid rgba(26, 71, 42, 0.1);
     display: flex;
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
-    gap: var(--spacing-md);
+    gap: 0.75rem;
     background: linear-gradient(135deg, rgba(26, 71, 42, 0.05), rgba(196, 154, 43, 0.05));
 }
 
 .card-title {
-    font-size: var(--font-size-xl);
+    font-size: var(--font-size-lg);
     font-weight: 700;
     background: linear-gradient(135deg, var(--primary), var(--secondary));
     -webkit-background-clip: text;
@@ -129,26 +129,26 @@
     color: transparent;
     display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
+    gap: 0.5rem;
 }
 
 .card-body {
-    padding: var(--spacing-xl);
+    padding: 1.25rem;
 }
 
 /* ========== STAT CARDS ========== */
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(clamp(200px, 16vw, 280px), 1fr));
-    gap: var(--spacing-lg);
-    margin-bottom: var(--spacing-lg);
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 0.85rem;
+    margin-bottom: 1rem;
 }
 
 .stat-card {
     background: linear-gradient(135deg, rgba(26, 71, 42, 0.95), rgba(196, 154, 43, 0.85));
     backdrop-filter: blur(10px);
-    border-radius: var(--radius-xl);
-    padding: var(--spacing-lg);
+    border-radius: var(--radius-lg);
+    padding: 1rem 1.15rem;
     color: var(--white);
     transition: all 0.3s var(--ease-spring);
     position: relative;
@@ -167,27 +167,28 @@
 }
 
 .stat-card:hover {
-    transform: translateY(-8px) scale(1.02);
+    transform: translateY(-4px) scale(1.01);
 }
 
 .stat-icon {
-    font-size: clamp(1.75rem, 2vw, 2.4rem);
-    margin-bottom: var(--spacing-md);
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
     opacity: 0.9;
 }
 
 .stat-label {
-    font-size: var(--font-size-sm);
+    font-size: var(--font-size-xs);
     opacity: 0.9;
-    margin-bottom: var(--spacing-sm);
+    margin-bottom: 0.35rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
 
 .stat-value {
-    font-size: clamp(1.75rem, 2.4vw, 2.75rem);
+    font-size: 1.75rem;
     font-weight: 800;
-    margin-bottom: var(--spacing-xs);
+    margin-bottom: 0.15rem;
+    line-height: 1.1;
 }
 
 .stat-sub {
@@ -202,12 +203,12 @@
 
 /* ========== FORMS ========== */
 .form-group {
-    margin-bottom: var(--spacing-lg);
+    margin-bottom: 0.85rem;
 }
 
 .form-label {
     display: block;
-    margin-bottom: var(--spacing-sm);
+    margin-bottom: 0.35rem;
     font-weight: 600;
     color: var(--dark);
     font-size: var(--font-size-sm);
@@ -215,7 +216,7 @@
 
 .form-control {
     width: 100%;
-    padding: clamp(0.7rem, 0.7vw, 0.95rem) clamp(0.9rem, 1vw, 1.25rem);
+    padding: 0.55rem 0.85rem;
     border: 2px solid var(--gray-200);
     border-radius: var(--radius-lg);
     font-size: var(--font-size-sm);
@@ -249,15 +250,16 @@
 
 .table th {
     text-align: left;
-    padding: var(--spacing-md);
+    padding: 0.6rem 0.85rem;
     background: linear-gradient(135deg, rgba(26, 71, 42, 0.05), rgba(196, 154, 43, 0.05));
     font-weight: 700;
     color: var(--primary);
     white-space: nowrap;
+    font-size: var(--font-size-sm);
 }
 
 .table td {
-    padding: var(--spacing-md);
+    padding: 0.6rem 0.85rem;
     border-bottom: 1px solid var(--gray-200);
     color: var(--gray-700);
 }
@@ -274,7 +276,7 @@
 /* ========== BADGES ========== */
 .badge {
     display: inline-block;
-    padding: 0.25rem 0.75rem;
+    padding: 0.2rem 0.6rem;
     border-radius: 9999px;
     font-size: var(--font-size-xs);
     font-weight: 600;
@@ -314,13 +316,13 @@
     align-items: center;
     z-index: 2000;
     animation: fadeIn 0.3s ease;
-    padding: var(--spacing-md);
+    padding: 1rem;
 }
 
 .modal {
     background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.95));
     backdrop-filter: blur(20px);
-    border-radius: var(--radius-2xl);
+    border-radius: var(--radius-xl);
     max-width: min(560px, 95vw);
     width: 100%;
     max-height: 90vh;
@@ -335,24 +337,24 @@
 }
 
 .modal-header {
-    padding: var(--spacing-lg) var(--spacing-xl);
+    padding: 0.85rem 1.25rem;
     border-bottom: 1px solid var(--gray-200);
     display: flex;
     justify-content: space-between;
     align-items: center;
-    gap: var(--spacing-md);
+    gap: 0.75rem;
 }
 
 .modal-body {
-    padding: var(--spacing-xl);
+    padding: 1.25rem;
 }
 
 .modal-footer {
-    padding: var(--spacing-md) var(--spacing-xl);
+    padding: 0.75rem 1.25rem;
     border-top: 1px solid var(--gray-200);
     display: flex;
     justify-content: flex-end;
-    gap: var(--spacing-sm);
+    gap: 0.5rem;
     background: var(--gray-100);
     flex-wrap: wrap;
 }
@@ -362,15 +364,15 @@
     position: fixed;
     top: 20px;
     right: 20px;
-    padding: var(--spacing-md) var(--spacing-lg);
+    padding: 0.85rem 1.15rem;
     border-radius: var(--radius-lg);
     display: flex;
     align-items: center;
-    gap: var(--spacing-sm);
+    gap: 0.5rem;
     z-index: 3000;
     animation: slideInRight 0.3s ease;
     box-shadow: var(--shadow-lg);
-    min-width: 300px;
+    min-width: 280px;
     max-width: 90vw;
 }
 
@@ -393,14 +395,8 @@
 }
 
 @keyframes slideInRight {
-    from {
-        transform: translateX(100%);
-        opacity: 0;
-    }
-    to {
-        transform: translateX(0);
-        opacity: 1;
-    }
+    from { transform: translateX(100%); opacity: 0; }
+    to { transform: translateX(0); opacity: 1; }
 }
 
 /* ========== LOADING ========== */
@@ -454,24 +450,24 @@
     to { transform: rotate(360deg); }
 }
 
-/* ========== LARGE SCREEN ENHANCEMENTS ========== */
+/* ========== LARGE SCREEN — SLIGHT ENHANCEMENTS ========== */
 @media (min-width: 1600px) {
     .table th,
     .table td {
-        padding: 1.25rem;
+        padding: 0.7rem 0.95rem;
     }
     .card-body {
-        padding: 2.25rem;
+        padding: 1.4rem;
     }
 }
 
 @media (min-width: 1920px) {
     .table th,
     .table td {
-        padding: 1.4rem;
+        padding: 0.8rem 1.05rem;
     }
     .card-body {
-        padding: 2.5rem;
+        padding: 1.5rem;
     }
     .modal-lg {
         max-width: min(1100px, 90vw);
