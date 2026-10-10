@@ -1,12 +1,13 @@
 /**
  * Talaen Hardware System - Storage Service
- * Handles all localStorage operations with error handling and data validation
+ * localStorage wrapper with error handling and data validation
+ *
+ * NOTE: In the current app, most data lives on the server. This service is
+ * primarily used by legacy helpers in auth.service.js and as a local cache
+ * fallback.
  */
 
 const StorageService = {
-    /**
-     * Storage keys configuration
-     */
     KEYS: {
         PRODUCTS: 'talaen_products',
         SALES: 'talaen_sales',
@@ -22,18 +23,23 @@ const StorageService = {
         APP_VERSION: 'talaen_version'
     },
 
-    /**
-     * Get data from storage
-     * @param {string} key - Storage key
-     * @param {*} defaultValue - Default value if key doesn't exist
-     * @returns {*} Parsed data or default value
-     */
+    // ✅ Keys that should NEVER be written to an exported backup file
+    _SENSITIVE_KEYS: new Set([
+        'talaen_password',
+        'talaen_security_answer'
+    ]),
+
+    // ✅ Reject import files larger than 25 MB (sanity check)
+    _MAX_IMPORT_BYTES: 25 * 1024 * 1024,
+
+    // ============================================
+    // CORE GET / SET / REMOVE
+    // ============================================
+
     get(key, defaultValue = null) {
         try {
             const data = localStorage.getItem(key);
-            if (data === null) {
-                return defaultValue;
-            }
+            if (data === null) return defaultValue;
             return JSON.parse(data);
         } catch (error) {
             console.error(`Error reading from storage (${key}):`, error);
@@ -41,30 +47,19 @@ const StorageService = {
         }
     },
 
-    /**
-     * Set data to storage
-     * @param {string} key - Storage key
-     * @param {*} value - Value to store
-     * @returns {boolean} Success status
-     */
     set(key, value) {
         try {
-            const serialized = JSON.stringify(value);
-            localStorage.setItem(key, serialized);
+            localStorage.setItem(key, JSON.stringify(value));
             return true;
         } catch (error) {
             console.error(`Error writing to storage (${key}):`, error);
-            if (error.name === 'QuotaExceededError') {
+            if (error.name === 'QuotaExceededError' || error.code === 22) {
                 this.handleStorageFull();
             }
             return false;
         }
     },
 
-    /**
-     * Remove data from storage
-     * @param {string} key - Storage key
-     */
     remove(key) {
         try {
             localStorage.removeItem(key);
@@ -73,22 +68,14 @@ const StorageService = {
         }
     },
 
-    /**
-     * Check if key exists
-     * @param {string} key - Storage key
-     * @returns {boolean} Exists status
-     */
     has(key) {
         return localStorage.getItem(key) !== null;
     },
 
-    /**
-     * Clear all Talaen data
-     */
     clearAll() {
         try {
             Object.values(this.KEYS).forEach(key => {
-                localStorage.removeItem(key);
+                try { localStorage.removeItem(key); } catch (_) {}
             });
             return true;
         } catch (error) {
@@ -97,49 +84,61 @@ const StorageService = {
         }
     },
 
+    // ============================================
+    // SIZE / INFO
+    // ============================================
+
     /**
-     * Get storage size
-     * @returns {number} Size in bytes
+     * Calculate total size of all Talaen-prefixed keys.
+     * Uses one pass — no repeated iteration.
      */
     getSize() {
         let total = 0;
-        for (let key in localStorage) {
-            if (localStorage.hasOwnProperty(key) && key.startsWith('talaen_')) {
-                total += localStorage[key].length * 2; // UTF-16
+        const keys = Object.keys(localStorage);
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            if (key.indexOf('talaen_') === 0) {
+                const val = localStorage.getItem(key);
+                if (val) total += val.length * 2; // UTF-16 approx bytes
             }
         }
         return total;
     },
 
-    /**
-     * Get storage info
-     * @returns {object} Storage statistics
-     */
     getInfo() {
+        // ✅ Compute size once
+        const size = this.getSize();
+        const keys = Object.keys(localStorage).filter(k => k.indexOf('talaen_') === 0);
         return {
-            size: this.getSize(),
-            sizeInKB: (this.getSize() / 1024).toFixed(2),
-            sizeInMB: (this.getSize() / (1024 * 1024)).toFixed(2),
-            keys: Object.keys(localStorage).filter(k => k.startsWith('talaen_')),
-            productCount: this.get(this.KEYS.PRODUCTS, []).length,
-            saleCount: this.get(this.KEYS.SALES, []).length,
-            customerCount: this.get(this.KEYS.CUSTOMERS, []).length
+            size,
+            sizeInKB: (size / 1024).toFixed(2),
+            sizeInMB: (size / (1024 * 1024)).toFixed(2),
+            keys,
+            productCount: this.get(this.KEYS.PRODUCTS, []).length || 0,
+            saleCount:    this.get(this.KEYS.SALES, []).length || 0,
+            customerCount: this.get(this.KEYS.CUSTOMERS, []).length || 0
         };
     },
 
-    /**
-     * Handle storage full error
-     */
     handleStorageFull() {
-        console.warn('Storage is full! Attempting cleanup...');
-        // Could implement auto-cleanup of old data here
-        alert('Storage is full! Please export your data and clear some space.');
+        console.warn('Storage is full!');
+        // ✅ Non-blocking toast instead of alert()
+        if (typeof UIService !== 'undefined' && UIService.showAlert) {
+            UIService.showAlert(
+                'Storage is full. Please export your data and clear some space.',
+                'warning',
+                6000
+            );
+        } else {
+            // Fallback for very early startup when UIService isn't loaded yet
+            console.error('Storage full — export and clear data before continuing.');
+        }
     },
 
-    /**
-     * Create backup
-     * @returns {object} Backup data
-     */
+    // ============================================
+    // BACKUP / RESTORE
+    // ============================================
+
     createBackup() {
         const backup = {
             version: '1.0',
@@ -148,36 +147,58 @@ const StorageService = {
         };
 
         Object.entries(this.KEYS).forEach(([name, key]) => {
-            backup.data[name.toLowerCase()] = this.get(key, []);
+            // ✅ Skip sensitive keys
+            if (this._SENSITIVE_KEYS.has(key)) return;
+            const value = this.get(key, null);
+            // ✅ Skip keys that were never set
+            if (value === null) return;
+            backup.data[name.toLowerCase()] = value;
         });
 
         return backup;
     },
 
     /**
-     * Restore from backup
-     * @param {object} backup - Backup data
-     * @returns {boolean} Success status
+     * Restore from a backup object.
+     * Validates shape before writing anything.
      */
     restoreBackup(backup) {
         try {
-            if (!backup.data || !backup.version) {
+            if (!backup || !backup.data || !backup.version) {
                 throw new Error('Invalid backup file');
             }
 
             const keyMap = {
-                products: this.KEYS.PRODUCTS,
-                sales: this.KEYS.SALES,
-                customers: this.KEYS.CUSTOMERS,
-                suppliers: this.KEYS.SUPPLIERS,
-                settings: this.KEYS.SETTINGS
+                products:    this.KEYS.PRODUCTS,
+                sales:       this.KEYS.SALES,
+                customers:   this.KEYS.CUSTOMERS,
+                suppliers:   this.KEYS.SUPPLIERS,
+                settings:    this.KEYS.SETTINGS,
+                stock_alerts: this.KEYS.STOCK_ALERTS,
+                user_preferences: this.KEYS.USER_PREFERENCES,
+                activity_log: this.KEYS.ACTIVITY_LOG,
+                app_version: this.KEYS.APP_VERSION
             };
 
+            // ✅ Validate the value type before writing
+            const validArrayKeys = new Set(['products', 'sales', 'customers', 'suppliers', 'stock_alerts', 'activity_log']);
+            let written = 0;
+
             Object.entries(backup.data).forEach(([name, data]) => {
-                if (keyMap[name]) {
-                    this.set(keyMap[name], data);
+                if (!keyMap[name]) return;
+                // Reject shape mismatch
+                if (validArrayKeys.has(name) && !Array.isArray(data)) {
+                    console.warn(`Skipping backup.${name}: expected array, got ${typeof data}`);
+                    return;
+                }
+                if (this.set(keyMap[name], data)) {
+                    written++;
                 }
             });
+
+            if (written === 0) {
+                throw new Error('Nothing to restore — no valid keys in backup');
+            }
 
             return true;
         } catch (error) {
@@ -186,9 +207,6 @@ const StorageService = {
         }
     },
 
-    /**
-     * Export backup to file
-     */
     exportBackupToFile() {
         const backup = this.createBackup();
         const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
@@ -196,41 +214,61 @@ const StorageService = {
         const link = document.createElement('a');
         link.href = url;
         link.download = `talaen_backup_${Date.now()}.json`;
+        document.body.appendChild(link);
         link.click();
+        document.body.removeChild(link);
         URL.revokeObjectURL(url);
     },
 
     /**
-     * Import backup from file
-     * @returns {Promise} Promise with result
+     * Import a backup from a file.
+     * Handles: file size check, reader errors, and re-selecting the same file.
      */
     importBackupFromFile() {
         return new Promise((resolve, reject) => {
             const input = document.createElement('input');
             input.type = 'file';
-            input.accept = '.json';
-            
+            input.accept = '.json,application/json';
+
             input.onchange = (e) => {
-                const file = e.target.files[0];
+                const file = e.target.files && e.target.files[0];
+                // ✅ Reset the input so the same file can be picked again later
+                e.target.value = '';
+
+                if (!file) {
+                    reject(new Error('No file selected'));
+                    return;
+                }
+
+                // ✅ Size guard
+                if (file.size > this._MAX_IMPORT_BYTES) {
+                    reject(new Error(
+                        `File too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Maximum: ${(this._MAX_IMPORT_BYTES / 1024 / 1024).toFixed(0)} MB.`
+                    ));
+                    return;
+                }
+
                 const reader = new FileReader();
-                
+
+                // ✅ Handle read errors — previously this would hang forever
+                reader.onerror = () => {
+                    reject(new Error('Could not read the file'));
+                };
+
                 reader.onload = (event) => {
                     try {
                         const backup = JSON.parse(event.target.result);
                         const success = this.restoreBackup(backup);
-                        if (success) {
-                            resolve(backup);
-                        } else {
-                            reject(new Error('Failed to restore backup'));
-                        }
+                        if (success) resolve(backup);
+                        else reject(new Error('Failed to restore backup'));
                     } catch (error) {
-                        reject(new Error('Invalid backup file'));
+                        reject(new Error('Invalid backup file: ' + error.message));
                     }
                 };
-                
+
                 reader.readAsText(file);
             };
-            
+
             input.click();
         });
     }
