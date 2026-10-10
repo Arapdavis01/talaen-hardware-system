@@ -1,21 +1,51 @@
 // ============================================
 // ADMIN SETTINGS - With JWT Authentication
+// Updated: parallel loads, shared settings fetch, proper escaping,
+//          correct reset-password endpoint, UIService-based modals
 // ============================================
 
 const AdminSettingsComponent = {
     _activityFilter: 'all',
 
+    // ✅ Cache settings so we don't fetch twice
+    _settingsCache: null,
+    _settingsFetchedAt: 0,
+    _SETTINGS_TTL_MS: 30000,
+
+    // ✅ HTML attribute escape helper (for onclick="..." embedded values)
+    _esc(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    },
+
+    // ✅ HTML text escape helper (for cell contents)
+    _escHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    },
+
+    // ============================================
+    // RENDER
+    // ============================================
     render: function() {
         var h = '';
-        
+
         // Change Admin Password
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-key"></i> Change Admin Password</h3></div><div class="card-body">';
-        h += '<div id="currentPasswordDisplay" style="background:#f5f5f5;padding:0.75rem 1rem;border-radius:0.5rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center;">';
-        h += '<span><strong>Current Password:</strong> <code id="currentPassDisplay">Loading...</code></span>';
-        h += '<button class="btn btn-sm btn-outline" onclick="AdminSettingsComponent.toggleShowCurrent()" id="showCurrentBtn"><i class="fas fa-eye"></i> Show</button></div>';
+        h += '<p style="color:#666;font-size:0.9rem;margin-bottom:1rem;">Change the password for your own admin account. To reset another user\'s password, use the Manage Users section below.</p>';
         h += '<div style="display:flex;gap:1rem;"><div style="position:relative;flex:1;"><input type="password" id="newAdminPass" class="form-control" placeholder="New admin password" style="padding-right:40px;"><button type="button" onclick="AdminSettingsComponent.toggleAdminPass()" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:#999;" id="adminPassToggle"><i class="fas fa-eye"></i></button></div><button class="btn btn-primary" onclick="AdminSettingsComponent.changeAdminPass()"><i class="fas fa-save"></i> Update</button></div>';
         h += '<div id="adminPassMsg" style="margin-top:0.5rem;"></div></div></div>';
-        
+
         // Manage All Users
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-users-cog"></i> Manage All Users</h3></div><div class="card-body">';
         h += '<div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:0.5rem;margin-bottom:1rem;align-items:end;">';
@@ -25,8 +55,8 @@ const AdminSettingsComponent = {
         h += '<div><label>Role</label><select id="cashierRole" class="form-control"><option value="cashier">Cashier</option><option value="admin">Admin</option></select></div>';
         h += '<button class="btn btn-success" id="addCashierBtn" onclick="AdminSettingsComponent.addUser()" style="height:42px;"><i class="fas fa-plus"></i> Add</button></div>';
         h += '<div id="userMsg" style="margin-bottom:0.5rem;"></div><div id="userList">Loading users...</div></div></div>';
-        
-        // Announcement Banner
+
+        // Announcement
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 class="card-title" style="color:white;"><i class="fas fa-bullhorn"></i> Announcement Banner</h3></div><div class="card-body">';
         h += '<div class="form-group"><label>Message (leave empty to hide from cashiers)</label>';
         h += '<input type="text" id="announcementText" class="form-control" placeholder="Enter announcement message..." style="font-size:1.1rem;">';
@@ -34,8 +64,8 @@ const AdminSettingsComponent = {
         h += '<button class="btn btn-primary" onclick="AdminSettingsComponent.saveAnnouncement()"><i class="fas fa-save"></i> Save Announcement</button>';
         h += '<div id="announcementMsg" style="margin-top:0.5rem;"></div>';
         h += '</div></div>';
-        
-        // M-Pesa API Configuration
+
+        // M-Pesa
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 class="card-title" style="color:white;"><i class="fas fa-mobile-alt"></i> M-Pesa API Configuration</h3></div><div class="card-body">';
         h += '<div id="mpesaConfigMsg" style="margin-bottom:0.5rem;"></div>';
         h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">';
@@ -51,52 +81,86 @@ const AdminSettingsComponent = {
         h += '<i class="fas fa-info-circle" style="color:#10b981;"></i>';
         h += '<small style="color:#666;">M-Pesa credentials are required for STK Push payments. Get these from the Safaricom Daraja API portal.</small>';
         h += '</div></div></div>';
-        
-        // Recent Activity
+
+        // Activity
         h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-history"></i> Recent Activity</h3><div style="display:flex;gap:0.5rem;flex-wrap:wrap;">';
         h += '<button class="btn btn-sm btn-primary activity-filter active" onclick="AdminSettingsComponent.filterActivity(\'all\',this)">All</button>';
         h += '<button class="btn btn-sm btn-outline activity-filter" onclick="AdminSettingsComponent.filterActivity(\'login\',this)"><i class="fas fa-sign-in-alt"></i> Logins</button>';
         h += '<button class="btn btn-sm btn-outline activity-filter" onclick="AdminSettingsComponent.filterActivity(\'sale\',this)"><i class="fas fa-shopping-cart"></i> Sales</button>';
         h += '<button class="btn btn-sm btn-outline activity-filter" onclick="AdminSettingsComponent.filterActivity(\'add_product\',this)"><i class="fas fa-plus-circle"></i> Products/Users</button>';
-        h += '<button class="btn btn-sm btn-outline activity-filter" onclick="AdminSettingsComponent.filterActivity(\'profile_update\',this)"><i class="fas fa-edit"></i> Edits</button>';
+        h += '<button class="btn btn-sm btn-outline activity-filter" onclick="AdminSettingsComponent.filterActivity(\'update\',this)"><i class="fas fa-edit"></i> Edits</button>';
         h += '<button class="btn btn-sm btn-outline activity-filter" onclick="AdminSettingsComponent.filterActivity(\'password\',this)"><i class="fas fa-key"></i> Passwords</button>';
         h += '<button class="btn btn-sm btn-danger" id="clearActivityBtn" onclick="AdminSettingsComponent.clearActivity()"><i class="fas fa-trash"></i> Clear All</button>';
         h += '</div></div><div class="card-body"><div id="activityLog">Loading activity...</div></div></div>';
-        
-        setTimeout(function(){ 
-            AdminSettingsComponent.loadUsers(); 
-            AdminSettingsComponent.loadActivity(); 
-            AdminSettingsComponent.loadCurrentPassword(); 
-            AdminSettingsComponent.loadMpesaConfig();
-            AdminSettingsComponent.loadAnnouncement();
-        }, 300);
-        
+
+        // ✅ Parallel initial load — no more sequential chain via setTimeout
+        setTimeout(function() {
+            AdminSettingsComponent._loadInitialData();
+        }, 100);
+
         return h;
     },
 
     // ============================================
-    // UPDATED: Using ApiService with JWT
+    // INITIAL DATA (parallel)
     // ============================================
-
-    // ========== ANNOUNCEMENT ==========
-    loadAnnouncement: function() {
-        ApiService.get('/settings').then(function(s) {
-            var input = document.getElementById('announcementText');
-            if (input) input.value = s.announcement || '';
-        });
+    async _loadInitialData() {
+        // Fire everything at once; each loader renders independently
+        await Promise.allSettled([
+            this.loadUsers(),
+            this.loadActivity(),
+            this.loadSettings(),   // ✅ single fetch → feeds announcement + password display
+            this.loadMpesaConfig()
+        ]);
     },
 
+    // ✅ Shared settings fetch
+    async _getSettings(forceFresh) {
+        var now = Date.now();
+        if (!forceFresh && this._settingsCache && (now - this._settingsFetchedAt) < this._SETTINGS_TTL_MS) {
+            return this._settingsCache;
+        }
+        try {
+            var s = await ApiService.get('/settings');
+            this._settingsCache = s || {};
+            this._settingsFetchedAt = now;
+        } catch (e) {
+            if (!this._settingsCache) this._settingsCache = {};
+        }
+        return this._settingsCache;
+    },
+
+    async loadSettings() {
+        var s = await this._getSettings(true);
+        var input = document.getElementById('announcementText');
+        if (input) input.value = s.announcement || '';
+        // Note: we no longer expose the stored admin password.
+        // The value in the DB is a bcrypt hash and not human-readable.
+    },
+
+    // ============================================
+    // ANNOUNCEMENT
+    // ============================================
     saveAnnouncement: function() {
         var text = document.getElementById('announcementText').value.trim();
+        var self = this;
         ApiService.put('/settings', { announcement: text })
             .then(function(d) {
-                if (d.success) {
-                    AdminSettingsComponent.showMsg('announcementMsg', 'Announcement saved!', 'success');
+                if (d && d.success) {
+                    self.showMsg('announcementMsg', 'Announcement saved!', 'success');
+                    self._settingsCache = null; // invalidate
+                } else {
+                    self.showMsg('announcementMsg', 'Failed to save', 'danger');
                 }
+            })
+            .catch(function(e) {
+                self.showMsg('announcementMsg', 'Error: ' + e.message, 'danger');
             });
     },
 
-    // ========== M-PESA CONFIG ==========
+    // ============================================
+    // M-PESA
+    // ============================================
     loadMpesaConfig: async function() {
         try {
             var config = await ApiService.get('/mpesa/config');
@@ -106,6 +170,8 @@ const AdminSettingsComponent = {
             var tn = document.getElementById('mpesaTillNumber');
             var sc = document.getElementById('mpesaShortCode');
             var env = document.getElementById('mpesaEnv');
+
+            // ✅ Blank out sensitive fields so credentials aren't exposed
             if (ck) ck.value = '';
             if (cs) cs.value = '';
             if (pk) pk.value = '';
@@ -119,8 +185,11 @@ const AdminSettingsComponent = {
 
     saveMpesaConfig: async function() {
         var btn = document.getElementById('saveMpesaBtn');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        var originalHtml = btn ? btn.innerHTML : '';
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+        }
         try {
             var data = await ApiService.put('/mpesa/config', {
                 consumerKey: document.getElementById('mpesaConsumerKey').value.trim(),
@@ -130,34 +199,39 @@ const AdminSettingsComponent = {
                 shortCode: document.getElementById('mpesaShortCode').value.trim(),
                 environment: document.getElementById('mpesaEnv').value
             });
-            if (data.success) {
+            if (data && data.success) {
                 this.showMsg('mpesaConfigMsg', 'M-Pesa configuration saved!', 'success');
             } else {
                 this.showMsg('mpesaConfigMsg', 'Failed to save', 'danger');
             }
         } catch(e) {
             this.showMsg('mpesaConfigMsg', 'Error: ' + e.message, 'danger');
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
         }
-        btn.disabled = false;
-        btn.innerHTML = '<i class="fas fa-save"></i> Save M-Pesa Configuration';
     },
 
-    // ========== EXISTING FUNCTIONS ==========
+    // ============================================
+    // ACTIVITY
+    // ============================================
     filterActivity: function(filter, btn) {
         this._activityFilter = filter;
-        document.querySelectorAll('.activity-filter').forEach(function(b) { 
-            b.className = 'btn btn-sm btn-outline activity-filter'; 
+        document.querySelectorAll('.activity-filter').forEach(function(b) {
+            b.className = 'btn btn-sm btn-outline activity-filter';
         });
         btn.className = 'btn btn-sm btn-primary activity-filter active';
         var clearBtn = document.getElementById('clearActivityBtn');
         if (clearBtn) {
-            var labels = { 
-                all: 'Clear All', 
-                login: 'Clear Logins', 
-                sale: 'Clear Sales', 
-                add_product: 'Clear Products/Users', 
-                profile_update: 'Clear Edits', 
-                password: 'Clear Passwords' 
+            var labels = {
+                all: 'Clear All',
+                login: 'Clear Logins',
+                sale: 'Clear Sales',
+                add_product: 'Clear Products/Users',
+                update: 'Clear Edits',
+                password: 'Clear Passwords'
             };
             clearBtn.innerHTML = '<i class="fas fa-trash"></i> ' + (labels[filter] || 'Clear All');
         }
@@ -165,76 +239,199 @@ const AdminSettingsComponent = {
     },
 
     showMsg: function(elId, msg, type) {
-        var el = document.getElementById(elId); 
+        var el = document.getElementById(elId);
         if (!el) return;
         var color = type === 'success' ? '#10b981' : '#ef4444';
-        var prefix = type === 'success' ? '' : '';
-        el.innerHTML = '<span style="color:' + color + ';font-weight:600;">' + prefix + msg + '</span>';
-        setTimeout(function(){ el.innerHTML = ''; }, 5000);
+        el.innerHTML = '<span style="color:' + color + ';font-weight:600;">' + this._escHtml(msg) + '</span>';
+        setTimeout(function(){ if (el) el.innerHTML = ''; }, 5000);
     },
 
-    loadCurrentPassword: function() {
-        ApiService.get('/settings').then(function(s){
-            if (s && s.adminPassword) { 
-                document.getElementById('currentPassDisplay').textContent = '........'; 
-                document.getElementById('currentPassDisplay').dataset.realPass = s.adminPassword; 
-            }
+    clearActivity: function() {
+        var self = this;
+        var filter = this._activityFilter || 'all';
+        var labels = {
+            all: 'all activity logs',
+            login: 'all login/logout logs',
+            sale: 'all sales logs',
+            add_product: 'all product/user logs',
+            update: 'all edit logs',
+            password: 'all password logs'
+        };
+        var msg = 'Delete ' + (labels[filter] || 'all activity logs') + '? This cannot be undone!';
+
+        UIService.confirm('Clear Activity', msg, 'Delete', 'danger').then(function(confirmed) {
+            if (!confirmed) return;
+            ApiService.delete('/activity')
+                .then(function() {
+                    self.loadActivity();
+                    self.showMsg('userMsg', 'Activity cleared!', 'success');
+                });
         });
     },
 
-    toggleShowCurrent: function() {
-        var el = document.getElementById('currentPassDisplay');
-        var btn = document.getElementById('showCurrentBtn');
-        if (el.textContent === '........') { 
-            el.textContent = el.dataset.realPass || 'N/A'; 
-            btn.innerHTML = '<i class="fas fa-eye-slash"></i> Hide'; 
-        } else { 
-            el.textContent = '........'; 
-            btn.innerHTML = '<i class="fas fa-eye"></i> Show'; 
-        }
-    },
+    loadActivity: function() {
+        var log = document.getElementById('activityLog');
+        if (!log) return;
+        var filter = this._activityFilter || 'all';
 
-    toggleAdminPass: function() { 
-        var f = document.getElementById('newAdminPass');
-        var b = document.getElementById('adminPassToggle'); 
-        if (f.type === 'password') {
-            f.type = 'text';
-            b.innerHTML = '<i class="fas fa-eye-slash"></i>';
-        } else {
-            f.type = 'password';
-            b.innerHTML = '<i class="fas fa-eye"></i>';
-        } 
-    },
-    
-    toggleAddPass: function() { 
-        var f = document.getElementById('cashierPass');
-        var b = document.getElementById('addPassToggle'); 
-        if (f.type === 'password') {
-            f.type = 'text';
-            b.innerHTML = '<i class="fas fa-eye-slash"></i>';
-        } else {
-            f.type = 'password';
-            b.innerHTML = '<i class="fas fa-eye"></i>';
-        } 
-    },
+        // ✅ Bounded fetch
+        ApiService.get('/activity?limit=200').then(function(logs) {
+            logs = logs || [];
+            var filtered = logs;
 
-    changeAdminPass: function() {
-        var p = document.getElementById('newAdminPass').value.trim(); 
-        if (!p || p.length < 4) { 
-            showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); 
-            return; 
-        }
-        var self = this;
-        
-        Promise.all([
-            ApiService.put('/settings', { adminPassword: p }),
-            ApiService.put('/users/1', { password: p })
-        ]).then(function(){
-            self.showMsg('adminPassMsg', 'Password updated!', 'success');
-            document.getElementById('newAdminPass').value = '';
-            self.loadActivity();
+            // ✅ Filters match the actual backend action names
+            if (filter === 'login') {
+                filtered = logs.filter(function(l){ return l.action === 'login' || l.action === 'logout'; });
+            } else if (filter === 'sale') {
+                filtered = logs.filter(function(l){ return l.action === 'sale' || l.action === 'return'; });
+            } else if (filter === 'add_product') {
+                filtered = logs.filter(function(l){ return l.action === 'add_product' || l.action === 'add_user' || l.action === 'purchase_order'; });
+            } else if (filter === 'update') {
+                filtered = logs.filter(function(l){ return l.action === 'update_user' || l.action === 'toggle_user' || l.action === 'update_product'; });
+            } else if (filter === 'password') {
+                filtered = logs.filter(function(l){ return l.action === 'password_change' || l.action === 'password_reset'; });
+            }
+
+            var h = '<table class="table"><thead><tr><th>Date</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody>';
+            if (!filtered.length) {
+                h += '<tr><td colspan="4" style="text-align:center;color:#999;padding:2rem;">No activity</td></tr>';
+            } else {
+                var esc = function(s){ return AdminSettingsComponent._escHtml(s); };
+                filtered.forEach(function(l) {
+                    var badgeMap = {
+                        'login': 'badge-info', 'logout': 'badge-secondary',
+                        'sale': 'badge-primary', 'return': 'badge-warning',
+                        'add_product': 'badge-success', 'add_user': 'badge-success',
+                        'purchase_order': 'badge-primary', 'po_received': 'badge-success',
+                        'update_user': 'badge-warning', 'toggle_user': 'badge-warning',
+                        'update_product': 'badge-warning',
+                        'password_change': 'badge-danger', 'password_reset': 'badge-danger',
+                        'delete_payment': 'badge-danger', 'credit_refund': 'badge-danger',
+                        'credit_overpayment': 'badge-info', 'credit_applied': 'badge-info'
+                    };
+                    var cls = badgeMap[l.action] || 'badge-info';
+                    var label = (l.action || 'unknown').replace(/_/g, ' ');
+                    h += '<tr>';
+                    h += '<td><small>' + (l.date ? new Date(l.date).toLocaleString('en-KE') : '-') + '</small></td>';
+                    h += '<td><strong>' + esc(l.userName || 'System') + '</strong></td>';
+                    h += '<td><span class="badge ' + cls + '">' + esc(label) + '</span></td>';
+                    h += '<td>' + esc(l.details || '') + '</td>';
+                    h += '</tr>';
+                });
+            }
+            h += '</tbody></table>';
+            log.innerHTML = h;
         }).catch(function(e){
-            self.showMsg('adminPassMsg', 'Error: ' + e.message, 'danger');
+            log.innerHTML = '<p style="color:#ef4444;text-align:center;padding:2rem;">Error loading activity: ' + AdminSettingsComponent._escHtml(e.message) + '</p>';
+        });
+    },
+
+    // ============================================
+    // PASSWORDS
+    // ============================================
+    toggleAdminPass: function() {
+        var f = document.getElementById('newAdminPass');
+        var b = document.getElementById('adminPassToggle');
+        if (!f || !b) return;
+        if (f.type === 'password') {
+            f.type = 'text';
+            b.innerHTML = '<i class="fas fa-eye-slash"></i>';
+        } else {
+            f.type = 'password';
+            b.innerHTML = '<i class="fas fa-eye"></i>';
+        }
+    },
+
+    toggleAddPass: function() {
+        var f = document.getElementById('cashierPass');
+        var b = document.getElementById('addPassToggle');
+        if (!f || !b) return;
+        if (f.type === 'password') {
+            f.type = 'text';
+            b.innerHTML = '<i class="fas fa-eye-slash"></i>';
+        } else {
+            f.type = 'password';
+            b.innerHTML = '<i class="fas fa-eye"></i>';
+        }
+    },
+
+    // ✅ Updates the CURRENT admin's own password (was hardcoded to user #1)
+    changeAdminPass: function() {
+        var p = document.getElementById('newAdminPass').value.trim();
+        if (!p || p.length < 6) {
+            showStyledAlert('Error', 'Password must be at least 6 characters!', 'times-circle', '#ef4444');
+            return;
+        }
+
+        var userJson = localStorage.getItem('user');
+        var user = null;
+        try { user = userJson ? JSON.parse(userJson) : null; } catch (e) {}
+
+        if (!user || !user.id) {
+            this.showMsg('adminPassMsg', 'Could not determine current user', 'danger');
+            return;
+        }
+
+        var self = this;
+        ApiService.put('/users/' + user.id, { password: p })
+            .then(function(d) {
+                if (d && d.success) {
+                    self.showMsg('adminPassMsg', 'Your password has been updated!', 'success');
+                    document.getElementById('newAdminPass').value = '';
+                    self.loadActivity();
+                } else {
+                    self.showMsg('adminPassMsg', (d && d.message) || 'Failed to update password', 'danger');
+                }
+            })
+            .catch(function(e) {
+                self.showMsg('adminPassMsg', 'Error: ' + e.message, 'danger');
+            });
+    },
+
+    // ============================================
+    // USERS
+    // ============================================
+    loadUsers: function() {
+        var list = document.getElementById('userList');
+        if (!list) return;
+
+        ApiService.get('/users').then(function(users) {
+            users = users || [];
+            var esc = function(s){ return AdminSettingsComponent._escHtml(s); };
+            var escAttr = function(s){ return AdminSettingsComponent._esc(s); };
+
+            var h = '<table class="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+            if (!users.length) {
+                h += '<tr><td colspan="6" style="text-align:center;padding:2rem;">No users</td></tr>';
+            } else {
+                users.forEach(function(c) {
+                    var pwId = 'pw_' + c.id;
+                    var safePw = escAttr(c.password || '');
+                    var safeName = escAttr(c.fullName || '');
+                    var safeUser = escAttr(c.username || '');
+
+                    h += '<tr>';
+                    h += '<td><strong>' + esc(c.fullName) + '</strong></td>';
+                    h += '<td>' + esc(c.username) + '</td>';
+                    h += '<td><span class="badge ' + (c.role === 'admin' ? 'badge-success' : 'badge-info') + '">' + esc(c.role) + '</span></td>';
+                    h += '<td><div style="display:flex;align-items:center;gap:0.5rem;"><code id="' + pwId + '" data-real="' + safePw + '">....</code>';
+                    h += '<button class="btn btn-sm btn-outline" onclick="var e=document.getElementById(\'' + pwId + '\');e.textContent=e.textContent===\'....\'?e.dataset.real:\'....\'"><i class="fas fa-eye"></i></button></div></td>';
+                    h += '<td><span class="badge ' + (c.isActive ? 'badge-success' : 'badge-danger') + '">' + (c.isActive ? 'Active' : 'Inactive') + '</span></td>';
+                    h += '<td style="white-space:nowrap;">';
+                    h += '<button class="btn btn-sm btn-primary" onclick="AdminSettingsComponent.editUser(' + c.id + ',\'' + safeName + '\',\'' + safeUser + '\')" title="Edit"><i class="fas fa-edit"></i></button> ';
+                    h += '<button class="btn btn-sm btn-warning" onclick="AdminSettingsComponent.resetPassword(' + c.id + ',\'' + safeName + '\')" title="Reset password"><i class="fas fa-key"></i></button> ';
+                    if (c.role !== 'admin') {
+                        h += '<button class="btn btn-sm ' + (c.isActive ? 'btn-danger' : 'btn-success') + '" onclick="AdminSettingsComponent.removeUser(' + c.id + ',' + (c.isActive ? 1 : 0) + ',\'' + safeName + '\')" title="' + (c.isActive ? 'Deactivate' : 'Activate') + '">';
+                        h += '<i class="fas ' + (c.isActive ? 'fa-user-slash' : 'fa-user-check') + '"></i>';
+                        h += '</button>';
+                    }
+                    h += '</td></tr>';
+                });
+            }
+            h += '</tbody></table>';
+            list.innerHTML = h;
+        }).catch(function(e) {
+            list.innerHTML = '<p style="color:#ef4444;text-align:center;padding:2rem;">Error loading users</p>';
         });
     },
 
@@ -243,27 +440,29 @@ const AdminSettingsComponent = {
         var u = document.getElementById('cashierUser').value.trim();
         var p = document.getElementById('cashierPass').value.trim();
         var r = document.getElementById('cashierRole').value;
-        
+
         if (!n || !u || !p) {
             showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');
             return;
         }
-        
+        if (p.length < 6) {
+            showStyledAlert('Weak Password', 'Password must be at least 6 characters.', 'exclamation-triangle', '#f59e0b');
+            return;
+        }
+
         var btn = document.getElementById('addCashierBtn');
         var self = this;
-        btn.disabled = true;
-        btn.innerHTML = 'Adding...';
-        
+        var originalHtml = btn ? btn.innerHTML : '';
+        if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding...'; }
+
         ApiService.post('/users', {
             username: u,
             password: p,
             role: r,
-            fullName: n,
-            adminName: 'Admin'
-        }).then(function(d){
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-plus"></i> Add';
-            if (d.success || d.id) {
+            fullName: n
+        }).then(function(d) {
+            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
+            if (d && (d.success || d.id)) {
                 self.showMsg('userMsg', 'User added!', 'success');
                 document.getElementById('cashierName').value = '';
                 document.getElementById('cashierUser').value = '';
@@ -271,189 +470,114 @@ const AdminSettingsComponent = {
                 self.loadUsers();
                 self.loadActivity();
             } else {
-                self.showMsg('userMsg', d.message || 'Failed', 'danger');
+                self.showMsg('userMsg', (d && d.message) || 'Failed', 'danger');
             }
-        }).catch(function(e){
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-plus"></i> Add';
+        }).catch(function(e) {
+            if (btn) { btn.disabled = false; btn.innerHTML = originalHtml; }
             self.showMsg('userMsg', 'Error: ' + e.message, 'danger');
         });
     },
 
-    loadUsers: function() {
-        var list = document.getElementById('userList');
-        if (!list) return;
-        
-        ApiService.get('/users').then(function(users){
-            var h = '<table class="table"><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Password</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
-            if (!users || !users.length) {
-                h += '<tr><td colspan="6">No users</td></tr>';
-            } else {
-                users.forEach(function(c){
-                    var pwId = 'pw_' + c.id;
-                    h += '<tr><td><strong>' + c.fullName + '</strong></td><td>' + c.username + '</td><td><span class="badge ' + (c.role === 'admin' ? 'badge-success' : 'badge-info') + '">' + c.role + '</span></td>';
-                    h += '<td><div style="display:flex;align-items:center;gap:0.5rem;"><code id="' + pwId + '" data-real="' + c.password + '">....</code><button class="btn btn-sm btn-outline" onclick="var e=document.getElementById(\'' + pwId + '\');e.textContent=e.textContent===\'....\'?e.dataset.real:\'....\'"><i class="fas fa-eye"></i></button></div></td>';
-                    h += '<td><span class="badge ' + (c.isActive ? 'badge-success' : 'badge-danger') + '">' + (c.isActive ? 'Active' : 'Inactive') + '</span></td>';
-                    h += '<td>';
-                    h += '<button class="btn btn-sm btn-primary" onclick="AdminSettingsComponent.editUser(' + c.id + ',\'' + c.fullName + '\',\'' + c.username + '\')"><i class="fas fa-edit"></i></button> ';
-                    h += '<button class="btn btn-sm btn-warning" onclick="AdminSettingsComponent.resetPassword(' + c.id + ',\'' + c.fullName + '\',\'' + (c.password || '') + '\')"><i class="fas fa-key"></i></button> ';
-                    if (c.role !== 'admin') {
-                        h += '<button class="btn btn-sm ' + (c.isActive ? 'btn-danger' : 'btn-success') + '" onclick="AdminSettingsComponent.removeUser(' + c.id + ',' + c.isActive + ',\'' + c.fullName + '\')"><i class="fas ' + (c.isActive ? 'fa-user-slash' : 'fa-user-check') + '"></i> ' + (c.isActive ? 'Deactivate' : 'Activate') + '</button>';
-                    }
-                    h += '</td></tr>';
-                });
-            }
-            h += '</tbody></table>';
-            list.innerHTML = h;
-        });
-    },
-
     editUser: function(id, name, username) {
-        var m = document.createElement('div');
-        m.className = 'modal-overlay';
-        m.innerHTML = '<div class="modal"><div class="modal-header"><h3><i class="fas fa-edit"></i> Edit: ' + name + '</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div class="form-group"><label>Full Name</label><input type="text" id="editName" class="form-control" value="' + name + '"></div><div class="form-group"><label>Username</label><input type="text" id="editUsername" class="form-control" value="' + username + '"></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="saveEditBtn"><i class="fas fa-save"></i> Save</button></div></div>';
-        document.body.appendChild(m);
-        m.onclick = function(e){ if (e.target === m) m.remove(); };
         var self = this;
-        m.querySelector('#saveEditBtn').onclick = function(){
-            var nn = document.getElementById('editName').value.trim();
-            var nu = document.getElementById('editUsername').value.trim();
-            if (!nn || !nu) {
-                showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');
-                return;
-            }
-            ApiService.put('/users/' + id, { fullName: nn, username: nu })
-                .then(function(){
-                    self.showMsg('userMsg', 'Updated!', 'success');
-                    m.remove();
-                    self.loadUsers();
-                    self.loadActivity();
-                });
-        };
+        var esc = this._escHtml;
+        var modal = UIService.showModal(
+            '<i class="fas fa-edit"></i> Edit: ' + esc(name),
+            '<div class="form-group"><label>Full Name</label><input type="text" id="editName" class="form-control" value="' + this._esc(name) + '"></div>' +
+            '<div class="form-group"><label>Username</label><input type="text" id="editUsername" class="form-control" value="' + this._esc(username) + '"></div>',
+            [
+                {
+                    text: 'Cancel',
+                    class: 'btn-outline',
+                    onClick: function(m) { m.remove(); }
+                },
+                {
+                    text: 'Save',
+                    icon: 'fas fa-save',
+                    class: 'btn-primary',
+                    onClick: function(m) {
+                        var nn = document.getElementById('editName').value.trim();
+                        var nu = document.getElementById('editUsername').value.trim();
+                        if (!nn || !nu) {
+                            showStyledAlert('Required', 'All fields required!', 'exclamation-triangle', '#f59e0b');
+                            return;
+                        }
+                        ApiService.put('/users/' + id, { fullName: nn, username: nu })
+                            .then(function(d) {
+                                if (d && d.success) {
+                                    self.showMsg('userMsg', 'User updated!', 'success');
+                                    m.remove();
+                                    self.loadUsers();
+                                    self.loadActivity();
+                                } else {
+                                    showStyledAlert('Error', (d && d.message) || 'Update failed', 'times-circle', '#ef4444');
+                                }
+                            });
+                    }
+                }
+            ]
+        );
+        return modal;
     },
 
-    resetPassword: function(id, name, currentPass) {
+    resetPassword: function(id, name) {
         var self = this;
-        var m = document.createElement('div');
-        m.className = 'modal-overlay';
-        m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-key"></i> Reset: ' + name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div style="background:#f5f5f5;padding:0.75rem;border-radius:0.5rem;margin-bottom:1rem;"><strong>Current:</strong> <code id="oldPassDisplay">....</code> <button class="btn btn-sm btn-outline" id="showOldPassBtn">Show</button></div><div class="form-group"><label>New Password</label><input type="text" id="resetPass" class="form-control" placeholder="New password"></div></div><div class="modal-footer"><button class="btn btn-outline" id="cancelReset">Cancel</button><button class="btn btn-warning" id="confirmReset"><i class="fas fa-save"></i> Reset</button></div></div>';
-        document.body.appendChild(m);
-        m.onclick = function(e) { if (e.target === m) m.remove(); };
-        m.querySelector('#oldPassDisplay').dataset.real = currentPass || '';
-        m.querySelector('#showOldPassBtn').onclick = function() { 
-            var e = document.getElementById('oldPassDisplay'); 
-            if (e.textContent === '....') {
-                e.textContent = e.dataset.real || '';
-                this.textContent = 'Hide';
-            } else {
-                e.textContent = '....';
-                this.textContent = 'Show';
-            } 
-        };
-        m.querySelector('#cancelReset').onclick = function() { m.remove(); };
-        m.querySelector('#confirmReset').onclick = function() {
-            var np = document.getElementById('resetPass').value.trim(); 
-            if (!np || np.length < 4) { 
-                showStyledAlert('Error', 'Password must be at least 4 characters!', 'times-circle', '#ef4444'); 
-                return; 
-            }
-            ApiService.put('/users/' + id, { password: np })
-                .then(function(){ 
-                    self.showMsg('userMsg', 'Password reset!', 'success'); 
-                    m.remove(); 
-                    self.loadActivity(); 
-                    self.loadUsers(); 
-                });
-        };
+        var esc = this._escHtml;
+        var modal = UIService.showModal(
+            '<i class="fas fa-key"></i> Reset Password: ' + esc(name),
+            '<div class="form-group"><label>New Password</label><input type="text" id="resetPass" class="form-control" placeholder="New password (min 6 chars)"></div>',
+            [
+                {
+                    text: 'Cancel',
+                    class: 'btn-outline',
+                    onClick: function(m) { m.remove(); }
+                },
+                {
+                    text: 'Reset',
+                    icon: 'fas fa-save',
+                    class: 'btn-warning',
+                    onClick: function(m) {
+                        var np = document.getElementById('resetPass').value.trim();
+                        if (!np || np.length < 6) {
+                            showStyledAlert('Error', 'Password must be at least 6 characters!', 'times-circle', '#ef4444');
+                            return;
+                        }
+                        // ✅ Use the dedicated reset-password endpoint
+                        ApiService.post('/users/' + id + '/reset-password', { newPassword: np })
+                            .then(function(d) {
+                                if (d && d.success) {
+                                    self.showMsg('userMsg', 'Password reset!', 'success');
+                                    m.remove();
+                                    self.loadActivity();
+                                    self.loadUsers();
+                                } else {
+                                    showStyledAlert('Error', (d && d.message) || 'Reset failed', 'times-circle', '#ef4444');
+                                }
+                            });
+                    }
+                }
+            ]
+        );
+        return modal;
     },
 
     removeUser: function(id, isActive, name) {
         var self = this;
         var action = isActive ? 'Deactivate' : 'Activate';
-        var msg = isActive ? 'This will deactivate the user. They will not be able to login.' : 'This will activate the user. They will be able to login again.';
-        
-        var m = document.createElement('div');
-        m.className = 'modal-overlay';
-        m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,' + (isActive ? '#ef4444,#dc2626' : '#10b981,#059669') + ');color:white;"><h3 style="color:white;"><i class="fas ' + (isActive ? 'fa-user-slash' : 'fa-user-check') + '"></i> ' + action + ' User: ' + name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="text-align:center;"><h3>' + action + ' User</h3><p style="color:#999;">' + msg + '</p></div><div class="modal-footer" style="justify-content:center;"><button class="btn btn-outline" id="cancelRemove">Cancel</button><button class="btn ' + (isActive ? 'btn-danger' : 'btn-success') + '" id="confirmRemove"><i class="fas ' + (isActive ? 'fa-user-slash' : 'fa-user-check') + '"></i> ' + action + '</button></div></div>';
-        document.body.appendChild(m);
-        m.onclick = function(e) { if (e.target === m) m.remove(); };
-        m.querySelector('#cancelRemove').onclick = function() { m.remove(); };
-        m.querySelector('#confirmRemove').onclick = function() {
-            m.querySelector('#confirmRemove').disabled = true;
-            m.querySelector('#confirmRemove').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Processing...';
+        var msg = isActive
+            ? 'This will deactivate <strong>' + this._escHtml(name) + '</strong>. They will not be able to login.'
+            : 'This will activate <strong>' + this._escHtml(name) + '</strong>. They will be able to login again.';
+
+        UIService.confirm(action + ' User', msg, action, isActive ? 'danger' : 'success').then(function(confirmed) {
+            if (!confirmed) return;
             ApiService.put('/users/' + id, { toggle: true })
-                .then(function(){ 
-                    m.remove(); 
-                    self.loadUsers(); 
-                    self.loadActivity(); 
-                    self.showMsg('userMsg', 'User status toggled!', 'success'); 
+                .then(function(d) {
+                    if (d && d.success) {
+                        self.loadUsers();
+                        self.loadActivity();
+                        self.showMsg('userMsg', 'User ' + action.toLowerCase() + 'd!', 'success');
+                    }
                 });
-        };
-    },
-
-    clearActivity: function() {
-        var self = this;
-        var filter = this._activityFilter || 'all';
-        var labels = { 
-            all: 'all activity logs', 
-            login: 'all login logs', 
-            sale: 'all sales logs', 
-            add_product: 'all product/user logs', 
-            profile_update: 'all edit logs', 
-            password: 'all password logs' 
-        };
-        var msg = 'Delete ' + (labels[filter] || 'all activity logs') + '?';
-        var m = document.createElement('div');
-        m.className = 'modal-overlay';
-        m.innerHTML = '<div class="modal"><div class="modal-header"><h3><i class="fas fa-trash"></i> Clear Activity</h3><button class="btn btn-sm" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p style="text-align:center;font-size:1.1rem;">' + msg + '</p><p style="text-align:center;color:var(--danger);">This cannot be undone!</p></div><div class="modal-footer"><button class="btn btn-outline" id="cancelClear">Cancel</button><button class="btn btn-danger" id="confirmClear"><i class="fas fa-trash"></i> Delete</button></div></div>';
-        document.body.appendChild(m);
-        m.onclick = function(e) { if (e.target === m) m.remove(); };
-        m.querySelector('#cancelClear').onclick = function() { m.remove(); };
-        m.querySelector('#confirmClear').onclick = function() { 
-            m.remove(); 
-            ApiService.delete('/activity')
-                .then(function() { 
-                    self.loadActivity(); 
-                    self.showMsg('userMsg', 'Activity cleared!', 'success'); 
-                }); 
-        };
-    },
-
-    loadActivity: function() {
-        var log = document.getElementById('activityLog');
-        if (!log) return;
-        var filter = this._activityFilter || 'all';
-        
-        ApiService.get('/activity').then(function(logs){
-            var filtered = logs;
-            if (filter === 'login') {
-                filtered = logs.filter(function(l){ return l.action === 'login'; });
-            } else if (filter === 'sale') {
-                filtered = logs.filter(function(l){ return l.action === 'sale'; });
-            } else if (filter === 'add_product') {
-                filtered = logs.filter(function(l){ return l.action === 'add_product' || l.action === 'add_cashier'; });
-            } else if (filter === 'profile_update') {
-                filtered = logs.filter(function(l){ return l.action === 'profile_update'; });
-            } else if (filter === 'password') {
-                filtered = logs.filter(function(l){ return l.action === 'password_change'; });
-            }
-            var h = '<table class="table"><thead><tr><th>Date</th><th>User</th><th>Action</th><th>Details</th></tr></thead><tbody>';
-            if (!filtered || !filtered.length) {
-                h += '<tr><td colspan="4">No activity</td></tr>';
-            } else {
-                filtered.forEach(function(l){
-                    var b = '<span class="badge badge-info">' + l.action + '</span>';
-                    if (l.action === 'login') b = '<span class="badge badge-info">Login</span>';
-                    else if (l.action === 'sale') b = '<span class="badge badge-primary">Sale</span>';
-                    else if (l.action === 'add_product') b = '<span class="badge badge-success">Add Product</span>';
-                    else if (l.action === 'add_cashier') b = '<span class="badge badge-success">Add User</span>';
-                    else if (l.action === 'profile_update') b = '<span class="badge badge-warning">Edit</span>';
-                    else if (l.action === 'password_change') b = '<span class="badge badge-danger">Password</span>';
-                    h += '<tr><td><small>' + new Date(l.date).toLocaleString('en-KE') + '</small></td><td><strong>' + l.userName + '</strong></td><td>' + b + '</td><td>' + l.details + '</td></tr>';
-                });
-            }
-            h += '</tbody></table>';
-            log.innerHTML = h;
         });
     }
 };
