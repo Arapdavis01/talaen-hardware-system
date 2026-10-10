@@ -6,7 +6,7 @@
     --brand-secondary: #c49a2b;
     --brand-secondary-dark: #9b7b1e;
     --brand-gold: #d4af37;
-    
+
     /* System Colors */
     --primary: #1a472a;
     --primary-dark: #0d2818;
@@ -16,7 +16,7 @@
     --warning: #f59e0b;
     --danger: #ef4444;
     --info: #3b82f6;
-    
+
     /* Neutral Colors */
     --dark: #1a1a2e;
     --gray-900: #111827;
@@ -30,47 +30,51 @@
     --gray-100: #f3f4f6;
     --gray-50: #f9fafb;
     --white: #ffffff;
-    
+
     /* Glass Effect */
     --glass-bg: rgba(255, 255, 255, 0.95);
     --glass-border: rgba(26, 71, 42, 0.2);
     --glass-shadow: 0 8px 32px 0 rgba(26, 71, 42, 0.15);
-    
+
     /* Shadows */
     --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
     --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
     --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
     --shadow-xl: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
     --shadow-2xl: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    
+
     /* Border Radius */
     --radius-sm: 0.5rem;
     --radius-md: 0.75rem;
     --radius-lg: 1rem;
     --radius-xl: 1.5rem;
     --radius-2xl: 2rem;
-    
+
     /* Transitions */
     --ease-spring: cubic-bezier(0.68, -0.55, 0.265, 1.55);
     --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
-    
-    /* Typography */
+
+    /* Typography — FLUID SCALING */
     --font-primary: 'Inter', sans-serif;
-    --font-size-xs: 0.75rem;
-    --font-size-sm: 0.875rem;
-    --font-size-base: 1rem;
-    --font-size-lg: 1.125rem;
-    --font-size-xl: 1.25rem;
-    --font-size-2xl: 1.5rem;
-    --font-size-3xl: 1.875rem;
-    
-    /* Spacing */
-    --spacing-xs: 0.25rem;
-    --spacing-sm: 0.5rem;
-    --spacing-md: 1rem;
-    --spacing-lg: 1.5rem;
-    --spacing-xl: 2rem;
-    --spacing-2xl: 3rem;
+    --font-size-xs: clamp(0.75rem, 0.72rem + 0.15vw, 0.875rem);
+    --font-size-sm: clamp(0.875rem, 0.84rem + 0.18vw, 1rem);
+    --font-size-base: clamp(1rem, 0.95rem + 0.25vw, 1.15rem);
+    --font-size-lg: clamp(1.125rem, 1.05rem + 0.35vw, 1.35rem);
+    --font-size-xl: clamp(1.25rem, 1.15rem + 0.5vw, 1.6rem);
+    --font-size-2xl: clamp(1.5rem, 1.35rem + 0.75vw, 2rem);
+    --font-size-3xl: clamp(1.875rem, 1.65rem + 1.1vw, 2.5rem);
+
+    /* Spacing — FLUID SCALING */
+    --spacing-xs: clamp(0.25rem, 0.22rem + 0.15vw, 0.4rem);
+    --spacing-sm: clamp(0.5rem, 0.45rem + 0.25vw, 0.75rem);
+    --spacing-md: clamp(1rem, 0.9rem + 0.5vw, 1.35rem);
+    --spacing-lg: clamp(1.5rem, 1.35rem + 0.75vw, 2rem);
+    --spacing-xl: clamp(2rem, 1.8rem + 1vw, 2.75rem);
+    --spacing-2xl: clamp(3rem, 2.7rem + 1.5vw, 4rem);
+
+    /* Layout */
+    --container-max-width: min(1800px, 96vw);
+    --container-padding: clamp(1rem, 2vw, 3rem);
 }
 
 /* Reset & Base Styles */
@@ -80,17 +84,26 @@
     box-sizing: border-box;
 }
 
+html {
+    font-size: 16px;
+    -webkit-text-size-adjust: 100%;
+}
+
 body {
     font-family: var(--font-primary);
-    background: linear-gradient(135deg, 
-        var(--primary) 0%, 
-        var(--brand-primary-light) 25%, 
-        var(--secondary) 50%, 
-        var(--brand-primary-light) 75%, 
+    font-size: var(--font-size-base);
+    background: linear-gradient(135deg,
+        var(--primary) 0%,
+        var(--brand-primary-light) 25%,
+        var(--secondary) 50%,
+        var(--brand-primary-light) 75%,
         var(--primary) 100%);
     min-height: 100vh;
     position: relative;
     overflow-x: hidden;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 
 body::before {
@@ -100,7 +113,7 @@ body::before {
     left: 0;
     width: 100%;
     height: 100%;
-    background: 
+    background:
         radial-gradient(circle at 20% 50%, rgba(196, 154, 43, 0.1) 0%, transparent 50%),
         radial-gradient(circle at 80% 80%, rgba(26, 71, 42, 0.1) 0%, transparent 50%);
     pointer-events: none;
@@ -109,8 +122,8 @@ body::before {
 
 /* Scrollbar Styles */
 ::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
+    width: 10px;
+    height: 10px;
 }
 
 ::-webkit-scrollbar-track {
@@ -123,11 +136,17 @@ body::before {
     border-radius: 10px;
 }
 
+::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(135deg, var(--primary-dark), var(--secondary-dark));
+}
+
 /* Utility Classes */
 .container {
-    max-width: 1400px;
+    max-width: var(--container-max-width);
     margin: 0 auto;
-    padding: var(--spacing-lg);
+    padding: var(--container-padding);
+    position: relative;
+    z-index: 1;
 }
 
 .text-gradient {
@@ -168,5 +187,24 @@ body::before {
     to {
         transform: translateY(0);
         opacity: 1;
+    }
+}
+
+/* ========== LARGE SCREEN ENHANCEMENTS ========== */
+@media (min-width: 1600px) {
+    html {
+        font-size: 17px;
+    }
+}
+
+@media (min-width: 1920px) {
+    html {
+        font-size: 18px;
+    }
+}
+
+@media (min-width: 2200px) {
+    html {
+        font-size: 19px;
     }
 }
