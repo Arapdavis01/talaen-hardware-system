@@ -1,5 +1,6 @@
 // ============================================
 // POS COMPONENT - With JWT Authentication & Dual-Unit Support + Credit Balance
+// Updated: uses ProductService cache, debounced customer & product search
 // ============================================
 
 const POSComponent = {
@@ -9,6 +10,12 @@ const POSComponent = {
     _selectedCustomer: null,
     _heldCarts: [],
     _heldCartCounter: 0,
+
+    // ✅ Debounce state for customer search & exchange product search
+    _customerSearchTimer: null,
+    _CUSTOMER_SEARCH_DEBOUNCE_MS: 250,
+    _exchangeSearchTimer: null,
+    _EXCHANGE_SEARCH_DEBOUNCE_MS: 250,
 
     // ✅ Helper to get current user from JWT
     _getCurrentUser() {
@@ -29,18 +36,20 @@ const POSComponent = {
 
     async render() {
         try {
-            this._products = await ApiService.get('/products') || [];
-        } catch(e) { 
-            this._products = ProductService._cache || []; 
+            // ✅ Use ProductService (cached, fetches up to 3000 products).
+            // Falls back to raw cache if the service call fails.
+            this._products = await ProductService.getAll() || [];
+        } catch(e) {
+            this._products = ProductService._cache || [];
         }
-        
+
         if (this._products.length === 0) {
             return '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;"><i class="fas fa-box-open" style="font-size:4rem;color:var(--gray-400);"></i><h3>No Products Available</h3><p>Please ask admin to add products first.</p></div></div>';
         }
-        
+
         var grouped = {};
         this._products.forEach(function(p) { var key = p.name.toUpperCase(); if (!grouped[key]) grouped[key] = { displayName: p.name, variants: [] }; grouped[key].variants.push(p); });
-        
+
         var html = '<div class="pos-grid"><div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-boxes"></i> Products</h3><input type="text" id="searchProduct" class="form-control" placeholder="Search..." style="width:250px;" oninput="POSComponent.search()"></div><div class="card-body" style="max-height:500px;overflow-y:auto;">';
         var keys = Object.keys(grouped).sort();
         for (var i = 0; i < keys.length; i++) {
@@ -49,10 +58,10 @@ const POSComponent = {
             for (var j = 0; j < variants.length; j++) {
                 var p = variants[j];
                 var stockColor = p.stock <= 0 ? '#ef4444' : p.stock <= (p.minStock || 10) ? '#f59e0b' : '#10b981';
-                
+
                 var stockDisplay = '';
                 var priceDisplay = '';
-                
+
                 if (typeof ProductService !== 'undefined') {
                     stockDisplay = ProductService.getStockDisplay(p);
                     priceDisplay = ProductService.getPriceDisplay(p);
@@ -72,7 +81,7 @@ const POSComponent = {
                         priceDisplay += ' | KES ' + (p.price * p.conversionFactor).toLocaleString() + '/' + p.salesUnit;
                     }
                 }
-                
+
                 html += '<div class="product-item" onclick="POSComponent.showQuickAdd(' + p.id + ')" data-search="' + p.name.toLowerCase() + ' ' + (p.brand||'').toLowerCase() + ' ' + (p.variant||'').toLowerCase() + '" style="padding:0.75rem;cursor:pointer;border:2px solid #ddd;border-radius:0.75rem;text-align:center;">';
                 if (p.brand) html += '<div style="font-weight:600;font-size:0.9rem;">' + p.brand + '</div>';
                 html += '<div style="font-size:0.75rem;color:#666;">' + (p.variant || '') + '</div>';
@@ -84,29 +93,29 @@ const POSComponent = {
             html += '</div></div>';
         }
         html += '</div></div>';
-        
+
         html += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-shopping-cart"></i> Cart <span class="badge badge-primary" id="cartCount">0</span></h3></div><div class="card-body"><div class="form-group"><label>Customer Name</label><div style="display:flex;gap:0.5rem;"><input type="text" id="customerName" class="form-control" placeholder="Type name to search or enter new..." oninput="POSComponent.searchCustomers()" autocomplete="off" style="flex:1;"><button class="btn btn-sm btn-outline" onclick="POSComponent.showRegisterCustomer()" title="Register New Credit Customer" style="white-space:nowrap;"><i class="fas fa-user-plus"></i> Register</button></div><div id="customerSuggestions" style="display:none;max-height:200px;overflow-y:auto;border:1px solid #ddd;border-radius:0.5rem;margin-top:0.25rem;"></div><div id="customerDebtInfo" style="display:none;margin-top:0.5rem;padding:0.75rem;border-radius:0.5rem;"></div></div><div id="cartItems" style="max-height:300px;overflow-y:auto;margin-bottom:1rem;"><div style="text-align:center;padding:2rem;color:#999;">Cart is empty</div></div><div class="cart-total"><div style="display:flex;justify-content:space-between;"><span>Subtotal (excl. VAT):</span><span id="subtotalDisplay">KES 0.00</span></div><div style="display:flex;justify-content:space-between;"><span>VAT (16%):</span><span id="taxDisplay">KES 0.00</span></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.25rem;"><span>Discount:</span><input type="number" id="discountAmount" class="form-control" value="0" min="0" step="50" oninput="POSComponent._updateCart()" style="width:120px;text-align:right;font-size:0.9rem;padding:0.25rem;"></div><div style="display:flex;justify-content:space-between;align-items:center;margin-top:0.25rem;"><span>Transport:</span><input type="number" id="transportCost" class="form-control" value="0" min="0" step="50" oninput="POSComponent._updateCart()" style="width:120px;text-align:right;font-size:0.9rem;padding:0.25rem;"></div><div style="display:flex;justify-content:space-between;font-size:1.3rem;font-weight:700;border-top:2px solid #ddd;padding-top:0.5rem;margin-top:0.5rem;"><span>TOTAL:</span><span id="totalAmount">KES 0.00</span></div></div>';
-        
+
         html += '<select id="paymentMethod" class="form-control" style="margin-bottom:0.5rem;" onchange="POSComponent.togglePaymentFields()"><option value="cash">Cash</option><option value="mpesa">M-PESA</option><option value="credit">Credit</option><option value="till">Till Payment (Remote)</option></select>';
         html += '<div id="cashPaymentFields"><div class="form-group"><label>Amount Tendered (KES)</label><input type="number" id="amountTendered" class="form-control" placeholder="Enter amount given by customer" oninput="POSComponent.calculateChange()" style="font-size:1.1rem;"></div><div id="changeDisplay" style="text-align:center;font-size:1.2rem;font-weight:700;padding:0.5rem;margin-top:0.5rem;border-radius:0.5rem;display:none;"></div></div>';
         html += '<div id="tillPaymentFields" style="display:none;"><div class="form-group"><label>Customer Phone</label><input type="text" id="tillPhone" class="form-control" placeholder="254XXXXXXXXX"></div><div class="form-group"><label>M-Pesa Till Receipt Number *</label><input type="text" id="tillMpesaRef" class="form-control" placeholder="e.g., UEFK4422AR"></div></div>';
-        
+
         html += '<div style="display:flex;gap:0.5rem;margin-bottom:0.5rem;">';
         html += '<button class="btn btn-info" style="flex:1;padding:0.75rem;background:#8b5cf6;border-color:#8b5cf6;color:white;" onclick="POSComponent.holdCart()"><i class="fas fa-pause"></i> Hold Cart</button>';
         html += '<button class="btn btn-outline" style="flex:1;padding:0.75rem;" onclick="POSComponent.showHeldCarts()"><i class="fas fa-list"></i> Held Carts (<span id="heldCartCount">0</span>)</button>';
         html += '</div>';
-        
+
         html += '<button class="btn btn-success" style="width:100%;margin-bottom:0.5rem;padding:0.75rem;" onclick="POSComponent.completeSale()"><i class="fas fa-check-circle"></i> Complete Sale</button>';
         html += '<button class="btn btn-warning" style="width:100%;margin-bottom:0.5rem;padding:0.75rem;background:#f59e0b;border-color:#f59e0b;color:white;" onclick="POSComponent.showReturnExchange()"><i class="fas fa-exchange-alt"></i> Return / Exchange</button>';
         html += '<button class="btn btn-danger" style="width:100%;padding:0.75rem;" onclick="POSComponent.clearCart()"><i class="fas fa-trash"></i> Clear Cart</button></div></div></div>';
         return html;
     },
 
-    togglePaymentFields() { 
-        var m = document.getElementById('paymentMethod').value; 
-        var f = document.getElementById('cashPaymentFields'); 
+    togglePaymentFields() {
+        var m = document.getElementById('paymentMethod').value;
+        var f = document.getElementById('cashPaymentFields');
         var t = document.getElementById('tillPaymentFields');
-        if (f) f.style.display = m === 'cash' ? 'block' : 'none'; 
+        if (f) f.style.display = m === 'cash' ? 'block' : 'none';
         if (t) t.style.display = m === 'till' ? 'block' : 'none';
     },
 
@@ -141,13 +150,13 @@ const POSComponent = {
             unit: baseUnit,
             isBase: true
         }];
-        
+
         if (hasAlternativeUnit) {
             var conversionFactor = parseInt(product.conversionFactor);
             var salesUnit = product.salesUnit;
             var salesStock = Math.floor(baseStock / conversionFactor);
             var bulkPrice = basePrice * conversionFactor;
-            
+
             units.push({
                 value: 'sales',
                 label: salesUnit.charAt(0).toUpperCase() + salesUnit.slice(1),
@@ -165,7 +174,7 @@ const POSComponent = {
         html += '<div style="text-align:center;margin-bottom:1rem;"><h4>' + product.name + '</h4>';
         if (product.brand) html += '<p style="color:#666;">' + product.brand + '</p>';
         if (product.variant) html += '<p style="color:#999;">' + product.variant + '</p>';
-        
+
         var stockDisplay = typeof ProductService !== 'undefined' ? ProductService.getStockDisplay(product) : (baseStock + ' ' + baseUnit);
         html += '<p style="color:#666;font-size:0.9rem;">Available: ' + stockDisplay + '</p></div>';
 
@@ -248,7 +257,7 @@ const POSComponent = {
         var selectedUnitValue = modal.querySelector('input[name="quickUnit"]:checked')?.value || 'base';
         var qty = parseInt(modal.querySelector('#quickQty').value) || 0;
         var basePrice = parseFloat(product.price) || 0;
-        
+
         var pricePerUnit;
         if (selectedUnitValue === 'base') {
             pricePerUnit = basePrice;
@@ -267,9 +276,9 @@ const POSComponent = {
         var basePrice = parseFloat(product.price) || 0;
         var baseUnit = product.unit || 'pcs';
         var baseStock = parseInt(product.stock) || 0;
-        
+
         var effPrice, maxQty, displayUnit, conversionFactor, soldInUnit;
-        
+
         if (selectedUnit.isBase) {
             maxQty = baseStock;
             effPrice = basePrice;
@@ -286,10 +295,10 @@ const POSComponent = {
 
         quantity = Math.max(1, Math.min(quantity, maxQty));
 
-        var existing = this._cart.find(function(i) { 
-            return i.productId == product.id && i.soldInUnit === soldInUnit; 
+        var existing = this._cart.find(function(i) {
+            return i.productId == product.id && i.soldInUnit === soldInUnit;
         });
-        
+
         if (existing) {
             var newTotal = existing.quantity + quantity;
             if (newTotal > maxQty) {
@@ -303,7 +312,7 @@ const POSComponent = {
                 this._showMessage('This product is already in cart with a different unit. Remove it first or adjust quantity there.', 'warning');
                 return;
             }
-            
+
             this._cart.push({
                 productId: product.id,
                 productName: (product.brand ? product.brand + ' - ' : '') + product.name,
@@ -323,18 +332,18 @@ const POSComponent = {
     },
 
     updateCartQty(productId, change) {
-        var item = this._cart.find(function(i) { return i.productId == productId; }); 
+        var item = this._cart.find(function(i) { return i.productId == productId; });
         if (!item) return;
         var product = this._products.find(function(p) { return p.id == productId; });
-        if (!product) { 
-            this._cart = this._cart.filter(function(i) { return i.productId != productId; }); 
-            this._updateCart(); 
-            return; 
+        if (!product) {
+            this._cart = this._cart.filter(function(i) { return i.productId != productId; });
+            this._updateCart();
+            return;
         }
 
         var baseStock = parseInt(product.stock) || 0;
         var maxQty;
-        
+
         if (item.soldInUnit && item.conversionFactor > 0) {
             maxQty = Math.floor(baseStock / item.conversionFactor);
         } else {
@@ -357,15 +366,15 @@ const POSComponent = {
         var item = this._cart.find(function(i) { return i.productId == productId; });
         if (!item) return;
         var product = this._products.find(function(p) { return p.id == productId; });
-        if (!product) { 
-            this._cart = this._cart.filter(function(i) { return i.productId != productId; }); 
-            this._updateCart(); 
-            return; 
+        if (!product) {
+            this._cart = this._cart.filter(function(i) { return i.productId != productId; });
+            this._updateCart();
+            return;
         }
 
         var baseStock = parseInt(product.stock) || 0;
         var maxQty;
-        
+
         if (item.soldInUnit && item.conversionFactor > 0) {
             maxQty = Math.floor(baseStock / item.conversionFactor);
         } else {
@@ -386,9 +395,9 @@ const POSComponent = {
         this._updateCart();
     },
 
-    removeFromCart(productId) { 
-        this._cart = this._cart.filter(function(i) { return i.productId != productId; }); 
-        this._updateCart(); 
+    removeFromCart(productId) {
+        this._cart = this._cart.filter(function(i) { return i.productId != productId; });
+        this._updateCart();
     },
 
     clearCart() {
@@ -408,15 +417,15 @@ const POSComponent = {
     // ========== HOLD CART METHODS ==========
     holdCart() {
         if (this._cart.length === 0) { this._showMessage('Cart is empty! Nothing to hold.', 'warning'); return; }
-        var heldCart = { 
-            id: ++this._heldCartCounter, 
-            timestamp: new Date(), 
-            cart: JSON.parse(JSON.stringify(this._cart)), 
-            customerName: document.getElementById('customerName')?.value || '', 
-            customerId: this._selectedCustomerId, 
-            customer: this._selectedCustomer, 
-            transportCost: parseFloat(document.getElementById('transportCost')?.value) || 0, 
-            discountAmount: parseFloat(document.getElementById('discountAmount')?.value) || 0 
+        var heldCart = {
+            id: ++this._heldCartCounter,
+            timestamp: new Date(),
+            cart: JSON.parse(JSON.stringify(this._cart)),
+            customerName: document.getElementById('customerName')?.value || '',
+            customerId: this._selectedCustomerId,
+            customer: this._selectedCustomer,
+            transportCost: parseFloat(document.getElementById('transportCost')?.value) || 0,
+            discountAmount: parseFloat(document.getElementById('discountAmount')?.value) || 0
         };
         this._heldCarts.push(heldCart);
         this._cart = []; this._selectedCustomerId = null; this._selectedCustomer = null;
@@ -442,8 +451,8 @@ const POSComponent = {
             if (hc.customerName) html += '<div style="color:#666;margin-bottom:0.25rem;">👤 <strong>' + hc.customerName + '</strong></div>';
             html += '<div style="color:#666;margin-bottom:0.5rem;">📦 ' + itemCount + ' items | Total: <strong>KES ' + total.toLocaleString() + '</strong></div>';
             html += '<div style="font-size:0.85rem;color:#999;">';
-            hc.cart.slice(0, 3).forEach(function(item) { 
-                html += item.productName + ' x' + item.quantity + ' ' + (item.unit || '') + ', '; 
+            hc.cart.slice(0, 3).forEach(function(item) {
+                html += item.productName + ' x' + item.quantity + ' ' + (item.unit || '') + ', ';
             });
             if (hc.cart.length > 3) html += '...';
             html += '</div></div>';
@@ -455,76 +464,75 @@ const POSComponent = {
     _resumeCart(index) {
         if (index < 0 || index >= this._heldCarts.length) return;
         var self = this;
-        if (this._cart.length > 0) { 
-            this._showConfirm('Current Cart Not Empty', 'Hold current cart first before resuming Cart #' + this._heldCarts[index].id + '?', function() { 
-                self.holdCart(); 
-                self._doResumeCart(index); 
-            }, 'Hold & Resume', 'warning'); 
-        } else { 
-            this._doResumeCart(index); 
+        if (this._cart.length > 0) {
+            this._showConfirm('Current Cart Not Empty', 'Hold current cart first before resuming Cart #' + this._heldCarts[index].id + '?', function() {
+                self.holdCart();
+                self._doResumeCart(index);
+            }, 'Hold & Resume', 'warning');
+        } else {
+            this._doResumeCart(index);
         }
-        document.querySelectorAll('.modal-overlay').forEach(function(m) { 
-            if (m.querySelector('.fa-list')) m.remove(); 
+        document.querySelectorAll('.modal-overlay').forEach(function(m) {
+            if (m.querySelector('.fa-list')) m.remove();
         });
     },
 
     _doResumeCart(index) {
         var hc = this._heldCarts[index];
         this._cart = JSON.parse(JSON.stringify(hc.cart));
-        this._selectedCustomerId = hc.customerId; 
+        this._selectedCustomerId = hc.customerId;
         this._selectedCustomer = hc.customer;
         var cn = document.getElementById('customerName'); if (cn) cn.value = hc.customerName;
         var tc = document.getElementById('transportCost'); if (tc) tc.value = hc.transportCost;
         var disc = document.getElementById('discountAmount'); if (disc) disc.value = hc.discountAmount;
         if (hc.customerId && hc.customer) {
             this._renderCustomerInfoPanel(hc.customer);
-            var pmSelect = document.getElementById('paymentMethod'); 
-            if (pmSelect) pmSelect.value = 'credit'; 
-            this.togglePaymentFields(); 
+            var pmSelect = document.getElementById('paymentMethod');
+            if (pmSelect) pmSelect.value = 'credit';
+            this.togglePaymentFields();
         }
-        this._heldCarts.splice(index, 1); 
-        this._updateCart(); 
+        this._heldCarts.splice(index, 1);
+        this._updateCart();
         this._updateHeldCartCount();
         this._showMessage('✅ Cart #' + hc.id + ' resumed!', 'success');
     },
 
     _deleteHeldCart(index) {
         var self = this; var hc = this._heldCarts[index];
-        this._showConfirm('Delete Held Cart', 'Delete Cart #' + hc.id + '? This cannot be undone.', function() { 
-            self._heldCarts.splice(index, 1); 
-            self._updateHeldCartCount(); 
-            self._showMessage('🗑️ Cart #' + hc.id + ' deleted.', 'warning'); 
-            self.showHeldCarts(); 
+        this._showConfirm('Delete Held Cart', 'Delete Cart #' + hc.id + '? This cannot be undone.', function() {
+            self._heldCarts.splice(index, 1);
+            self._updateHeldCartCount();
+            self._showMessage('🗑️ Cart #' + hc.id + ' deleted.', 'warning');
+            self.showHeldCarts();
         }, 'Delete', 'danger');
     },
 
-    _updateHeldCartCount() { 
-        var count = document.getElementById('heldCartCount'); 
-        if (count) count.textContent = this._heldCarts.length; 
+    _updateHeldCartCount() {
+        var count = document.getElementById('heldCartCount');
+        if (count) count.textContent = this._heldCarts.length;
     },
 
-    // ========== ✅ NEW HELPER: Render customer info panel with credit balance ==========
+    // ========== Customer info panel (unchanged) ==========
     _renderCustomerInfoPanel(customer) {
         var debtDiv = document.getElementById('customerDebtInfo');
         if (!debtDiv) return;
-        
+
         var debt = Number(customer.totalDebt || 0);
         var creditBal = Number(customer.creditBalance || 0);
         var limit = Number(customer.debtLimit || 0);
-        var available = (limit - debt) + creditBal; // Credit extends their available buying power
+        var available = (limit - debt) + creditBal;
         var hasCredit = creditBal > 0;
-        
+
         var bgColor = hasCredit ? '#ede9fe' : (debt > 0 ? '#fef2f2' : '#f0fdf4');
-        
+
         debtDiv.style.display = 'block';
         debtDiv.style.background = bgColor;
-        
+
         var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">';
         h += '<div><i class="fas fa-user-check"></i> <strong>' + customer.name + '</strong> <span style="font-size:0.8rem;color:#999;">(Credit Customer)</span>' + (hasCredit ? ' <span class="badge" style="background:#8b5cf6;color:white;"><i class="fas fa-piggy-bank"></i> Has Store Credit</span>' : '') + '</div>';
         h += '<div><button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails(' + customer.id + ')" style="margin-right:0.25rem;"><i class="fas fa-info-circle"></i> Details</button><button class="btn btn-sm btn-danger" onclick="POSComponent.clearCustomerSelection()"><i class="fas fa-times"></i></button></div>';
         h += '</div>';
-        
-        // 3 or 4 column grid depending on credit
+
         h += '<div style="display:grid;grid-template-columns:repeat(' + (hasCredit ? '4' : '3') + ',1fr);gap:0.5rem;font-size:0.85rem;">';
         h += '<div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Current Debt</small><br><span style="color:' + (debt > 0 ? '#ef4444' : '#10b981') + ';font-weight:700;">KES ' + debt.toLocaleString() + '</span></div>';
         h += '<div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Debt Limit</small><br>KES ' + limit.toLocaleString() + '</div>';
@@ -533,36 +541,50 @@ const POSComponent = {
         }
         h += '<div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Available Credit</small><br><span style="color:#10b981;font-weight:700;">KES ' + available.toLocaleString() + '</span></div>';
         h += '</div>';
-        
+
         if (hasCredit) {
             h += '<div style="margin-top:0.5rem;padding:0.5rem;background:#8b5cf6;color:white;border-radius:0.5rem;font-size:0.85rem;text-align:center;"><i class="fas fa-info-circle"></i> <strong>KES ' + creditBal.toLocaleString() + ' store credit</strong> will be automatically applied to the next credit sale.</div>';
         }
-        
+
         debtDiv.innerHTML = h;
     },
 
-    // ========== CUSTOMER METHODS ==========
+    // ========== CUSTOMER METHODS (debounced search) ==========
     searchCustomers() {
-        var q = document.getElementById('customerName')?.value.trim(); var div = document.getElementById('customerSuggestions');
+        var q = document.getElementById('customerName')?.value.trim();
+        var div = document.getElementById('customerSuggestions');
         if (!q || q.length < 2) { if (div) div.style.display = 'none'; return; }
+
         var self = this;
-        ApiService.get('/credit-customers/search/' + encodeURIComponent(q)).then(function(customers){
-            if (!customers || !customers.length) { 
-                div.style.display = 'block'; 
-                div.innerHTML = '<div style="padding:0.75rem;text-align:center;color:#999;">No customer found. <a href="#" onclick="POSComponent.showRegisterCustomer();return false;" style="color:var(--primary);">Register new?</a></div>'; 
-                return; 
-            }
-            var h = '';
-            customers.forEach(function(c){ 
-                var debtColor = Number(c.totalDebt) > 0 ? '#ef4444' : '#10b981'; 
-                var creditBal = Number(c.creditBalance || 0);
-                var available = (Number(c.debtLimit) - Number(c.totalDebt)) + creditBal;
-                h += '<div style="padding:0.75rem;border-bottom:1px solid #eee;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="POSComponent.selectCustomer(' + c.id + ')">';
-                h += '<div><strong>👤 ' + c.name + '</strong>' + (creditBal > 0 ? ' <span class="badge" style="background:#ede9fe;color:#6d28d9;font-size:0.7rem;"><i class="fas fa-piggy-bank"></i> +KES ' + creditBal.toLocaleString() + '</span>' : '') + '<br><small style="color:#999;">📞 ' + (c.phone || 'No phone') + ' | 🆔 ' + (c.idNumber || 'No ID') + '</small></div>';
-                h += '<div style="text-align:right;"><span style="color:' + debtColor + ';font-weight:700;">Debt: KES ' + Number(c.totalDebt||0).toLocaleString() + '</span>' + (creditBal > 0 ? '<br><small style="color:#8b5cf6;font-weight:600;">Credit: KES ' + creditBal.toLocaleString() + '</small>' : '') + '<br><small style="color:#999;">Avail: KES ' + available.toLocaleString() + '</small></div></div>';
+
+        // ✅ Debounce: cancel previous pending request, start a new timer
+        if (this._customerSearchTimer) {
+            clearTimeout(this._customerSearchTimer);
+        }
+
+        this._customerSearchTimer = setTimeout(function() {
+            self._customerSearchTimer = null;
+
+            ApiService.get('/credit-customers/search/' + encodeURIComponent(q)).then(function(customers){
+                if (!customers || !customers.length) {
+                    if (div) {
+                        div.style.display = 'block';
+                        div.innerHTML = '<div style="padding:0.75rem;text-align:center;color:#999;">No customer found. <a href="#" onclick="POSComponent.showRegisterCustomer();return false;" style="color:var(--primary);">Register new?</a></div>';
+                    }
+                    return;
+                }
+                var h = '';
+                customers.forEach(function(c){
+                    var debtColor = Number(c.totalDebt) > 0 ? '#ef4444' : '#10b981';
+                    var creditBal = Number(c.creditBalance || 0);
+                    var available = (Number(c.debtLimit) - Number(c.totalDebt)) + creditBal;
+                    h += '<div style="padding:0.75rem;border-bottom:1px solid #eee;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="POSComponent.selectCustomer(' + c.id + ')">';
+                    h += '<div><strong>👤 ' + c.name + '</strong>' + (creditBal > 0 ? ' <span class="badge" style="background:#ede9fe;color:#6d28d9;font-size:0.7rem;"><i class="fas fa-piggy-bank"></i> +KES ' + creditBal.toLocaleString() + '</span>' : '') + '<br><small style="color:#999;">📞 ' + (c.phone || 'No phone') + ' | 🆔 ' + (c.idNumber || 'No ID') + '</small></div>';
+                    h += '<div style="text-align:right;"><span style="color:' + debtColor + ';font-weight:700;">Debt: KES ' + Number(c.totalDebt||0).toLocaleString() + '</span>' + (creditBal > 0 ? '<br><small style="color:#8b5cf6;font-weight:600;">Credit: KES ' + creditBal.toLocaleString() + '</small>' : '') + '<br><small style="color:#999;">Avail: KES ' + available.toLocaleString() + '</small></div></div>';
+                });
+                if (div) { div.innerHTML = h; div.style.display = 'block'; }
             });
-            div.innerHTML = h; div.style.display = 'block';
-        });
+        }, this._CUSTOMER_SEARCH_DEBOUNCE_MS);
     },
 
     selectCustomer(customerId) {
@@ -571,12 +593,12 @@ const POSComponent = {
             if (!customer) return;
             var nameInput = document.getElementById('customerName'); if (nameInput) nameInput.value = customer.name;
             var div = document.getElementById('customerSuggestions'); if (div) div.style.display = 'none';
-            
-            self._selectedCustomerId = customerId; 
+
+            self._selectedCustomerId = customerId;
             self._selectedCustomer = customer;
             self._renderCustomerInfoPanel(customer);
-            
-            var pmSelect = document.getElementById('paymentMethod'); 
+
+            var pmSelect = document.getElementById('paymentMethod');
             if (pmSelect) pmSelect.value = 'credit';
             self.togglePaymentFields();
         });
@@ -624,32 +646,32 @@ const POSComponent = {
             var m = document.createElement('div'); m.className = 'modal-overlay';
             var creditBal = Number(customer.creditBalance || 0);
             var recentSalesHTML = '';
-            if (customer.recentSales && customer.recentSales.length > 0) { 
-                recentSalesHTML = '<h4 style="margin-top:1rem;">📋 Recent Credit Purchases</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Credit Used</th><th>Cashier</th></tr>'; 
-                customer.recentSales.forEach(function(s){ 
+            if (customer.recentSales && customer.recentSales.length > 0) {
+                recentSalesHTML = '<h4 style="margin-top:1rem;">📋 Recent Credit Purchases</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Credit Used</th><th>Cashier</th></tr>';
+                customer.recentSales.forEach(function(s){
                     var cu = Number(s.creditUsed||0);
-                    recentSalesHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#ef4444;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>'+(cu>0?'<span style="color:#8b5cf6;font-weight:600;">KES '+cu.toLocaleString()+'</span>':'—')+'</td><td style="color:#666;">'+(s.cashierName||'-')+'</td></tr>'; 
-                }); 
-                recentSalesHTML += '</table>'; 
+                    recentSalesHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#ef4444;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>'+(cu>0?'<span style="color:#8b5cf6;font-weight:600;">KES '+cu.toLocaleString()+'</span>':'—')+'</td><td style="color:#666;">'+(s.cashierName||'-')+'</td></tr>';
+                });
+                recentSalesHTML += '</table>';
             }
             var paymentsHTML = '';
-            if (customer.payments && customer.payments.length > 0) { 
-                paymentsHTML = '<h4 style="margin-top:1rem;">💰 Recent Payments</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Credit Added</th><th>Received By</th></tr>'; 
-                customer.payments.forEach(function(p){ 
+            if (customer.payments && customer.payments.length > 0) {
+                paymentsHTML = '<h4 style="margin-top:1rem;">💰 Recent Payments</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Credit Added</th><th>Received By</th></tr>';
+                customer.payments.forEach(function(p){
                     var overpay = Number(p.overpayment||0);
-                    paymentsHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;">+KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td style="color:#666;">'+(p.receivedBy||'-')+'</td></tr>'; 
-                }); 
-                paymentsHTML += '</table>'; 
+                    paymentsHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;">+KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td style="color:#666;">'+(p.receivedBy||'-')+'</td></tr>';
+                });
+                paymentsHTML += '</table>';
             }
-            
+
             var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-user"></i> '+customer.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
-            
+
             if (creditBal > 0) {
                 h += '<div style="background:#ede9fe;padding:1rem;border-radius:0.75rem;margin-bottom:1rem;border-left:4px solid #8b5cf6;"><div style="display:flex;align-items:center;gap:0.75rem;"><i class="fas fa-piggy-bank" style="font-size:2rem;color:#8b5cf6;"></i><div><strong style="color:#6d28d9;font-size:1.1rem;">Store Credit: KES '+creditBal.toLocaleString()+'</strong><br><small style="color:#666;">This credit will be applied automatically to the next credit sale.</small></div></div></div>';
             }
-            
+
             h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1rem;background:#f5f5f5;padding:1rem;border-radius:0.5rem;"><div><strong>📞 Phone:</strong> '+(customer.phone||'-')+'</div><div><strong>🆔 ID Number:</strong> '+(customer.idNumber||'-')+'</div><div><strong>Address:</strong> '+(customer.address||'-')+'</div><div><strong>📅 Registered:</strong> '+(customer.dateRegistered?new Date(customer.dateRegistered).toLocaleDateString('en-KE'):'-')+'</div><div><strong>💰 Debt Limit:</strong> KES '+Number(customer.debtLimit||0).toLocaleString()+'</div><div><strong>💳 Total Debt:</strong> <span style="color:'+(Number(customer.totalDebt)>0?'#ef4444':'#10b981')+';font-weight:700;">KES '+Number(customer.totalDebt||0).toLocaleString()+'</span></div></div>'+recentSalesHTML+paymentsHTML+'</div><div class="modal-footer" style="justify-content:center;gap:0.5rem;"><button class="btn btn-success" onclick="this.closest(\'.modal-overlay\').remove();POSComponent.showDebtPayment('+customer.id+')"><i class="fas fa-money-bill"></i> Record Payment</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-            
+
             m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
         });
@@ -673,7 +695,7 @@ const POSComponent = {
             h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmDebtPayment"><i class="fas fa-check"></i> Confirm Payment</button></div></div>';
             m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
-            
+
             m.querySelector('#debtPaymentAmount').oninput = function() {
                 var amount = parseFloat(this.value) || 0;
                 var preview = m.querySelector('#payPreview');
@@ -690,7 +712,7 @@ const POSComponent = {
                     preview.innerHTML = '<strong style="color:#10b981;">New debt after payment: KES ' + (debt - amount).toLocaleString() + '</strong>';
                 }
             };
-            
+
             m.querySelector('#confirmDebtPayment').onclick = function(){
                 var amount = parseFloat(m.querySelector('#debtPaymentAmount').value) || 0;
                 if (amount <= 0) { self._showAlert('Invalid Amount','Enter a valid amount!','exclamation-triangle','#f59e0b'); return; }
@@ -703,18 +725,18 @@ const POSComponent = {
                     receivedBy: user?.fullName || 'Admin',
                     receivedById: user?.id || null
                 }).then(function(d){
-                    if(d.success){ 
+                    if(d.success){
                         var msg = 'Payment of KES ' + amount.toLocaleString() + ' recorded!';
                         if (d.overpayment > 0) msg += '<br><span style="color:#8b5cf6;">KES ' + d.overpayment.toLocaleString() + ' added as store credit.</span>';
                         self._showAlert('Success', msg, 'check-circle', '#10b981');
-                        m.remove(); 
+                        m.remove();
                         self._selectedCustomer=null;self._selectedCustomerId=null;
                         var debtDiv=document.getElementById('customerDebtInfo');if(debtDiv)debtDiv.style.display='none';
                         var nameInput=document.getElementById('customerName');if(nameInput)nameInput.value='';
                         setTimeout(function(){
                             if(typeof CashierDashboardComponent!=='undefined'&&CashierDashboardComponent.loadCreditOnly)CashierDashboardComponent.loadCreditOnly();
                             if(typeof AdminDashboardComponent!=='undefined'&&AdminDashboardComponent.loadCreditOnly)AdminDashboardComponent.loadCreditOnly();
-                        },500); 
+                        },500);
                     }
                 });
             };
@@ -750,10 +772,10 @@ const POSComponent = {
             var creditBal = Number(customer.creditBalance || 0);
             var limit = Number(customer.debtLimit || 0);
             var available = (limit - debt) + creditBal;
-            
-            if (total > available) { 
-                this._showMessage('❌ Debt limit exceeded! Available: KES ' + available.toLocaleString() + ', Sale: KES ' + total.toLocaleString(), 'danger'); 
-                return; 
+
+            if (total > available) {
+                this._showMessage('❌ Debt limit exceeded! Available: KES ' + available.toLocaleString() + ', Sale: KES ' + total.toLocaleString(), 'danger');
+                return;
             }
             this._processSale(name, pm, subtotalExclVAT, vatAmount, total, discount, 0, 0, null, this._selectedCustomerId, transport);
         } else if (pm === 'till') {
@@ -779,9 +801,9 @@ const POSComponent = {
                 accountReference: 'TIH-SALE'
             }).then(function(d){
                 btn.disabled = false; btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send STK Push';
-                if(d.success){ 
-                    statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> STK Push sent! Waiting...</span>'; 
-                    var attempts=0; 
+                if(d.success){
+                    statusDiv.innerHTML = '<span style="color:#10b981;"><i class="fas fa-check-circle"></i> STK Push sent! Waiting...</span>';
+                    var attempts=0;
                     var checkStatus=setInterval(function(){
                         attempts++;
                         ApiService.get('/mpesa/transaction/'+d.checkoutRequestID).then(function(t){
@@ -795,7 +817,7 @@ const POSComponent = {
                             }
                             if(attempts>30){clearInterval(checkStatus);statusDiv.innerHTML='<span style="color:#f59e0b;">⚠️ Timeout</span>';}
                         });
-                    },2000); 
+                    },2000);
                 } else {
                     statusDiv.innerHTML='<span style="color:#ef4444;">❌ '+(d.message||'Failed')+'</span>';
                 }
@@ -804,23 +826,22 @@ const POSComponent = {
                 statusDiv.innerHTML='<span style="color:#ef4444;">Network error</span>';
             });
         };
-        m.querySelector('#mpesaTillBtn').onclick = function(){ 
+        m.querySelector('#mpesaTillBtn').onclick = function(){
             var receipt=m.querySelector('#mpesaReceipt').value.trim();
-            if(!receipt){self._showAlert('Required','Enter M-Pesa receipt number!','exclamation-triangle','#f59e0b');return;} 
+            if(!receipt){self._showAlert('Required','Enter M-Pesa receipt number!','exclamation-triangle','#f59e0b');return;}
             ApiService.post('/mpesa/till-payment', {
                 saleId: null,
                 mpesaReceiptNumber: receipt,
                 phoneNumber: m.querySelector('#mpesaPhoneTill').value.trim(),
                 amount: total
-            }).then(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,receipt,null,transport);}); 
+            }).then(function(){m.remove();self._processSale(customerName,'mpesa',subtotalExclVAT,vatAmount,total,discount,0,0,receipt,null,transport);});
         };
     },
 
     _processSale(name, pm, subtotalExclVAT, vatAmount, total, discount, tendered, change, mpesaRef, customerId, transport, phone) {
         var self = this; var user = this._getCurrentUser();
         var subtotalInclVAT = subtotalExclVAT + vatAmount;
-        
-        // ✅ Show credit preview in confirm dialog if applicable
+
         var creditPreview = '';
         if (pm === 'credit' && customerId && this._selectedCustomer) {
             var creditBal = Number(this._selectedCustomer.creditBalance || 0);
@@ -830,7 +851,7 @@ const POSComponent = {
                 creditPreview = '<div style="background:#ede9fe;padding:0.75rem;border-radius:0.5rem;margin-top:0.5rem;border-left:4px solid #8b5cf6;"><strong style="color:#6d28d9;"><i class="fas fa-piggy-bank"></i> Store Credit Applied:</strong><br>KES ' + creditToApply.toLocaleString() + ' of available credit will be applied<br><strong>Remaining added to debt: KES ' + remaining.toLocaleString() + '</strong></div>';
             }
         }
-        
+
         var msg = '<div style="text-align:center;"><p style="font-size:1.2rem;"><strong>Total: KES ' + total.toLocaleString() + '</strong></p><p>Customer: ' + name + '</p><p>Payment: ' + (pm === 'mpesa' && mpesaRef && !phone ? 'M-PESA (Till)' : pm.toUpperCase()) + '</p>';
         if (discount > 0) msg += '<p style="color:#ef4444;">Discount: -KES ' + discount.toLocaleString() + '</p>';
         if (transport > 0) msg += '<p>Transport: KES ' + transport.toLocaleString() + '</p>';
@@ -840,7 +861,7 @@ const POSComponent = {
         if (pm === 'credit') msg += '<p style="color:#f59e0b;"><strong>CREDIT SALE</strong></p>';
         if (creditPreview) msg += creditPreview;
         msg += '</div>';
-        
+
         this._showConfirm('Complete Sale', msg, async function() {
             var mappedItems = self._cart.map(function(item) {
                 return {
@@ -853,26 +874,26 @@ const POSComponent = {
                     total: item.price * item.quantity
                 };
             });
-            
-            var saleData = { 
-                items: mappedItems, 
-                customerName: name, 
-                paymentMethod: pm, 
-                subtotal: subtotalInclVAT, 
-                subtotalExclVAT: subtotalExclVAT, 
-                tax: vatAmount, 
-                discount: discount || 0, 
-                total: total, 
-                transportCost: transport || 0, 
-                cashierId: user?.id, 
-                cashierName: user?.fullName, 
-                mpesaRef: mpesaRef || null, 
-                isCredit: pm === 'credit' ? 1 : 0, 
-                customerId: customerId || null, 
-                customerPhone: phone || null 
+
+            var saleData = {
+                items: mappedItems,
+                customerName: name,
+                paymentMethod: pm,
+                subtotal: subtotalInclVAT,
+                subtotalExclVAT: subtotalExclVAT,
+                tax: vatAmount,
+                discount: discount || 0,
+                total: total,
+                transportCost: transport || 0,
+                cashierId: user?.id,
+                cashierName: user?.fullName,
+                mpesaRef: mpesaRef || null,
+                isCredit: pm === 'credit' ? 1 : 0,
+                customerId: customerId || null,
+                customerPhone: phone || null
             };
             var sale = await SaleService.create(saleData);
-            if (pm === 'credit' && customerId && sale.saleId) { 
+            if (pm === 'credit' && customerId && sale.saleId) {
                 await ApiService.post('/credit-sales', {
                     saleId: sale.saleId,
                     customerId: customerId,
@@ -919,12 +940,12 @@ const POSComponent = {
             var receiptNo = sale.receiptNo || sale.receiptno;
             ApiService.get('/returns/receipt/' + encodeURIComponent(receiptNo)).then(function(existingReturns){
                 var returnedItems = existingReturns || [], returnedMap = {};
-                returnedItems.forEach(function(r){ 
+                returnedItems.forEach(function(r){
                     var rProductId = r.productId || r.productid;
                     var rReturnType = r.returnType || r.returntype;
                     var rQuantity = r.quantity || 0;
-                    var key = rProductId + '-' + rReturnType; 
-                    returnedMap[key] = (returnedMap[key] || 0) + rQuantity; 
+                    var key = rProductId + '-' + rReturnType;
+                    returnedMap[key] = (returnedMap[key] || 0) + rQuantity;
                 });
                 var items = sale.items || [];
                 var html = '<div style="padding:1rem;background:#f0fdf4;border-radius:0.5rem;margin-top:0.5rem;">';
@@ -936,19 +957,19 @@ const POSComponent = {
                 html += '<hr><div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">';
                 html += '<div><label><strong>Return Type:</strong></label><select id="returnTypeSelect" class="form-control"><option value="return">Return</option><option value="exchange">Exchange</option></select></div>';
                 html += '<div><label><strong>Items:</strong></label><select id="returnItemSelect" class="form-control">';
-                items.forEach(function(item){ 
+                items.forEach(function(item){
                     var itemProductId = item.productId || item.productid;
                     var itemProductName = item.productName || item.productname || 'Unknown Item';
                     var itemPrice = item.price || 0;
                     var itemQuantity = item.quantity || 0;
                     var itemSoldInUnit = item.soldInUnit || item.soldinunit || '';
                     var itemConvFactor = item.conversionFactor || item.conversionfactor || 0;
-                    var key = itemProductId + '-return'; 
-                    var returnedQty = returnedMap[key] || 0; 
-                    var available = itemQuantity - returnedQty; 
-                    if (available > 0) { 
-                        html += '<option value="' + itemProductId + '|' + itemProductName + '|' + itemPrice + '|' + available + '|' + itemSoldInUnit + '|' + itemConvFactor + '">' + itemProductName + ' (x' + available + ' available' + (itemSoldInUnit ? ' in ' + itemSoldInUnit : '') + ')</option>'; 
-                    } 
+                    var key = itemProductId + '-return';
+                    var returnedQty = returnedMap[key] || 0;
+                    var available = itemQuantity - returnedQty;
+                    if (available > 0) {
+                        html += '<option value="' + itemProductId + '|' + itemProductName + '|' + itemPrice + '|' + available + '|' + itemSoldInUnit + '|' + itemConvFactor + '">' + itemProductName + ' (x' + available + ' available' + (itemSoldInUnit ? ' in ' + itemSoldInUnit : '') + ')</option>';
+                    }
                 });
                 html += '</select></div></div>';
                 html += '<div class="form-group"><label>Quantity</label><input type="number" id="returnQty" class="form-control" value="1" min="1"></div>';
@@ -956,41 +977,53 @@ const POSComponent = {
                 html += '<div id="exchangeProductSection" style="display:none;"><div class="form-group"><label>Exchange Product</label><input type="text" id="exchangeProductSearch" class="form-control" placeholder="Search product..." oninput="POSComponent._searchExchangeProduct(this.value)"><div id="exchangeResults"></div></div><div class="form-group"><label>Exchange Quantity</label><input type="number" id="exchangeQty" class="form-control" value="1" min="1"></div></div>';
                 html += '<button class="btn btn-success" id="processReturnBtn" style="width:100%;margin-top:1rem;"><i class="fas fa-check"></i> Process Return/Exchange</button>';
                 html += '</div>';
-                
-                resultDiv.innerHTML = html; 
+
+                resultDiv.innerHTML = html;
                 processDiv.style.display = 'block';
-                
+
                 var processBtn = document.getElementById('processReturnBtn');
                 if (processBtn) {
                     processBtn.onclick = function() {
                         self._processReturn(sale, m);
                     };
                 }
-                
+
                 var returnTypeSelect = document.getElementById('returnTypeSelect');
                 if (returnTypeSelect) {
-                    returnTypeSelect.onchange = function() { 
-                        var el = document.getElementById('exchangeProductSection'); 
-                        if (el) el.style.display = this.value === 'exchange' ? 'block' : 'none'; 
+                    returnTypeSelect.onchange = function() {
+                        var el = document.getElementById('exchangeProductSection');
+                        if (el) el.style.display = this.value === 'exchange' ? 'block' : 'none';
                     };
                 }
             });
         });
     },
 
+    // ✅ Debounced exchange product search
     _searchExchangeProduct(query) {
         var resultsDiv = document.getElementById('exchangeResults');
         if (!resultsDiv) return;
         if (!query || query.length < 2) { resultsDiv.innerHTML = ''; return; }
-        ApiService.get('/products/search?q=' + encodeURIComponent(query)).then(function(products){
-            if (!products || products.length === 0) { resultsDiv.innerHTML = '<div style="padding:0.5rem;color:#999;">No products found</div>'; return; }
-            var h = ''; 
-            products.forEach(function(p){ 
-                var stockDisplay = typeof ProductService !== 'undefined' ? ProductService.getStockDisplay(p) : (p.stock + ' ' + (p.unit || 'pcs'));
-                h += '<div style="padding:0.5rem;border-bottom:1px solid #eee;cursor:pointer;" onclick="document.getElementById(\'exchangeProductSearch\').value=\'' + p.name + '\';document.getElementById(\'exchangeProductSearch\').dataset.id=\'' + p.id + '\';document.getElementById(\'exchangeProductSearch\').dataset.price=\'' + p.price + '\';resultsDiv.innerHTML=\'\';">' + p.name + ' - KES ' + p.price.toLocaleString() + ' (' + stockDisplay + ')</div>'; 
+
+        // Debounce: cancel previous, start new timer
+        if (this._exchangeSearchTimer) {
+            clearTimeout(this._exchangeSearchTimer);
+        }
+
+        var self = this;
+        this._exchangeSearchTimer = setTimeout(function() {
+            self._exchangeSearchTimer = null;
+
+            ApiService.get('/products/search?q=' + encodeURIComponent(query)).then(function(products){
+                if (!products || products.length === 0) { resultsDiv.innerHTML = '<div style="padding:0.5rem;color:#999;">No products found</div>'; return; }
+                var h = '';
+                products.forEach(function(p){
+                    var stockDisplay = typeof ProductService !== 'undefined' ? ProductService.getStockDisplay(p) : (p.stock + ' ' + (p.unit || 'pcs'));
+                    h += '<div style="padding:0.5rem;border-bottom:1px solid #eee;cursor:pointer;" onclick="document.getElementById(\'exchangeProductSearch\').value=\'' + p.name + '\';document.getElementById(\'exchangeProductSearch\').dataset.id=\'' + p.id + '\';document.getElementById(\'exchangeProductSearch\').dataset.price=\'' + p.price + '\';document.getElementById(\'exchangeResults\').innerHTML=\'\';">' + p.name + ' - KES ' + p.price.toLocaleString() + ' (' + stockDisplay + ')</div>';
+                });
+                resultsDiv.innerHTML = h;
             });
-            resultsDiv.innerHTML = h;
-        });
+        }, this._EXCHANGE_SEARCH_DEBOUNCE_MS);
     },
 
     _processReturn(sale, modal) {
@@ -1092,19 +1125,19 @@ const POSComponent = {
         this.calculateChange();
     },
 
-    _showMessage(msg, type) { 
+    _showMessage(msg, type) {
         var d=document.createElement('div');
         d.style.cssText='position:fixed;top:20px;right:20px;z-index:9999;padding:1rem 1.5rem;border-radius:1rem;color:white;font-weight:600;';
         d.style.background=type==='danger'?'#ef4444':type==='warning'?'#f59e0b':'#10b981';
         d.textContent=(type==='danger'?'❌ ':'✅ ')+msg;
         document.body.appendChild(d);
-        setTimeout(function(){d.remove();},3000); 
+        setTimeout(function(){d.remove();},3000);
     },
 
-    _showConfirm(title, msg, onConfirm, btnText, btnType) { 
+    _showConfirm(title, msg, onConfirm, btnText, btnType) {
         var m = document.createElement('div');
         m.className = 'modal-overlay';
-        
+
         var colors = {
             success: { gradient: 'linear-gradient(135deg,#10b981,#059669)', color: '#10b981' },
             danger: { gradient: 'linear-gradient(135deg,#ef4444,#dc2626)', color: '#ef4444' },
@@ -1112,12 +1145,12 @@ const POSComponent = {
             primary: { gradient: 'linear-gradient(135deg,#3b82f6,#2563eb)', color: '#3b82f6' }
         };
         var c = colors[btnType] || colors.primary;
-        
+
         m.innerHTML = '<div class="modal"><div class="modal-header" style="background:' + c.gradient + ';color:white;"><h3 style="color:white;">' + title + '</h3></div><div class="modal-body">' + msg + '</div><div class="modal-footer"><button class="btn btn-outline" id="modalCancel">Cancel</button><button class="btn btn-' + (btnType || 'primary') + '" id="modalConfirm">' + (btnText || 'Confirm') + '</button></div></div>';
         document.body.appendChild(m);
         m.onclick = function(e) { if (e.target === m) m.remove(); };
         m.querySelector('#modalCancel').onclick = function() { m.remove(); };
-        m.querySelector('#modalConfirm').onclick = function() { m.remove(); if (onConfirm) onConfirm(); }; 
+        m.querySelector('#modalConfirm').onclick = function() { m.remove(); if (onConfirm) onConfirm(); };
     },
 
     _showReceipt(sale) {
