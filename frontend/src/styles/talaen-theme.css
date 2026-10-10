@@ -54,27 +54,27 @@
     --ease-spring: cubic-bezier(0.68, -0.55, 0.265, 1.55);
     --ease-smooth: cubic-bezier(0.4, 0, 0.2, 1);
 
-    /* Typography — FLUID SCALING */
+    /* Typography — COMPACT (slight scale up on big screens) */
     --font-primary: 'Inter', sans-serif;
-    --font-size-xs: clamp(0.75rem, 0.72rem + 0.15vw, 0.875rem);
-    --font-size-sm: clamp(0.875rem, 0.84rem + 0.18vw, 1rem);
-    --font-size-base: clamp(1rem, 0.95rem + 0.25vw, 1.15rem);
-    --font-size-lg: clamp(1.125rem, 1.05rem + 0.35vw, 1.35rem);
-    --font-size-xl: clamp(1.25rem, 1.15rem + 0.5vw, 1.6rem);
-    --font-size-2xl: clamp(1.5rem, 1.35rem + 0.75vw, 2rem);
-    --font-size-3xl: clamp(1.875rem, 1.65rem + 1.1vw, 2.5rem);
+    --font-size-xs: 0.75rem;
+    --font-size-sm: 0.875rem;
+    --font-size-base: 1rem;
+    --font-size-lg: 1.125rem;
+    --font-size-xl: 1.25rem;
+    --font-size-2xl: 1.5rem;
+    --font-size-3xl: 1.875rem;
 
-    /* Spacing — FLUID SCALING */
-    --spacing-xs: clamp(0.25rem, 0.22rem + 0.15vw, 0.4rem);
-    --spacing-sm: clamp(0.5rem, 0.45rem + 0.25vw, 0.75rem);
-    --spacing-md: clamp(1rem, 0.9rem + 0.5vw, 1.35rem);
-    --spacing-lg: clamp(1.5rem, 1.35rem + 0.75vw, 2rem);
-    --spacing-xl: clamp(2rem, 1.8rem + 1vw, 2.75rem);
-    --spacing-2xl: clamp(3rem, 2.7rem + 1.5vw, 4rem);
+    /* Spacing — COMPACT (kept tight to avoid scrolling) */
+    --spacing-xs: 0.25rem;
+    --spacing-sm: 0.5rem;
+    --spacing-md: 0.75rem;
+    --spacing-lg: 1rem;
+    --spacing-xl: 1.5rem;
+    --spacing-2xl: 2rem;
 
-    /* Layout */
+    /* Layout — WIDE container, compact padding */
     --container-max-width: min(1800px, 96vw);
-    --container-padding: clamp(1rem, 2vw, 3rem);
+    --container-padding: 1.25rem;
 }
 
 /* Reset & Base Styles */
@@ -101,7 +101,7 @@ body {
     min-height: 100vh;
     position: relative;
     overflow-x: hidden;
-    line-height: 1.6;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
 }
@@ -122,8 +122,8 @@ body::before {
 
 /* Scrollbar Styles */
 ::-webkit-scrollbar {
-    width: 10px;
-    height: 10px;
+    width: 8px;
+    height: 8px;
 }
 
 ::-webkit-scrollbar-track {
@@ -190,21 +190,15 @@ body::before {
     }
 }
 
-/* ========== LARGE SCREEN ENHANCEMENTS ========== */
+/* ========== LARGE SCREEN — FONT SCALE UP ========== */
 @media (min-width: 1600px) {
-    html {
-        font-size: 17px;
-    }
+    html { font-size: 16.5px; }
 }
 
 @media (min-width: 1920px) {
-    html {
-        font-size: 18px;
-    }
+    html { font-size: 17px; }
 }
 
 @media (min-width: 2200px) {
-    html {
-        font-size: 19px;
-    }
+    html { font-size: 18px; }
 }
