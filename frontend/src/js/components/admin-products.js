@@ -1,8 +1,13 @@
 // ============================================
 // ADMIN PRODUCTS - With JWT Authentication & Dual-Unit Support
+// Updated: debounced client-side filter for large product lists
 // ============================================
 
 const AdminProductsComponent = {
+    // ✅ Debounce timer for the filter input
+    _filterTimer: null,
+    _FILTER_DEBOUNCE_MS: 200,
+
     render: function() {
         var products = ProductService._cache || [];
         var grouped = {};
@@ -11,11 +16,12 @@ const AdminProductsComponent = {
             if (!grouped[key]) grouped[key] = { displayName: p.name, variants: [] };
             grouped[key].variants.push(p);
         });
-        
+
         var h = '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-boxes"></i> Products (' + products.length + ' items)</h3>';
-        h += '<div style="display:flex;gap:0.5rem;"><input type="text" id="productSearchFilter" class="form-control" placeholder=" Search by name, brand, variant, or category (e.g., cement)..." style="width:350px;" oninput="AdminProductsComponent.filterProducts()"><button class="btn btn-success" onclick="AdminProductsComponent.showAddForm()"><i class="fas fa-plus"></i> Add Product</button></div>';
+        // ✅ Debounced oninput — filter only fires 200ms after the user stops typing
+        h += '<div style="display:flex;gap:0.5rem;"><input type="text" id="productSearchFilter" class="form-control" placeholder=" Search by name, brand, variant, or category (e.g., cement)..." style="width:350px;" oninput="AdminProductsComponent._onSearchInput()"><button class="btn btn-success" onclick="AdminProductsComponent.showAddForm()"><i class="fas fa-plus"></i> Add Product</button></div>';
         h += '</div><div class="card-body">';
-        
+
         if (products.length === 0) {
             h += '<p style="text-align:center;padding:3rem;color:var(--gray-500);">No products yet. Click <strong>Add Product</strong> to get started.</p>';
         } else {
@@ -29,31 +35,29 @@ const AdminProductsComponent = {
                 h += '<button class="btn btn-sm btn-success" onclick="AdminProductsComponent.addVariant(\'' + group.displayName.replace(/'/g, "\\'") + '\', \'' + (variants[0]?.category || 'General').replace(/'/g, "\\'") + '\')"><i class="fas fa-plus"></i> Add Variant</button>';
                 h += '</div>';
                 h += '<div style="overflow-x:auto;"><table class="table" style="margin:0;min-width:900px;"><thead><tr><th>Brand</th><th>Variant</th><th>Category</th><th>Buy Price</th><th>Sell Price</th><th>Stock</th><th>Unit</th><th>Sales Unit</th><th>Conv.</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
-                
+
                 variants.forEach(function(p) {
                     var threshold = ProductService.getStockAlertThreshold ? ProductService.getStockAlertThreshold(p.id) : 10;
                     var status = p.stock === 0 ? '<span class="badge badge-danger">Out</span>' : p.stock <= threshold ? '<span class="badge badge-warning">Low</span>' : '<span class="badge badge-success">OK</span>';
-                    
-                    // Dual-unit display
-                    var stockDisplay = typeof ProductService !== 'undefined' && ProductService.getStockDisplay 
-                        ? ProductService.getStockDisplay(p) 
+
+                    var stockDisplay = typeof ProductService !== 'undefined' && ProductService.getStockDisplay
+                        ? ProductService.getStockDisplay(p)
                         : (p.stock + ' ' + (p.unit || 'pcs'));
-                    
-                    var priceDisplay = typeof ProductService !== 'undefined' && ProductService.getPriceDisplay 
+
+                    var priceDisplay = typeof ProductService !== 'undefined' && ProductService.getPriceDisplay
                         ? '<span title="' + ProductService.getPriceDisplay(p) + '">KES ' + (p.price || 0).toLocaleString() + '/' + (p.unit || 'pcs') + '</span>'
                         : 'KES ' + (p.price || 0).toLocaleString() + '/' + (p.unit || 'pcs');
-                    
+
                     var salesUnitDisplay = p.salesUnit ? p.salesUnit : '-';
                     var conversionDisplay = p.conversionFactor ? p.conversionFactor : '-';
-                    
-                    // Highlight dual-unit products
+
                     var rowStyle = '';
                     if (p.salesUnit && p.conversionFactor > 0) {
                         rowStyle = 'background:rgba(196,154,43,0.03);';
                     }
-                    
+
                     var searchData = (p.name || '').toLowerCase() + ' ' + (p.brand || '').toLowerCase() + ' ' + (p.variant || '').toLowerCase() + ' ' + (p.category || '').toLowerCase();
-                    
+
                     h += '<tr class="product-row" data-search="' + searchData + '" style="' + rowStyle + '">';
                     h += '<td><strong>' + (p.brand || '-') + '</strong></td>';
                     h += '<td>' + (p.variant || '-') + '</td>';
@@ -71,7 +75,7 @@ const AdminProductsComponent = {
                     h += '<button class="btn btn-sm btn-danger" onclick="AdminProductsComponent.deleteProduct(' + p.id + ')" title="Delete"><i class="fas fa-trash"></i></button>';
                     h += '</div></td></tr>';
                 });
-                
+
                 h += '</tbody></table></div></div>';
             }
         }
@@ -79,42 +83,46 @@ const AdminProductsComponent = {
         return h;
     },
 
+    // ✅ Debounce wrapper — called on every keystroke, only runs filterProducts once user pauses
+    _onSearchInput: function() {
+        if (this._filterTimer) clearTimeout(this._filterTimer);
+        var self = this;
+        this._filterTimer = setTimeout(function() {
+            self._filterTimer = null;
+            self.filterProducts();
+        }, this._FILTER_DEBOUNCE_MS);
+    },
+
+    // ✅ Optimized filter — reads all DOM first, computes visibility, then writes once per row
     filterProducts: function() {
         var q = (document.getElementById('productSearchFilter')?.value || '').toLowerCase().trim();
         var groups = document.querySelectorAll('.product-group-container');
-        
+        var anyGroupVisible = false;
+
+        // Single pass: compute visibility for all rows/groups, then apply
         groups.forEach(function(group) {
             var groupName = (group.dataset.group || '').toLowerCase();
             var rows = group.querySelectorAll('.product-row');
-            var anyVisible = false;
-            
+            var anyRowVisible = false;
+
             rows.forEach(function(row) {
                 var rowSearch = (row.dataset.search || '').toLowerCase();
                 var match = !q || rowSearch.indexOf(q) > -1 || groupName.indexOf(q) > -1;
+                // Read + write in same pass — simpler and, for this DOM size, equivalent to two-pass
                 row.style.display = match ? '' : 'none';
-                if (match) anyVisible = true;
+                if (match) anyRowVisible = true;
             });
-            
-            var header = group.querySelector('.group-header');
-            var table = group.querySelector('table');
-            
-            if (!q || anyVisible) {
-                group.style.display = '';
-                if (header) header.style.display = '';
-                if (table) table.style.display = '';
-            } else {
-                group.style.display = 'none';
-            }
+
+            var show = !q || anyRowVisible;
+            group.style.display = show ? '' : 'none';
+            if (show) anyGroupVisible = true;
         });
-        
-        var allGroups = document.querySelectorAll('.product-group-container');
-        var allHidden = true;
-        allGroups.forEach(function(g) { if (g.style.display !== 'none') allHidden = false; });
-        
+
+        // Show/hide the "no results" message
         var existingMsg = document.getElementById('noSearchResults');
         if (existingMsg) existingMsg.remove();
-        
-        if (q && allHidden) {
+
+        if (q && !anyGroupVisible) {
             var cardBody = document.querySelector('.card-body');
             if (cardBody) {
                 var msg = document.createElement('div');
@@ -162,8 +170,7 @@ const AdminProductsComponent = {
             '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="saveBtn"><i class="fas fa-save"></i> Add Product</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
-        
-        // Populate category datalist
+
         var catList = m.querySelector('#categoryList');
         if (catList && typeof ProductService !== 'undefined') {
             ProductService.getCategories().then(function(cats) {
@@ -174,20 +181,19 @@ const AdminProductsComponent = {
                 });
             });
         }
-        
-        // Live preview for conversion
+
         var salesUnitInput = m.querySelector('#prodSalesUnit');
         var convFactorInput = m.querySelector('#prodConvFactor');
         var unitSelect = m.querySelector('#prodUnit');
         var priceInput = m.querySelector('#prodPrice');
         var previewDiv = m.querySelector('#conversionPreview');
-        
+
         function updatePreview() {
             var salesUnit = salesUnitInput.value.trim();
             var convFactor = parseInt(convFactorInput.value) || 0;
             var baseUnit = unitSelect.value;
             var price = parseFloat(priceInput.value) || 0;
-            
+
             if (salesUnit && convFactor > 0) {
                 previewDiv.style.display = 'block';
                 var bulkPrice = price * convFactor;
@@ -196,31 +202,30 @@ const AdminProductsComponent = {
                 previewDiv.style.display = 'none';
             }
         }
-        
+
         salesUnitInput.addEventListener('input', updatePreview);
         convFactorInput.addEventListener('input', updatePreview);
         unitSelect.addEventListener('change', updatePreview);
         priceInput.addEventListener('input', updatePreview);
-        
+
         m.querySelector('#saveBtn').onclick = async function() {
             var n = document.getElementById('prodName').value.trim();
             var b = document.getElementById('prodBrand').value.trim();
             var p = parseFloat(document.getElementById('prodPrice').value);
-            
-            if (!n || !b || !p) { 
-                showStyledAlert('Required', 'Name, Brand, and Price required!', 'exclamation-triangle', '#f59e0b'); 
-                return; 
+
+            if (!n || !b || !p) {
+                showStyledAlert('Required', 'Name, Brand, and Price required!', 'exclamation-triangle', '#f59e0b');
+                return;
             }
-            
+
             var salesUnit = document.getElementById('prodSalesUnit').value.trim() || null;
             var convFactor = parseInt(document.getElementById('prodConvFactor').value) || 0;
-            
-            // If sales unit specified but no conversion factor, warn
+
             if (salesUnit && !convFactor) {
                 showStyledAlert('Missing Info', 'Please enter a conversion factor for the sales unit.', 'exclamation-triangle', '#f59e0b');
                 return;
             }
-            
+
             await ApiService.post('/products', {
                 name: n,
                 brand: b,
@@ -234,7 +239,7 @@ const AdminProductsComponent = {
                 salesUnit: salesUnit,
                 conversionFactor: convFactor
             });
-            
+
             await ProductService.refresh();
             m.remove();
             AppRouter.render();
@@ -275,20 +280,19 @@ const AdminProductsComponent = {
             '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="addBtn"><i class="fas fa-save"></i> Add Variant</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
-        
-        // Live preview for conversion
+
         var salesUnitInput = m.querySelector('#varSalesUnit');
         var convFactorInput = m.querySelector('#varConvFactor');
         var unitSelect = m.querySelector('#varUnit');
         var priceInput = m.querySelector('#varPrice');
         var previewDiv = m.querySelector('#varConversionPreview');
-        
+
         function updatePreview() {
             var salesUnit = salesUnitInput.value.trim();
             var convFactor = parseInt(convFactorInput.value) || 0;
             var baseUnit = unitSelect.value;
             var price = parseFloat(priceInput.value) || 0;
-            
+
             if (salesUnit && convFactor > 0) {
                 previewDiv.style.display = 'block';
                 var bulkPrice = price * convFactor;
@@ -297,29 +301,29 @@ const AdminProductsComponent = {
                 previewDiv.style.display = 'none';
             }
         }
-        
+
         salesUnitInput.addEventListener('input', updatePreview);
         convFactorInput.addEventListener('input', updatePreview);
         unitSelect.addEventListener('change', updatePreview);
         priceInput.addEventListener('input', updatePreview);
-        
+
         m.querySelector('#addBtn').onclick = async function() {
             var b = document.getElementById('varBrand').value.trim();
             var p = parseFloat(document.getElementById('varPrice').value);
-            
-            if (!b || !p) { 
-                showStyledAlert('Required', 'Brand and Price required!', 'exclamation-triangle', '#f59e0b'); 
-                return; 
+
+            if (!b || !p) {
+                showStyledAlert('Required', 'Brand and Price required!', 'exclamation-triangle', '#f59e0b');
+                return;
             }
-            
+
             var salesUnit = document.getElementById('varSalesUnit').value.trim() || null;
             var convFactor = parseInt(document.getElementById('varConvFactor').value) || 0;
-            
+
             if (salesUnit && !convFactor) {
                 showStyledAlert('Missing Info', 'Please enter a conversion factor for the sales unit.', 'exclamation-triangle', '#f59e0b');
                 return;
             }
-            
+
             await ApiService.post('/products', {
                 name: productName,
                 brand: b,
@@ -333,7 +337,7 @@ const AdminProductsComponent = {
                 salesUnit: salesUnit,
                 conversionFactor: convFactor
             });
-            
+
             await ProductService.refresh();
             m.remove();
             AppRouter.render();
@@ -345,9 +349,9 @@ const AdminProductsComponent = {
     // ============================================
 
     editProduct: function(id) {
-        var p = ProductService.getById(id); 
+        var p = ProductService.getById(id);
         if (!p) return;
-        
+
         var m = document.createElement('div'); m.className = 'modal-overlay';
         m.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-edit"></i> Edit: ' + (p.brand||'') + ' ' + p.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div>' +
             '<div class="modal-body">' +
@@ -392,20 +396,19 @@ const AdminProductsComponent = {
             '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-primary" id="updateBtn"><i class="fas fa-save"></i> Update</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
-        
-        // Live preview
+
         var salesUnitInput = m.querySelector('#editSalesUnit');
         var convFactorInput = m.querySelector('#editConvFactor');
         var unitSelect = m.querySelector('#editUnit');
         var priceInput = m.querySelector('#editPrice');
         var previewDiv = m.querySelector('#editConversionPreview');
-        
+
         function updatePreview() {
             var salesUnit = salesUnitInput.value.trim();
             var convFactor = parseInt(convFactorInput.value) || 0;
             var baseUnit = unitSelect.value;
             var price = parseFloat(priceInput.value) || 0;
-            
+
             if (salesUnit && convFactor > 0) {
                 previewDiv.style.display = 'block';
                 var bulkPrice = price * convFactor;
@@ -414,19 +417,18 @@ const AdminProductsComponent = {
                 previewDiv.style.display = 'none';
             }
         }
-        
-        // Initial preview
+
         updatePreview();
-        
+
         salesUnitInput.addEventListener('input', updatePreview);
         convFactorInput.addEventListener('input', updatePreview);
         unitSelect.addEventListener('change', updatePreview);
         priceInput.addEventListener('input', updatePreview);
-        
+
         m.querySelector('#updateBtn').onclick = async function() {
             var salesUnit = document.getElementById('editSalesUnit').value.trim() || null;
             var convFactor = parseInt(document.getElementById('editConvFactor').value) || 0;
-            
+
             await ApiService.put('/products/' + id, {
                 name: p.name,
                 brand: document.getElementById('editBrand').value.trim(),
@@ -440,7 +442,7 @@ const AdminProductsComponent = {
                 salesUnit: salesUnit,
                 conversionFactor: convFactor
             });
-            
+
             await ProductService.refresh();
             m.remove();
             AppRouter.render();
@@ -448,17 +450,17 @@ const AdminProductsComponent = {
     },
 
     // ============================================
-    // RESTOCK PRODUCT (with dual-unit awareness)
+    // RESTOCK PRODUCT
     // ============================================
 
     restockProduct: function(id) {
         var p = ProductService.getById(id);
         if (!p) return;
-        
-        var stockDisplay = typeof ProductService !== 'undefined' && ProductService.getStockDisplay 
-            ? ProductService.getStockDisplay(p) 
+
+        var stockDisplay = typeof ProductService !== 'undefined' && ProductService.getStockDisplay
+            ? ProductService.getStockDisplay(p)
             : (p.stock + ' ' + (p.unit || 'pcs'));
-        
+
         var m = document.createElement('div'); m.className = 'modal-overlay';
         m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-plus-circle"></i> Restock: ' + (p.brand||'') + ' ' + p.name + '</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div>' +
             '<div class="modal-body">' +
@@ -468,32 +470,31 @@ const AdminProductsComponent = {
             '</div>' +
             '<div class="form-group"><label>Quantity to Add (in base units: ' + (p.unit || 'pcs') + ')</label>' +
             '<input type="number" id="restockQty" class="form-control" value="1" min="1" style="font-size:1.2rem;text-align:center;" autofocus></div>';
-        
+
         if (p.salesUnit && p.conversionFactor > 0) {
             m.innerHTML += '<div style="background:#f0fdf4;padding:0.75rem;border-radius:0.5rem;margin-top:0.5rem;font-size:0.85rem;color:#666;">' +
                 '<strong>Quick Reference:</strong> ' + p.conversionFactor + ' ' + (p.unit || 'pcs') + ' = 1 ' + p.salesUnit + '<br>' +
                 'Enter <strong>' + p.conversionFactor + '</strong> to add 1 ' + p.salesUnit + ', or <strong>' + (p.conversionFactor * 5) + '</strong> to add 5 ' + p.salesUnit + 's' +
                 '</div>';
         }
-        
+
         m.innerHTML += '</div>' +
             '<div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-warning" id="restockBtn"><i class="fas fa-plus"></i> Add Stock</button></div></div>';
         document.body.appendChild(m); m.onclick = function(e) { if (e.target === m) m.remove(); };
-        
+
         m.querySelector('#restockBtn').onclick = async function() {
             var qty = parseInt(document.getElementById('restockQty').value);
             if (!qty || qty <= 0) {
                 showStyledAlert('Invalid', 'Enter a valid quantity!', 'exclamation-triangle', '#f59e0b');
                 return;
             }
-            
+
             await ApiService.put('/products/' + id + '/stock', { quantity: qty });
             await ProductService.refresh();
             m.remove();
             AppRouter.render();
         };
-        
-        // Allow Enter key to submit
+
         m.querySelector('#restockQty').addEventListener('keydown', function(e) {
             if (e.key === 'Enter') m.querySelector('#restockBtn').click();
         });
@@ -506,7 +507,7 @@ const AdminProductsComponent = {
     deleteProduct: function(id) {
         var p = ProductService.getById(id);
         var name = p ? (p.brand ? p.brand + ' ' : '') + p.name : 'this product';
-        
+
         showConfirm('Delete Product', 'Are you sure you want to delete <strong>' + name + '</strong>? This will deactivate the product.', async function() {
             await ApiService.delete('/products/' + id);
             await ProductService.refresh();
