@@ -11,6 +11,7 @@
  *  ✅ Combined aggregate queries (single round-trip for summaries)
  *  ✅ Tuned pool (max, timeouts) + pool error handler
  *  ✅ NEW: GET /api/debt-payments — recent payments across all customers (1 query)
+ *  ✅ FIX: /api/debt-payments now accessible to any authenticated user (was admin-only)
  *
  * ⚙️  FIRST:  npm i compression node-cache
  */
@@ -66,7 +67,7 @@ const pool = new Pool({
     database: process.env.PGDATABASE || 'postgres',
     ssl: { rejectUnauthorized: false },
     family: 4,
-    max: 5,                            // Supabase transaction pooler multiplexes
+    max: 5,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000,
     statement_timeout: 15000,
@@ -378,7 +379,7 @@ async function initDB() {
         catch (e) { console.error('Index error:', e.message); }
     }
 
-    // Trigram indexes for fast ILIKE search (may need pg_trgm extension)
+    // Trigram indexes for fast ILIKE search
     try {
         await pool.query("CREATE EXTENSION IF NOT EXISTS pg_trgm");
         await pool.query("CREATE INDEX IF NOT EXISTS idx_products_name_trgm  ON products USING gin (name gin_trgm_ops)");
@@ -870,7 +871,6 @@ app.get('/api/products/categories', verifyToken, async (req, res) => {
     } catch (e) { res.json([]); }
 });
 
-// ✅ FIXED: was N+1 — now one LATERAL join
 app.get('/api/products/with-prices', verifyToken, async (req, res) => {
     try {
         const { limit, offset } = pagination(req, 500, 5000);
@@ -979,8 +979,6 @@ app.get('/api/products/search', verifyToken, async (req, res) => {
 // ============================================
 // SALES
 // ============================================
-
-// ✅ FIXED: was N+1 (one query per sale) — now single JOIN
 app.get('/api/sales', verifyToken, async (req, res) => {
     try {
         const { limit, offset } = pagination(req, 500, 5000);
@@ -1036,7 +1034,6 @@ app.get('/api/sales', verifyToken, async (req, res) => {
     }
 });
 
-// ✅ FIXED: was N+1 (one query per cashier) — now single GROUP BY
 app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const r = await pool.query(`
@@ -1067,7 +1064,6 @@ app.get('/api/sales/cashiers-summary', verifyToken, authorize('admin'), async (r
     }
 });
 
-// ✅ FIXED: paginated + parallel queries + SQL FILTER for today
 app.get('/api/sales/cashier/:id', verifyToken, async (req, res) => {
     try {
         const { limit, offset } = pagination(req, 500, 2000);
@@ -1263,7 +1259,6 @@ app.get('/api/returns/receipt/:receiptNo', verifyToken, async (req, res) => {
     }
 });
 
-// ✅ Combined into a single query
 app.get('/api/returns/summary', verifyToken, async (req, res) => {
     try {
         const r = await pool.query(`
@@ -1290,8 +1285,6 @@ app.get('/api/returns/summary', verifyToken, async (req, res) => {
 // ============================================
 // PURCHASE ORDERS
 // ============================================
-
-// ✅ FIXED: was N+1 — now single JOIN
 app.get('/api/purchase-orders', verifyToken, authorize('admin'), async (req, res) => {
     try {
         const { limit, offset } = pagination(req, 200, 1000);
@@ -1467,7 +1460,6 @@ app.get('/api/credit-customers', verifyToken, async (req, res) => {
     }
 });
 
-// ✅ FIXED: 3 queries now run in parallel
 app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
     try {
         const [cResult, salesResult, paymentsResult, refundsResult] = await Promise.all([
@@ -1573,9 +1565,9 @@ app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => 
 // DEBT PAYMENTS
 // ============================================
 
-// ✅ NEW: Recent debt payments across ALL customers (single query)
+// ✅ Recent debt payments across ALL customers (any authenticated user)
 // ⚠️  MUST be declared BEFORE /api/debt-payments/:customerId
-app.get('/api/debt-payments', verifyToken, authorize('admin'), async (req, res) => {
+app.get('/api/debt-payments', verifyToken, async (req, res) => {
     try {
         const limit = Math.min(parseInt(req.query.limit) || 10, 500);
         const r = await pool.query(`
@@ -1783,7 +1775,6 @@ app.get('/api/credit-refunds/:customerId', verifyToken, async (req, res) => {
 
 // ============================================
 // CREDIT SUMMARY
-// ✅ FIXED: 7 sequential queries → 1 combined query
 // ============================================
 app.get('/api/credit-summary', verifyToken, async (req, res) => {
     try {
@@ -1814,7 +1805,7 @@ app.get('/api/credit-summary', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// SETTINGS (cached)
+// SETTINGS
 // ============================================
 app.get('/api/settings', verifyToken, async (req, res) => {
     try {
@@ -1962,7 +1953,6 @@ app.get('/api/daily-reports', verifyToken, async (req, res) => {
     }
 });
 
-// ✅ Combined 6 queries into 1
 async function computeDailyReport(targetDate) {
     const r = await pool.query(`
         SELECT
@@ -1984,7 +1974,6 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
     try {
         const today = new Date().toISOString().split('T')[0];
 
-        // Try cached report
         let cached = cache.get('report:' + today);
         if (cached) return res.json(cached);
 
@@ -2016,7 +2005,7 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
             );
         }
         const out = report.rows[0] || {};
-        cache.set('report:' + today, out, 60);   // cache for 60s
+        cache.set('report:' + today, out, 60);
         res.json(out);
     } catch (error) {
         console.error('Get today report error:', error);
