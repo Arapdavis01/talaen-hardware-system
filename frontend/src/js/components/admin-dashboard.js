@@ -1,8 +1,17 @@
 // ============================================
 // ADMIN DASHBOARD - With JWT Authentication
+// Updated: parallel stats loading, no interval leak, debounced returns filter
 // ============================================
 
 const AdminDashboardComponent = {
+    // ✅ Auto-refresh state (prevents interval leak across re-renders)
+    _autoRefreshInterval: null,
+    _AUTO_REFRESH_MS: 15000,
+
+    // ✅ Debounce timer for returns filter
+    _returnsFilterTimer: null,
+    _FILTER_DEBOUNCE_MS: 200,
+
     render: function() {
         var products = ProductService._cache || [];
         var sales = SaleService._cache || [];
@@ -13,86 +22,142 @@ const AdminDashboardComponent = {
         var allTotal = sales.reduce(function(s, sale) { return Number(s) + Number(sale.total||0); }, 0);
         var totalStock = products.reduce(function(s, p) { return s + (p.stock || 0); }, 0);
         var totalInventoryValue = products.reduce(function(s, p) { return s + ((p.price || 0) * (p.stock || 0)); }, 0);
-        
+
         var html = '<div class="welcome-banner"><h2><i class="fas fa-user-shield"></i> Admin Dashboard</h2><p>Welcome back, Administrator</p></div>';
-        
+
         // Stats Grid - Clickable Cards
         html += '<div class="stats-grid">';
-        
+
         // 1. INVENTORY
         html += '<div class="stat-card" style="border-top:3px solid #3b82f6;cursor:pointer;" onclick="AppRouter.navigate(\'pos\')">';
         html += '<div class="stat-icon"><i class="fas fa-clipboard-list"></i></div>';
         html += '<div class="stat-label">Inventory</div>';
         html += '<div class="stat-value">KES ' + totalInventoryValue.toLocaleString() + '</div>';
         html += '<div class="stat-sub">Stock Value | ' + totalStock.toLocaleString() + ' items in stock</div></div>';
-        
+
         // 2. SALES
         html += '<div class="stat-card" style="border-top:3px solid #10b981;cursor:pointer;" onclick="AppRouter.navigate(\'admin-sales\')">';
         html += '<div class="stat-icon"><i class="fas fa-receipt"></i></div>';
         html += '<div class="stat-label">Sales</div>';
         html += '<div class="stat-value">KES ' + allTotal.toLocaleString() + '</div>';
         html += '<div class="stat-sub">Total Revenue | Today: KES ' + todayTotal.toLocaleString() + ' (' + todaySales.length + ' sales)</div></div>';
-        
+
         // 3. CREDIT
         html += '<div class="stat-card" id="creditStatCard" style="border-top:3px solid #f59e0b;cursor:pointer;" onclick="AppRouter.navigate(\'admin-credit\')">';
         html += '<div class="stat-icon"><i class="fas fa-credit-card"></i></div>';
         html += '<div class="stat-label">Credit</div>';
         html += '<div class="stat-value" style="color:#ef4444;">KES 0</div>';
         html += '<div class="stat-sub">Loading...</div></div>';
-        
+
         // 4. RETURNS
         html += '<div class="stat-card" id="returnsStatCard" style="border-top:3px solid #8b5cf6;cursor:pointer;" onclick="AppRouter.navigate(\'admin-returns\')">';
         html += '<div class="stat-icon"><i class="fas fa-exchange-alt"></i></div>';
         html += '<div class="stat-label">Returns/Exchanges</div>';
         html += '<div class="stat-value" style="color:#8b5cf6;">...</div>';
         html += '<div class="stat-sub">Loading...</div></div>';
-        
+
         // 5. PURCHASES
         html += '<div class="stat-card" id="purchasesStatCard" style="border-top:3px solid #ec4899;cursor:pointer;" onclick="AppRouter.navigate(\'admin-purchases\')">';
         html += '<div class="stat-icon"><i class="fas fa-truck"></i></div>';
         html += '<div class="stat-label">Purchases</div>';
         html += '<div class="stat-value" style="color:#ec4899;">...</div>';
         html += '<div class="stat-sub">Loading...</div></div>';
-        
+
         // 6. PRODUCTS
         html += '<div class="stat-card" style="border-top:3px solid #06b6d4;cursor:pointer;" onclick="AppRouter.navigate(\'admin-products\')">';
         html += '<div class="stat-icon"><i class="fas fa-boxes"></i></div>';
         html += '<div class="stat-label">Products</div>';
         html += '<div class="stat-value">' + products.length + '</div>';
         html += '<div class="stat-sub">' + totalStock.toLocaleString() + ' total stock | ' + lowStock.length + ' low stock</div></div>';
-        
+
         // 7. REPORTS
         html += '<div class="stat-card" style="border-top:3px solid #64748b;cursor:pointer;" onclick="AppRouter.navigate(\'admin-reports\')">';
         html += '<div class="stat-icon"><i class="fas fa-chart-bar"></i></div>';
         html += '<div class="stat-label">Reports</div>';
         html += '<div class="stat-value" style="color:#64748b;">Analytics</div>';
         html += '<div class="stat-sub">View analytics & reports</div></div>';
-        
+
         html += '</div>';
-        
+
         // Cashier Performance
         html += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-users"></i> Cashier Performance</h3></div><div class="card-body"><div id="cashierTable">Loading...</div></div></div>';
-        
+
         // Credit Customers
         html += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-credit-card"></i> Credit Customers <span id="debtorCount" style="color:#ef4444;"></span></h3></div><div class="card-body"><div id="creditCustomersTable">Loading...</div></div></div>';
-        
+
         // Low Stock
         if (lowStock.length > 0) {
             html += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-exclamation-circle"></i> Low Stock</h3></div><div class="card-body"><table class="table"><thead><tr><th>Product</th><th>Brand</th><th>Stock</th></tr></thead><tbody>';
             lowStock.forEach(function(p) { html += '<tr><td><strong>' + p.name + '</strong></td><td>' + (p.brand||'-') + '</td><td><span class="badge badge-danger">' + p.stock + ' ' + p.unit + '</span></td></tr>'; });
             html += '</tbody></table></div></div>';
         }
-        
+
+        // ✅ Kick off loads after DOM is in place
         setTimeout(function() { AdminDashboardComponent.loadStats(); }, 200);
-        setInterval(function() { AdminDashboardComponent.loadCreditOnly(); }, 15000);
+        // ✅ Start (or restart) the auto-refresh interval safely
+        this._startAutoRefresh();
+
         return html;
     },
 
     // ============================================
-    // UPDATED: Using ApiService with JWT
+    // ✅ AUTO-REFRESH MANAGEMENT (fixes interval leak)
+    // ============================================
+
+    _startAutoRefresh: function() {
+        // Clear any previous interval before starting a new one
+        if (this._autoRefreshInterval) {
+            clearInterval(this._autoRefreshInterval);
+            this._autoRefreshInterval = null;
+        }
+        var self = this;
+        this._autoRefreshInterval = setInterval(function() {
+            // Skip entirely when the tab isn't visible
+            if (document.hidden) return;
+            // Light refresh: just the credit summary card (1 query)
+            self._refreshCreditCardOnly();
+        }, this._AUTO_REFRESH_MS);
+    },
+
+    _stopAutoRefresh: function() {
+        if (this._autoRefreshInterval) {
+            clearInterval(this._autoRefreshInterval);
+            this._autoRefreshInterval = null;
+        }
+    },
+
+    /**
+     * Light refresh — hits only /api/credit-summary.
+     * Used by the auto-refresh tick. Does NOT re-fetch the customer table.
+     */
+    _refreshCreditCardOnly: async function() {
+        try {
+            var creditData = await ApiService.get('/credit-summary');
+            var creditCard = document.getElementById('creditStatCard');
+            if (creditCard && creditData) {
+                creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Credit</div><div class="stat-value" style="color:#ef4444;">KES ' + (Number(creditData.totalDebt) || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' owing | Paid today: KES ' + (Number(creditData.todayPayments) || 0).toLocaleString() + '</div>';
+            }
+        } catch(e) {
+            // Silent — auto-refresh should never spam the console
+        }
+    },
+
+    // ============================================
+    // ✅ PARALLEL STATS LOADING
     // ============================================
 
     loadStats: async function() {
+        // Fire all 4 loading tasks in parallel instead of one after the other.
+        // allSettled ensures one failure doesn't block the others.
+        await Promise.allSettled([
+            this._loadCashierSummary(),
+            this._loadReturnsSummary(),
+            this._loadPurchasesSummary(),
+            this._loadCreditFull()
+        ]);
+    },
+
+    _loadCashierSummary: async function() {
         try {
             var summary = await ApiService.get('/sales/cashiers-summary');
             var rows = '';
@@ -101,12 +166,14 @@ const AdminDashboardComponent = {
                     rows += '<tr><td><strong>' + c.name + '</strong></td><td>' + c.username + '</td><td>KES ' + Number(c.totalToday||0).toLocaleString() + '</td><td>' + c.countToday + ' sales</td><td>KES ' + Number(c.totalAll||0).toLocaleString() + '</td><td>' + c.countAll + ' total</td></tr>';
                 });
             }
-            var ct = document.getElementById('cashierTable'); 
+            var ct = document.getElementById('cashierTable');
             if (ct) ct.innerHTML = '<table class="table"><thead><tr><th>Cashier</th><th>Username</th><th>Today Sales</th><th>Today Count</th><th>Total Sales</th><th>Total Count</th></tr></thead><tbody>' + (rows || '<tr><td colspan="6" style="text-align:center;">No cashier sales yet</td></tr>') + '</tbody></table>';
         } catch(e) {
             console.error('Error loading cashier summary:', e);
         }
-        
+    },
+
+    _loadReturnsSummary: async function() {
         try {
             var returnsData = await ApiService.get('/returns/summary');
             var returnsCard = document.getElementById('returnsStatCard');
@@ -119,44 +186,68 @@ const AdminDashboardComponent = {
         } catch(e) {
             console.error('Error loading returns summary:', e);
         }
-        
+    },
+
+    _loadPurchasesSummary: async function() {
         try {
-            var pos = await ApiService.get('/purchase-orders');
+            // ✅ Only fetch a bounded window — recent POs is enough for the dashboard card
+            var pos = await ApiService.get('/purchase-orders?limit=100');
             var today = new Date().toISOString().split('T')[0];
             var todayPOs = pos.filter(function(po) { return po.date && po.date.startsWith(today); });
             var todayPOAmount = todayPOs.reduce(function(s, po) { return s + Number(po.total || 0); }, 0);
-            var suppliers = [];
-            pos.forEach(function(po) { if (suppliers.indexOf(po.supplierName) === -1) suppliers.push(po.supplierName); });
-            var todaySuppliers = [];
-            todayPOs.forEach(function(po) { if (todaySuppliers.indexOf(po.supplierName) === -1) todaySuppliers.push(po.supplierName); });
-            
+
+            // ✅ Single pass instead of two loops
+            var suppliers = {};
+            var todaySuppliers = {};
+            var supplierCount = 0;
+            var todaySupplierCount = 0;
+            pos.forEach(function(po) {
+                if (po.supplierName && !suppliers[po.supplierName]) {
+                    suppliers[po.supplierName] = true;
+                    supplierCount++;
+                }
+            });
+            todayPOs.forEach(function(po) {
+                if (po.supplierName && !todaySuppliers[po.supplierName]) {
+                    todaySuppliers[po.supplierName] = true;
+                    todaySupplierCount++;
+                }
+            });
+
             var purchasesCard = document.getElementById('purchasesStatCard');
             if (purchasesCard) {
                 purchasesCard.innerHTML = '<div class="stat-icon"><i class="fas fa-truck"></i></div>' +
                     '<div class="stat-label">Purchases</div>' +
                     '<div class="stat-value" style="color:#ec4899;">' + todayPOs.length + ' POs</div>' +
-                    '<div class="stat-sub">Today: KES ' + todayPOAmount.toLocaleString() + ' | ' + suppliers.length + ' suppliers | ' + todaySuppliers.length + ' active today</div>';
+                    '<div class="stat-sub">Today: KES ' + todayPOAmount.toLocaleString() + ' | ' + supplierCount + ' suppliers | ' + todaySupplierCount + ' active today</div>';
             }
         } catch(e) {
             console.error('Error loading purchases:', e);
         }
-        
-        await this.loadCreditOnly();
     },
 
-    loadCreditOnly: async function() {
+    // Full credit load — used on initial render
+    _loadCreditFull: async function() {
         try {
-            var creditData = await ApiService.get('/credit-summary');
+            // ✅ credit-summary and credit-customers in parallel
+            var results = await Promise.all([
+                ApiService.get('/credit-summary'),
+                ApiService.get('/credit-customers')
+            ]);
+            var creditData = results[0];
+            var customers = results[1] || [];
+
+            // 1) Update the credit stat card
             var creditCard = document.getElementById('creditStatCard');
-            if (creditCard) {
+            if (creditCard && creditData) {
                 creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Credit</div><div class="stat-value" style="color:#ef4444;">KES ' + (Number(creditData.totalDebt) || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' owing | Paid today: KES ' + (Number(creditData.todayPayments) || 0).toLocaleString() + '</div>';
             }
-            
-            var customers = await ApiService.get('/credit-customers');
+
+            // 2) Update the debtors table
             var debtors = customers.filter(function(c) { return Number(c.totalDebt) > 0; });
             var debtorCount = document.getElementById('debtorCount');
             if (debtorCount) debtorCount.textContent = '(' + debtors.length + ' with debt)';
-            
+
             var custTable = document.getElementById('creditCustomersTable');
             if (custTable) {
                 if (debtors.length === 0) {
@@ -172,9 +263,14 @@ const AdminDashboardComponent = {
                     custTable.innerHTML = tableHTML;
                 }
             }
-        } catch(e) { 
-            console.error('Credit stats error:', e); 
+        } catch(e) {
+            console.error('Credit stats error:', e);
         }
+    },
+
+    // Kept for backwards compatibility — some other components call loadCreditOnly()
+    loadCreditOnly: async function() {
+        await this._loadCreditFull();
     },
 
     // ============================================
@@ -184,39 +280,57 @@ const AdminDashboardComponent = {
     showReturnsManagement: async function() {
         var container = document.getElementById('mainContent');
         if (!container) return;
-        
+
         container.innerHTML = '<div style="text-align:center;padding:3rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</div>';
-        
+
         try {
-            var returns = await ApiService.get('/returns');
-            
+            // ✅ Bounded fetch — backend default is 100, which is plenty for this view
+            var returns = await ApiService.get('/returns?limit=200');
+
             if (!returns || returns.length === 0) {
                 container.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;"><i class="fas fa-exchange-alt" style="font-size:4rem;color:#ccc;"></i><h3>No Returns/Exchanges Yet</h3><button class="btn btn-primary" onclick="AppRouter.navigate(\'admin-dashboard\')">Back</button></div></div>';
                 return;
             }
-            
-            var totalReturns = returns.filter(function(r){ return r.returnType === 'return'; }).length;
-            var totalExchanges = returns.filter(function(r){ return r.returnType === 'exchange'; }).length;
-            var totalRefund = returns.reduce(function(s, r){ return s + Number(r.refundAmount || 0); }, 0);
-            
+
+            // ✅ Single-pass counting + summing
+            var totalReturns = 0, totalExchanges = 0, totalRefund = 0;
+            for (var k = 0; k < returns.length; k++) {
+                var rr = returns[k];
+                if (rr.returnType === 'return') totalReturns++;
+                else if (rr.returnType === 'exchange') totalExchanges++;
+                totalRefund += Number(rr.refundAmount || 0);
+            }
+
             var html = '<div class="card"><div class="card-header" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;"><h3 style="color:white;"><i class="fas fa-exchange-alt"></i> Returns & Exchanges</h3><button class="btn btn-sm" style="background:rgba(255,255,255,0.2);color:white;" onclick="AppRouter.navigate(\'admin-dashboard\')">Back</button></div><div class="card-body">';
             html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"><div style="text-align:center;padding:1rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#ef4444;">'+totalReturns+'</div><small>Returns</small></div><div style="text-align:center;padding:1rem;background:#fef3c7;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#f59e0b;">'+totalExchanges+'</div><small>Exchanges</small></div><div style="text-align:center;padding:1rem;background:#f0fdf4;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#10b981;">KES '+totalRefund.toLocaleString()+'</div><small>Refunded</small></div><div style="text-align:center;padding:1rem;background:#eff6ff;border-radius:0.5rem;"><div style="font-size:2rem;font-weight:700;color:#3b82f6;">'+returns.length+'</div><small>Total</small></div></div>';
-            html += '<div style="display:flex;gap:1rem;margin-bottom:1rem;"><input type="text" id="returnSearchInput" class="form-control" placeholder="Search..." oninput="AdminDashboardComponent._filterReturns()" style="flex:1;"><select id="returnTypeFilter" class="form-control" onchange="AdminDashboardComponent._filterReturns()" style="width:200px;"><option value="all">All</option><option value="return">Returns</option><option value="exchange">Exchanges</option></select></div>';
+            // ✅ Debounced search input
+            html += '<div style="display:flex;gap:1rem;margin-bottom:1rem;"><input type="text" id="returnSearchInput" class="form-control" placeholder="Search..." oninput="AdminDashboardComponent._onReturnSearchInput()" style="flex:1;"><select id="returnTypeFilter" class="form-control" onchange="AdminDashboardComponent._filterReturns()" style="width:200px;"><option value="all">All</option><option value="return">Returns</option><option value="exchange">Exchanges</option></select></div>';
             html += '<table class="table" id="returnsTable"><thead><tr><th>Date</th><th>Receipt</th><th>Customer</th><th>Type</th><th>Product</th><th>Qty</th><th>Exchange</th><th>Refund</th><th>Cashier</th></tr></thead><tbody>';
             returns.forEach(function(r){
                 var b = r.returnType === 'exchange' ? '<span style="background:#fef3c7;color:#d97706;padding:3px 8px;border-radius:4px;">Exchange</span>' : '<span style="background:#fef2f2;color:#dc2626;padding:3px 8px;border-radius:4px;">Return</span>';
                 var ref = Number(r.refundAmount) > 0 ? '<span style="color:#10b981;">KES '+Number(r.refundAmount).toLocaleString()+'</span>' : '-';
-                html += '<tr data-search="'+(r.originalReceiptNo||'')+' '+(r.customerName||'')+' '+(r.productName||'')+'"><td>'+(r.date ? new Date(r.date).toLocaleDateString('en-KE') : '-')+'</td><td><strong>'+(r.originalReceiptNo||'-')+'</strong></td><td>'+(r.customerName||'-')+'</td><td>'+b+'</td><td>'+(r.productName||'-')+'</td><td>'+r.quantity+'</td><td>'+(r.exchangeProductName||'-')+'</td><td>'+ref+'</td><td>'+(r.cashierName||'-')+'</td></tr>';
+                html += '<tr data-type="'+(r.returnType||'return')+'" data-search="'+((r.originalReceiptNo||'')+' '+(r.customerName||'')+' '+(r.productName||'')).toLowerCase()+'"><td>'+(r.date ? new Date(r.date).toLocaleDateString('en-KE') : '-')+'</td><td><strong>'+(r.originalReceiptNo||'-')+'</strong></td><td>'+(r.customerName||'-')+'</td><td>'+b+'</td><td>'+(r.productName||'-')+'</td><td>'+r.quantity+'</td><td>'+(r.exchangeProductName||'-')+'</td><td>'+ref+'</td><td>'+(r.cashierName||'-')+'</td></tr>';
             });
             html += '</tbody></table></div></div>';
             container.innerHTML = html;
-            
+
         } catch(e) {
             console.error('Error loading returns:', e);
             container.innerHTML = '<div class="card"><div class="card-body" style="text-align:center;padding:3rem;color:#ef4444;">Error loading returns. Please try again.</div></div>';
         }
     },
 
+    // ✅ Debounced wrapper for the returns search input
+    _onReturnSearchInput: function() {
+        if (this._returnsFilterTimer) clearTimeout(this._returnsFilterTimer);
+        var self = this;
+        this._returnsFilterTimer = setTimeout(function() {
+            self._returnsFilterTimer = null;
+            self._filterReturns();
+        }, this._FILTER_DEBOUNCE_MS);
+    },
+
+    // ✅ Filter reads type from data attribute instead of fragile innerHTML match
     _filterReturns: function() {
         var search = (document.getElementById('returnSearchInput')?.value || '').toLowerCase();
         var typeFilter = document.getElementById('returnTypeFilter')?.value || 'all';
@@ -224,8 +338,8 @@ const AdminDashboardComponent = {
         for (var i = 0; i < rows.length; i++) {
             var row = rows[i];
             var matchSearch = !search || (row.dataset.search || '').indexOf(search) > -1;
-            var isReturn = row.innerHTML.indexOf('Return</span>') > -1;
-            var matchType = typeFilter === 'all' || (typeFilter === 'return' && isReturn) || (typeFilter === 'exchange' && !isReturn);
+            var rowType = row.dataset.type || 'return';
+            var matchType = typeFilter === 'all' || typeFilter === rowType;
             row.style.display = (matchSearch && matchType) ? '' : 'none';
         }
     }
