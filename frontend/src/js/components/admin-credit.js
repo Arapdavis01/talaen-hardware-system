@@ -1,35 +1,43 @@
 // ============================================
-// ADMIN CREDIT - With JWT Authentication & Credit Balance
+// ADMIN CREDIT - With JWT Authentication, Credit Balance & Refunds
 // ============================================
 
 const AdminCreditComponent = {
     _allPayments: [],
+    _allRefunds: [],
     _allCustomers: [],
     _modalCustomers: [],
     _modalFilterType: 'all',
 
     render() {
         var h = '';
-        h += '<div class="welcome-banner"><h2><i class="fas fa-credit-card"></i> Credit Management</h2><p>Manage customer credit accounts, debt limits, and payments</p></div>';
+        h += '<div class="welcome-banner"><h2><i class="fas fa-credit-card"></i> Credit Management</h2><p>Manage customer credit accounts, debt limits, payments, and refunds</p></div>';
         
-        h += '<div class="stats-grid" id="creditSummary" style="grid-template-columns: repeat(6, 1fr);">';
+        h += '<div class="stats-grid" id="creditSummary" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">';
         h += '<div class="stat-card" onclick="AdminCreditComponent.showAllCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Total Customers</div><div class="stat-value" style="color:#3b82f6;">0</div><div class="stat-sub">Click to view</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES 0</div><div class="stat-sub">All customers</div></div>';
         h += '<div class="stat-card" onclick="AdminCreditComponent.showDebtCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-user-clock"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">0</div><div class="stat-sub">Click to view</div></div>';
         h += '<div class="stat-card" onclick="AdminCreditComponent.showCreditCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-piggy-bank"></i></div><div class="stat-label">Store Credit Held</div><div class="stat-value" style="color:#8b5cf6;">KES 0</div><div class="stat-sub">Click to view</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-file-invoice"></i></div><div class="stat-label">Today Credit Sales</div><div class="stat-value">KES 0</div><div class="stat-sub">Today</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES 0</div><div class="stat-sub">Received today</div></div>';
+        h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Today Refunds</div><div class="stat-value" style="color:#f43f5e;">KES 0</div><div class="stat-sub">Paid out today</div></div>';
         h += '</div>';
         
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-shopping-cart"></i> Recent Credit Sales <span style="font-size:0.8rem;color:#999;">(Active Debtors Only)</span></h3></div><div class="card-body"><div id="recentCreditSales">Loading...</div></div></div>';
-        h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-money-bill"></i> Recent Debt Payments</h3></div><div class="card-body"><div id="recentPayments">Loading...</div></div></div>';
+        h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-money-bill"></i> Recent Debt Payments</h3></div><div class="card-body"><div id="recentPayments">Loading...</div></div></div>';
+        h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-hand-holding-usd"></i> Recent Credit Refunds <span style="font-size:0.8rem;color:#999;">(Overpayments returned to customer)</span></h3></div><div class="card-body"><div id="recentRefunds">Loading...</div></div></div>';
         
         setTimeout(function() { AdminCreditComponent.loadAll(); }, 200);
         return h;
     },
 
     async loadAll() {
-        try { await this.loadSummary(); await this.loadRecentSales(); await this.loadRecentPayments(); }
+        try { 
+            await this.loadSummary(); 
+            await this.loadRecentSales(); 
+            await this.loadRecentPayments(); 
+            await this.loadRecentRefunds();
+        }
         catch(e) { console.error('LoadAll error:', e); }
     },
 
@@ -40,14 +48,15 @@ const AdminCreditComponent = {
             this._allCustomers = customers || [];
             var div = document.getElementById('creditSummary');
             if (div && data) {
-                div.style.gridTemplateColumns = 'repeat(6, 1fr)';
+                div.style.gridTemplateColumns = 'repeat(auto-fit, minmax(180px, 1fr))';
                 div.innerHTML = 
                     '<div class="stat-card" onclick="AdminCreditComponent.showAllCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Total Customers</div><div class="stat-value" style="color:#3b82f6;">'+(data.totalCustomers||0)+'</div><div class="stat-sub">Click to view</div></div>'+
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES '+(Number(data.totalDebt||0)).toLocaleString()+'</div><div class="stat-sub">All customers</div></div>'+
                     '<div class="stat-card" onclick="AdminCreditComponent.showDebtCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-user-clock"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">'+(data.activeCustomers||0)+'</div><div class="stat-sub">Click to view</div></div>'+
                     '<div class="stat-card" onclick="AdminCreditComponent.showCreditCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-piggy-bank"></i></div><div class="stat-label">Store Credit Held</div><div class="stat-value" style="color:#8b5cf6;">KES '+(Number(data.totalCreditBalance||0)).toLocaleString()+'</div><div class="stat-sub">Click to view</div></div>'+
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-file-invoice"></i></div><div class="stat-label">Today Credit Sales</div><div class="stat-value">KES '+(Number(data.todayCreditSales||0)).toLocaleString()+'</div><div class="stat-sub">Today</div></div>'+
-                    '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES '+(Number(data.todayPayments||0)).toLocaleString()+'</div><div class="stat-sub">Received today</div></div>';
+                    '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES '+(Number(data.todayPayments||0)).toLocaleString()+'</div><div class="stat-sub">Received today</div></div>'+
+                    '<div class="stat-card"><div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Today Refunds</div><div class="stat-value" style="color:#f43f5e;">KES '+(Number(data.todayRefunds||0)).toLocaleString()+'</div><div class="stat-sub">Paid out today</div></div>';
             }
         } catch(e) { console.error('Error loading summary:', e); }
     },
@@ -86,7 +95,6 @@ const AdminCreditComponent = {
         customers.forEach(function(c){
             var creditBal = Number(c.creditBalance||0);
             var debt = Number(c.totalDebt||0);
-            // Net available = (limit - debt) + credit balance
             var available = (Number(c.debtLimit)||0) - debt + creditBal;
             var pct = Number(c.debtLimit)>0 ? Math.round((debt/Number(c.debtLimit))*100) : 0;
             var color = pct>80?'#ef4444':pct>50?'#f59e0b':'#10b981';
@@ -104,6 +112,10 @@ const AdminCreditComponent = {
             h += '<button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewProducts('+c.id+')" title="View Products"><i class="fas fa-box"></i></button> ';
             h += '<button class="btn btn-sm btn-info" onclick="AdminCreditComponent.viewHistory('+c.id+')" title="History"><i class="fas fa-history"></i></button> ';
             h += '<button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showPayment('+c.id+')" title="Record Payment"><i class="fas fa-money-bill"></i></button> ';
+            // ✅ NEW: Refund button — only if customer has credit
+            if (creditBal > 0) {
+                h += '<button class="btn btn-sm" style="background:#f43f5e;color:white;" onclick="AdminCreditComponent.showRefund('+c.id+')" title="Refund Store Credit"><i class="fas fa-hand-holding-usd"></i></button> ';
+            }
             h += '<button class="btn btn-sm btn-warning" onclick="AdminCreditComponent.editCustomer('+c.id+')" title="Edit"><i class="fas fa-edit"></i></button> ';
             h += Number(c.isActive)===1?'<button class="btn btn-sm btn-danger" onclick="AdminCreditComponent.deactivateCustomer('+c.id+',\''+(c.name||'').replace(/'/g,"\\'")+'\')"><i class="fas fa-user-slash"></i></button>':'<button class="btn btn-sm btn-outline-success" onclick="AdminCreditComponent.activateCustomer('+c.id+',\''+(c.name||'').replace(/'/g,"\\'")+'\')"><i class="fas fa-user-check"></i></button>';
             h += '</td></tr>';
@@ -185,6 +197,59 @@ const AdminCreditComponent = {
         var div = document.getElementById('recentPayments'); if (div) this._renderPaymentsTable(filtered, div);
     },
 
+    // ✅ NEW: Load all refunds
+    async loadRecentRefunds() {
+        try {
+            const refunds = await ApiService.get('/credit-refunds');
+            this._allRefunds = refunds || [];
+            var div = document.getElementById('recentRefunds');
+            if (!div) return;
+            if (!refunds || !refunds.length) { 
+                div.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No credit refunds recorded yet.</p>'; 
+                return; 
+            }
+            this._renderRefundsTable(refunds.slice(0, 10), div);
+        } catch(e) { console.error('Refunds error:', e); }
+    },
+
+    // ✅ NEW: Render refunds table
+    _renderRefundsTable(refunds, div) {
+        if (!refunds.length) { div.innerHTML = '<p style="text-align:center;color:#999;">No refunds.</p>'; return; }
+        var total = refunds.reduce(function(s,r){return s+Number(r.amount||0);},0);
+        var h = '<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center;">';
+        h += '<select id="refundFilter" class="form-control" onchange="AdminCreditComponent._filterRefunds()" style="width:150px;"><option value="10">Last 10</option><option value="25">Last 25</option><option value="50">Last 50</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option><option value="all">All Time</option></select>';
+        h += '<input type="text" id="refundSearch" class="form-control" placeholder="Search customer..." oninput="AdminCreditComponent._filterRefunds()" style="width:200px;">';
+        h += '<span style="margin-left:auto;font-weight:600;color:#f43f5e;">Total Refunded: KES '+total.toLocaleString()+'</span></div>';
+        h += '<table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Method</th><th>Reason</th><th>Processed By</th></tr></thead><tbody>';
+        refunds.forEach(function(r){
+            var badge = r.paymentMethod==='mpesa'?'<span class="badge badge-info">M-PESA</span>':'<span class="badge badge-success">CASH</span>';
+            h += '<tr>';
+            h += '<td><small>'+(r.date?new Date(r.date).toLocaleString('en-KE'):'-')+'</small></td>';
+            h += '<td><strong>'+(r.customerName||'-')+'</strong></td>';
+            h += '<td style="color:#f43f5e;font-weight:600;"><i class="fas fa-hand-holding-usd"></i> KES '+Number(r.amount||0).toLocaleString()+'</td>';
+            h += '<td>'+badge+'</td>';
+            h += '<td><small>'+(r.reason||'-')+'</small></td>';
+            h += '<td>'+(r.processedBy||'-')+'</td>';
+            h += '</tr>';
+        });
+        h += '</tbody></table>';
+        div.innerHTML = h;
+    },
+
+    _filterRefunds() {
+        var filter = document.getElementById('refundFilter')?.value || '10';
+        var search = (document.getElementById('refundSearch')?.value || '').toLowerCase();
+        var all = this._allRefunds || [];
+        var filtered = [], now = new Date(), today = now.toISOString().split('T')[0];
+        if (filter==='today') filtered = all.filter(function(r){return r.date&&r.date.startsWith(today);});
+        else if (filter==='week') { var w = new Date(now.getTime()-7*24*60*60*1000).toISOString().split('T')[0]; filtered = all.filter(function(r){return r.date&&r.date>=w;}); }
+        else if (filter==='month') { var m = new Date(now.getTime()-30*24*60*60*1000).toISOString().split('T')[0]; filtered = all.filter(function(r){return r.date&&r.date>=m;}); }
+        else if (filter==='all') filtered = all;
+        else filtered = all.slice(0, parseInt(filter));
+        if (search) filtered = filtered.filter(function(r){return (r.customerName||'').toLowerCase().indexOf(search)>-1;});
+        var div = document.getElementById('recentRefunds'); if (div) this._renderRefundsTable(filtered, div);
+    },
+
     async viewProducts(cid) {
         try {
             const c = await ApiService.get('/credit-customers/'+cid);
@@ -227,6 +292,15 @@ const AdminCreditComponent = {
                     h+='<tr><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;">+KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td>'+(p.paymentMethod||'cash').toUpperCase()+'</td><td>'+(p.receivedBy||'-')+'</td></tr>';
                 });
                 h+='</tbody></table>'; }
+            // ✅ NEW: Refunds section
+            if(c&&c.refunds&&c.refunds.length){ 
+                var tr=c.refunds.reduce(function(s,r){return s+Number(r.amount||0);},0); 
+                h+='<h4 style="color:#f43f5e;">Refunds Paid Out (Total: KES '+tr.toLocaleString()+')</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Reason</th><th>Processed By</th></tr></thead><tbody>';
+                c.refunds.forEach(function(r){
+                    h+='<tr><td>'+(r.date?new Date(r.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#f43f5e;font-weight:600;"><i class="fas fa-hand-holding-usd"></i> KES '+Number(r.amount||0).toLocaleString()+'</td><td>'+(r.paymentMethod||'cash').toUpperCase()+'</td><td><small>'+(r.reason||'-')+'</small></td><td>'+(r.processedBy||'-')+'</td></tr>';
+                });
+                h+='</tbody></table>'; 
+            }
             h+='</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
             var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
         } catch(e) {}
@@ -252,8 +326,9 @@ const AdminCreditComponent = {
             var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;">'+c.name+' - History</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(c.totalDebt||0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(c.debtLimit||0).toLocaleString()+(creditBal>0?' | <strong style="color:#8b5cf6;"><i class="fas fa-piggy-bank"></i> Store Credit:</strong> KES '+creditBal.toLocaleString():'')+'</p>';
             if(c.recentSales&&c.recentSales.length){ h+='<h4>Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Debt After</th><th>Cashier</th></tr></thead><tbody>'; c.recentSales.forEach(function(s){ h+='<tr><td>'+new Date(s.date).toLocaleDateString('en-KE')+'</td><td style="color:#ef4444;">KES '+Number(s.amount).toLocaleString()+'</td><td>KES '+Number(s.debtAfter).toLocaleString()+'</td><td>'+s.cashierName+'</td></tr>'; }); h+='</tbody></table>'; }
             if(c.payments&&c.payments.length){ h+='<h4>Payments</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>'; c.payments.forEach(function(p){ h+='<tr><td>'+new Date(p.date).toLocaleDateString('en-KE')+'</td><td style="color:#10b981;">KES '+Number(p.amount).toLocaleString()+'</td><td>'+p.paymentMethod+'</td><td>'+p.receivedBy+'</td></tr>'; }); h+='</tbody></table>'; }
+            if(c.refunds&&c.refunds.length){ h+='<h4 style="color:#f43f5e;">Refunds Paid</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Processed By</th></tr></thead><tbody>'; c.refunds.forEach(function(r){ h+='<tr><td>'+new Date(r.date).toLocaleDateString('en-KE')+'</td><td style="color:#f43f5e;">KES '+Number(r.amount).toLocaleString()+'</td><td>'+r.paymentMethod+'</td><td>'+r.processedBy+'</td></tr>'; }); h+='</tbody></table>'; }
             h+='</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-            var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
+            var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;document.body.appendChild(m);m.onclick=function(e){if(e.target===m)e.currentTarget.remove();};
         } catch(e) {}
     },
 
@@ -283,7 +358,7 @@ const AdminCreditComponent = {
         } catch(e) {}
     },
 
-    // ✅ UPDATED: Allow overpayment + show credit balance preview
+    // Record Payment modal (unchanged)
     async showPayment(id) {
         try {
             const c = await ApiService.get('/credit-customers/'+id); if(!c) return;
@@ -319,7 +394,6 @@ const AdminCreditComponent = {
         } catch(e) {}
     },
 
-    // ✅ Helper: preview payment results
     _previewPayment(customerId) {
         var amount = parseFloat(document.getElementById('payAmount')?.value) || 0;
         var preview = document.getElementById('paymentPreview');
@@ -347,6 +421,85 @@ const AdminCreditComponent = {
             preview.innerHTML = '<strong style="color:#10b981;"><i class="fas fa-check"></i> Payment Preview:</strong><br>' +
                 'New debt after payment: <strong>KES ' + newDebt.toLocaleString() + '</strong>';
         }
+    },
+
+    // ✅ NEW: Refund Modal
+    async showRefund(id) {
+        try {
+            const c = await ApiService.get('/credit-customers/'+id); if(!c) return;
+            var creditBal = Number(c.creditBalance||0);
+            if (creditBal <= 0) {
+                showStyledAlert('No Credit', 'This customer has no store credit to refund.', 'info-circle', '#3b82f6');
+                return;
+            }
+            var m = document.createElement('div'); m.className = 'modal-overlay';
+            var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#f43f5e,#e11d48);color:white;"><h3 style="color:white;"><i class="fas fa-hand-holding-usd"></i> Refund Store Credit</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
+            h += '<div style="text-align:center;padding:1rem;background:#ede9fe;border-radius:0.75rem;margin-bottom:1rem;">';
+            h += '<div style="font-size:0.85rem;color:#666;">Available Store Credit</div>';
+            h += '<div style="font-size:1.75rem;font-weight:700;color:#8b5cf6;">KES ' + creditBal.toLocaleString() + '</div>';
+            h += '<div style="font-size:0.8rem;color:#666;">Customer: <strong>' + c.name + '</strong></div>';
+            h += '</div>';
+            h += '<div class="form-group"><label>Refund Amount (KES) *</label><input type="number" id="refundAmount" class="form-control" min="1" max="' + creditBal + '" autofocus oninput="AdminCreditComponent._previewRefund(' + id + ')" style="font-size:1.2rem;text-align:center;"></div>';
+            h += '<div class="form-group"><label>Reason</label><input type="text" id="refundReason" class="form-control" placeholder="e.g., Customer requested cash back"></div>';
+            h += '<div class="form-group"><label>Method</label><select id="refundMethod" class="form-control"><option value="cash">Cash</option></select></div>';
+            h += '<div id="refundPreview" style="padding:0.75rem;border-radius:0.5rem;font-size:0.9rem;display:none;"></div>';
+            h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn" style="background:#f43f5e;color:white;" id="confirmRefundBtn"><i class="fas fa-hand-holding-usd"></i> Process Refund</button></div></div>';
+            m.innerHTML = h;
+            document.body.appendChild(m); m.onclick = function(e){ if(e.target===m) m.remove(); };
+            m.querySelector('#refundAmount').focus();
+            
+            m.querySelector('#confirmRefundBtn').onclick = async function(){
+                var amount = parseFloat(m.querySelector('#refundAmount').value) || 0;
+                var reason = m.querySelector('#refundReason').value.trim() || 'Customer requested refund';
+                if (amount <= 0) { showStyledAlert('Invalid', 'Enter valid amount!', 'times-circle', '#ef4444'); return; }
+                if (amount > creditBal) { showStyledAlert('Too Much', 'Amount exceeds credit balance!', 'times-circle', '#ef4444'); return; }
+                const user = JSON.parse(localStorage.getItem('user') || '{}');
+                const result = await ApiService.post('/credit-refunds', {
+                    customerId: id,
+                    customerName: c.name,
+                    amount: amount,
+                    paymentMethod: m.querySelector('#refundMethod').value,
+                    reason: reason,
+                    processedBy: user.fullName || 'Admin',
+                    processedById: user.id || null
+                });
+                if (result && result.success) {
+                    m.remove();
+                    await AdminCreditComponent.loadAll();
+                    showStyledAlert('Refunded', 
+                        'KES ' + amount.toLocaleString() + ' refunded to ' + c.name + 
+                        '<br><small>New credit balance: KES ' + (result.newCreditBalance||0).toLocaleString() + '</small>',
+                        'check-circle', '#10b981');
+                } else {
+                    showStyledAlert('Error', (result && result.message) || 'Failed', 'times-circle', '#ef4444');
+                }
+            };
+        } catch(e) { console.error('Refund modal error:', e); }
+    },
+
+    _previewRefund(customerId) {
+        var amount = parseFloat(document.getElementById('refundAmount')?.value) || 0;
+        var preview = document.getElementById('refundPreview');
+        if (!preview) return;
+        var c = this._allCustomers.find(function(x){return x.id == customerId;});
+        if (!c) { preview.style.display = 'none'; return; }
+        var creditBal = Number(c.creditBalance||0);
+        if (amount <= 0) { preview.style.display = 'none'; return; }
+        
+        if (amount > creditBal) {
+            preview.style.display = 'block';
+            preview.style.background = '#fef2f2';
+            preview.style.border = '1px solid #ef4444';
+            preview.innerHTML = '<strong style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Amount exceeds available credit!</strong><br>Maximum: KES ' + creditBal.toLocaleString();
+            return;
+        }
+        var remaining = creditBal - amount;
+        preview.style.display = 'block';
+        preview.style.background = '#f0fdf4';
+        preview.style.border = '1px solid #10b981';
+        preview.innerHTML = '<strong style="color:#10b981;"><i class="fas fa-check"></i> Refund Preview:</strong><br>' +
+            'KES ' + amount.toLocaleString() + ' will be paid out as cash.<br>' +
+            '<strong>Remaining credit: KES ' + remaining.toLocaleString() + '</strong>';
     },
 
     async deactivateCustomer(id, name) {
