@@ -1,5 +1,5 @@
 // ============================================
-// ADMIN CREDIT - With JWT Authentication
+// ADMIN CREDIT - With JWT Authentication & Credit Balance
 // ============================================
 
 const AdminCreditComponent = {
@@ -12,10 +12,11 @@ const AdminCreditComponent = {
         var h = '';
         h += '<div class="welcome-banner"><h2><i class="fas fa-credit-card"></i> Credit Management</h2><p>Manage customer credit accounts, debt limits, and payments</p></div>';
         
-        h += '<div class="stats-grid" id="creditSummary" style="grid-template-columns: repeat(5, 1fr);">';
+        h += '<div class="stats-grid" id="creditSummary" style="grid-template-columns: repeat(6, 1fr);">';
         h += '<div class="stat-card" onclick="AdminCreditComponent.showAllCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Total Customers</div><div class="stat-value" style="color:#3b82f6;">0</div><div class="stat-sub">Click to view</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES 0</div><div class="stat-sub">All customers</div></div>';
         h += '<div class="stat-card" onclick="AdminCreditComponent.showDebtCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-user-clock"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">0</div><div class="stat-sub">Click to view</div></div>';
+        h += '<div class="stat-card" onclick="AdminCreditComponent.showCreditCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-piggy-bank"></i></div><div class="stat-label">Store Credit Held</div><div class="stat-value" style="color:#8b5cf6;">KES 0</div><div class="stat-sub">Click to view</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-file-invoice"></i></div><div class="stat-label">Today Credit Sales</div><div class="stat-value">KES 0</div><div class="stat-sub">Today</div></div>';
         h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES 0</div><div class="stat-sub">Received today</div></div>';
         h += '</div>';
@@ -39,11 +40,12 @@ const AdminCreditComponent = {
             this._allCustomers = customers || [];
             var div = document.getElementById('creditSummary');
             if (div && data) {
-                div.style.gridTemplateColumns = 'repeat(5, 1fr)';
+                div.style.gridTemplateColumns = 'repeat(6, 1fr)';
                 div.innerHTML = 
                     '<div class="stat-card" onclick="AdminCreditComponent.showAllCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-users"></i></div><div class="stat-label">Total Customers</div><div class="stat-value" style="color:#3b82f6;">'+(data.totalCustomers||0)+'</div><div class="stat-sub">Click to view</div></div>'+
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-coins"></i></div><div class="stat-label">Total Outstanding</div><div class="stat-value" style="color:#ef4444;">KES '+(Number(data.totalDebt||0)).toLocaleString()+'</div><div class="stat-sub">All customers</div></div>'+
                     '<div class="stat-card" onclick="AdminCreditComponent.showDebtCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-user-clock"></i></div><div class="stat-label">Customers with Debt</div><div class="stat-value">'+(data.activeCustomers||0)+'</div><div class="stat-sub">Click to view</div></div>'+
+                    '<div class="stat-card" onclick="AdminCreditComponent.showCreditCustomersModal()" style="cursor:pointer;"><div class="stat-icon"><i class="fas fa-piggy-bank"></i></div><div class="stat-label">Store Credit Held</div><div class="stat-value" style="color:#8b5cf6;">KES '+(Number(data.totalCreditBalance||0)).toLocaleString()+'</div><div class="stat-sub">Click to view</div></div>'+
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-file-invoice"></i></div><div class="stat-label">Today Credit Sales</div><div class="stat-value">KES '+(Number(data.todayCreditSales||0)).toLocaleString()+'</div><div class="stat-sub">Today</div></div>'+
                     '<div class="stat-card"><div class="stat-icon"><i class="fas fa-money-bill-wave"></i></div><div class="stat-label">Today Payments</div><div class="stat-value" style="color:#10b981;">KES '+(Number(data.todayPayments||0)).toLocaleString()+'</div><div class="stat-sub">Received today</div></div>';
             }
@@ -52,11 +54,12 @@ const AdminCreditComponent = {
 
     showAllCustomersModal() { this._showCustomersModal('all', 'All Registered Customers', this._allCustomers); },
     showDebtCustomersModal() { var d = this._allCustomers.filter(function(c){return Number(c.totalDebt||0)>0;}); this._showCustomersModal('debt', 'Customers with Debt', d); },
+    showCreditCustomersModal() { var d = this._allCustomers.filter(function(c){return Number(c.creditBalance||0)>0;}); this._showCustomersModal('credit', 'Customers with Store Credit', d); },
 
     _showCustomersModal(type, title, customerList) {
         this._modalFilterType = type; this._modalCustomers = customerList || [];
         var m = document.createElement('div'); m.className = 'modal-overlay';
-        var h = '<div class="modal" style="max-width:95%;width:1200px;"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">';
+        var h = '<div class="modal" style="max-width:95%;width:1300px;"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">';
         h += '<h3 style="color:white;margin:0;"><i class="fas fa-users"></i> '+title+' <span style="font-size:0.9rem;opacity:0.8;">('+customerList.length+' customers)</span></h3>';
         h += '<div style="display:flex;gap:0.5rem;align-items:center;">';
         h += '<div style="position:relative;"><i class="fas fa-search" style="position:absolute;left:10px;top:50%;transform:translateY(-50%);color:#999;"></i><input type="text" id="modalCustomerSearch" class="form-control" placeholder="Search name, phone, or ID..." oninput="AdminCreditComponent._filterModalCustomers()" style="padding-left:30px;width:250px;"></div>';
@@ -79,24 +82,29 @@ const AdminCreditComponent = {
     _renderModalTable(customers) {
         var div = document.getElementById('modalCustomerTable'); if (!div) return;
         if (!customers || !customers.length) { div.innerHTML = '<p style="text-align:center;color:#999;padding:3rem;"><i class="fas fa-search" style="font-size:2rem;display:block;margin-bottom:1rem;"></i>No customers found.</p>'; return; }
-        var h = '<table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>ID Number</th><th>Debt Limit</th><th>Total Debt</th><th>Available</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
+        var h = '<table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>Debt Limit</th><th>Total Debt</th><th>Store Credit</th><th>Available</th><th>Usage</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
         customers.forEach(function(c){
-            var pct = Number(c.debtLimit)>0 ? Math.round((Number(c.totalDebt)/Number(c.debtLimit))*100) : 0;
+            var creditBal = Number(c.creditBalance||0);
+            var debt = Number(c.totalDebt||0);
+            // Net available = (limit - debt) + credit balance
+            var available = (Number(c.debtLimit)||0) - debt + creditBal;
+            var pct = Number(c.debtLimit)>0 ? Math.round((debt/Number(c.debtLimit))*100) : 0;
             var color = pct>80?'#ef4444':pct>50?'#f59e0b':'#10b981';
-            var badge = Number(c.isActive)===0?'<span class="badge badge-danger">Inactive</span>':Number(c.totalDebt)>0?'<span class="badge badge-warning">Owing</span>':'<span class="badge badge-success">Clear</span>';
+            var badge = Number(c.isActive)===0?'<span class="badge badge-danger">Inactive</span>':debt>0?'<span class="badge badge-warning">Owing</span>':creditBal>0?'<span class="badge" style="background:#ede9fe;color:#6d28d9;">Has Credit</span>':'<span class="badge badge-success">Clear</span>';
             h += '<tr style="'+(Number(c.isActive)===0?'opacity:0.5;':'')+'">';
             h += '<td><strong>'+(c.name||'-')+'</strong>'+(Number(c.isActive)===0?' <small style="color:#ef4444;">(Inactive)</small>':'')+'</td>';
-            h += '<td>'+(c.phone||'-')+'</td><td>'+(c.idNumber||'-')+'</td>';
+            h += '<td>'+(c.phone||'-')+'</td>';
             h += '<td>KES '+Number(c.debtLimit||0).toLocaleString()+'</td>';
-            h += '<td style="color:'+(Number(c.totalDebt)>0?'#ef4444':'#10b981')+';font-weight:700;">KES '+Number(c.totalDebt||0).toLocaleString()+'</td>';
-            h += '<td>KES '+(Number(c.debtLimit||0)-Number(c.totalDebt||0)).toLocaleString()+'</td>';
-            h += '<td><div style="width:80px;height:6px;background:#eee;border-radius:3px;"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:3px;"></div></div><small>'+pct+'%</small></td>';
+            h += '<td style="color:'+(debt>0?'#ef4444':'#10b981')+';font-weight:700;">KES '+debt.toLocaleString()+'</td>';
+            h += '<td style="color:'+(creditBal>0?'#8b5cf6':'#999')+';font-weight:700;">'+(creditBal>0?'KES '+creditBal.toLocaleString():'—')+'</td>';
+            h += '<td>KES '+available.toLocaleString()+'</td>';
+            h += '<td><div style="width:60px;height:6px;background:#eee;border-radius:3px;"><div style="width:'+pct+'%;height:100%;background:'+color+';border-radius:3px;"></div></div><small>'+pct+'%</small></td>';
             h += '<td>'+badge+'</td>';
             h += '<td style="white-space:nowrap;">';
-            h += '<button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewProducts('+c.id+')"><i class="fas fa-box"></i></button> ';
-            h += '<button class="btn btn-sm btn-info" onclick="AdminCreditComponent.viewHistory('+c.id+')"><i class="fas fa-history"></i></button> ';
-            h += '<button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showPayment('+c.id+')"><i class="fas fa-money-bill"></i></button> ';
-            h += '<button class="btn btn-sm btn-warning" onclick="AdminCreditComponent.editCustomer('+c.id+')"><i class="fas fa-edit"></i></button> ';
+            h += '<button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewProducts('+c.id+')" title="View Products"><i class="fas fa-box"></i></button> ';
+            h += '<button class="btn btn-sm btn-info" onclick="AdminCreditComponent.viewHistory('+c.id+')" title="History"><i class="fas fa-history"></i></button> ';
+            h += '<button class="btn btn-sm btn-success" onclick="AdminCreditComponent.showPayment('+c.id+')" title="Record Payment"><i class="fas fa-money-bill"></i></button> ';
+            h += '<button class="btn btn-sm btn-warning" onclick="AdminCreditComponent.editCustomer('+c.id+')" title="Edit"><i class="fas fa-edit"></i></button> ';
             h += Number(c.isActive)===1?'<button class="btn btn-sm btn-danger" onclick="AdminCreditComponent.deactivateCustomer('+c.id+',\''+(c.name||'').replace(/'/g,"\\'")+'\')"><i class="fas fa-user-slash"></i></button>':'<button class="btn btn-sm btn-outline-success" onclick="AdminCreditComponent.activateCustomer('+c.id+',\''+(c.name||'').replace(/'/g,"\\'")+'\')"><i class="fas fa-user-check"></i></button>';
             h += '</td></tr>';
         });
@@ -154,10 +162,11 @@ const AdminCreditComponent = {
         if (!payments.length) { div.innerHTML = '<p style="text-align:center;color:#999;">No payments.</p>'; return; }
         var total = payments.reduce(function(s,p){return s+Number(p.amount||0);},0);
         var h = '<div style="display:flex;gap:0.5rem;margin-bottom:1rem;flex-wrap:wrap;align-items:center;"><select id="paymentFilter" class="form-control" onchange="AdminCreditComponent._filterPayments()" style="width:150px;"><option value="10">Last 10</option><option value="25">Last 25</option><option value="50">Last 50</option><option value="today">Today</option><option value="week">This Week</option><option value="month">This Month</option><option value="all">All Time</option></select><input type="text" id="paymentSearch" class="form-control" placeholder="Search..." oninput="AdminCreditComponent._filterPayments()" style="width:200px;"><span style="margin-left:auto;font-weight:600;color:#10b981;">Total: KES '+total.toLocaleString()+'</span></div>';
-        h += '<table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Method</th><th>Received By</th><th>Action</th></tr></thead><tbody>';
+        h += '<table class="table"><thead><tr><th>Date</th><th>Customer</th><th>Amount</th><th>Credit Added</th><th>Method</th><th>Received By</th><th>Action</th></tr></thead><tbody>';
         payments.forEach(function(p){
             var badge = p.paymentMethod==='mpesa'?'<span class="badge badge-info">M-PESA</span>':'<span class="badge badge-success">CASH</span>';
-            h += '<tr><td><small>'+(p.date?new Date(p.date).toLocaleString('en-KE'):'-')+'</small></td><td><strong>'+(p.customerName||'-')+'</strong></td><td style="color:#10b981;font-weight:600;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+badge+'</td><td>'+(p.receivedBy||'-')+'</td><td><button class="btn btn-sm btn-danger" onclick="AdminCreditComponent.deletePayment('+p.id+','+p.customerId+',\''+(p.customerName||'').replace(/'/g,"\\'")+'\','+p.amount+')"><i class="fas fa-trash"></i></button></td></tr>';
+            var overpay = Number(p.overpayment||0);
+            h += '<tr><td><small>'+(p.date?new Date(p.date).toLocaleString('en-KE'):'-')+'</small></td><td><strong>'+(p.customerName||'-')+'</strong></td><td style="color:#10b981;font-weight:600;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;"><i class="fas fa-piggy-bank"></i> +KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td>'+badge+'</td><td>'+(p.receivedBy||'-')+'</td><td><button class="btn btn-sm btn-danger" onclick="AdminCreditComponent.deletePayment('+p.id+','+p.customerId+',\''+(p.customerName||'').replace(/'/g,"\\'")+'\','+p.amount+')"><i class="fas fa-trash"></i></button></td></tr>';
         });
         h += '</tbody></table>'; div.innerHTML = h;
     },
@@ -181,7 +190,7 @@ const AdminCreditComponent = {
             const c = await ApiService.get('/credit-customers/'+cid);
             const sales = await ApiService.get('/credit-sales');
             var cs = sales ? sales.filter(function(s){return s.customerId==cid;}) : [];
-            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;">Products - '+(c?c.name:'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(c?c.totalDebt||0:0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(c?c.debtLimit||0:0).toLocaleString()+'</p>';
+            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;">Products - '+(c?c.name:'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(c?c.totalDebt||0:0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(c?c.debtLimit||0:0).toLocaleString()+(c&&Number(c.creditBalance||0)>0?' | <strong style="color:#8b5cf6;">Store Credit:</strong> KES '+Number(c.creditBalance).toLocaleString():'')+'</p>';
             if(!cs.length) h+='<p style="text-align:center;color:#999;">No purchases.</p>';
             else { h+='<table class="table"><thead><tr><th>Date</th><th>Sale ID</th><th>Amount</th><th>Cashier</th><th>Items</th></tr></thead><tbody>';
                 cs.forEach(function(s){ h+='<tr><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td>#'+(s.saleId||'-')+'</td><td style="color:#ef4444;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>'+(s.cashierName||'-')+'</td><td><button class="btn btn-sm btn-primary" onclick="AdminCreditComponent.viewSaleProducts('+s.saleId+')"><i class="fas fa-eye"></i></button></td></tr>'; });
@@ -197,13 +206,27 @@ const AdminCreditComponent = {
             const sales = await ApiService.get('/credit-sales');
             var cs = sales ? sales.filter(function(s){return s.customerId==cid;}) : [];
             var tc = cs.reduce(function(s,sl){return s+Number(sl.amount||0);},0);
+            var creditBal = Number(c?c.creditBalance||0:0);
             var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#8b5cf6,#7c3aed);color:white;"><h3 style="color:white;">Credit History - '+(c?c.name:'')+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
-            h+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin-bottom:1.5rem;"><div style="text-align:center;padding:0.75rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#ef4444;">KES '+Number(c?c.totalDebt||0:0).toLocaleString()+'</div><small>Current Debt</small></div><div style="text-align:center;padding:0.75rem;background:#fef3c7;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#f59e0b;">KES '+Number(c?c.debtLimit||0:0).toLocaleString()+'</div><small>Debt Limit</small></div><div style="text-align:center;padding:0.75rem;background:#eff6ff;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#3b82f6;">'+cs.length+'</div><small>Transactions</small></div><div style="text-align:center;padding:0.75rem;background:#f0fdf4;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#10b981;">KES '+tc.toLocaleString()+'</div><small>Total Credit</small></div></div>';
-            if(cs.length){ h+='<h4>Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Sale ID</th><th>Amount</th><th>Debt Before</th><th>Debt After</th><th>Cashier</th></tr></thead><tbody>';
-                cs.sort(function(a,b){return new Date(b.date)-new Date(a.date);}).forEach(function(s){ h+='<tr><td>'+(s.date?new Date(s.date).toLocaleString('en-KE'):'-')+'</td><td>#'+(s.saleId||'-')+'</td><td style="color:#ef4444;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>KES '+Number(s.debtBefore||0).toLocaleString()+'</td><td>KES '+Number(s.debtAfter||0).toLocaleString()+'</td><td>'+(s.cashierName||'-')+'</td></tr>'; });
+            h += '<div style="display:grid;grid-template-columns:repeat('+(creditBal>0?'5':'4')+',1fr);gap:1rem;margin-bottom:1.5rem;">';
+            h += '<div style="text-align:center;padding:0.75rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#ef4444;">KES '+Number(c?c.totalDebt||0:0).toLocaleString()+'</div><small>Current Debt</small></div>';
+            h += '<div style="text-align:center;padding:0.75rem;background:#fef3c7;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#f59e0b;">KES '+Number(c?c.debtLimit||0:0).toLocaleString()+'</div><small>Debt Limit</small></div>';
+            if(creditBal>0) h += '<div style="text-align:center;padding:0.75rem;background:#ede9fe;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#8b5cf6;">KES '+creditBal.toLocaleString()+'</div><small>Store Credit</small></div>';
+            h += '<div style="text-align:center;padding:0.75rem;background:#eff6ff;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#3b82f6;">'+cs.length+'</div><small>Transactions</small></div>';
+            h += '<div style="text-align:center;padding:0.75rem;background:#f0fdf4;border-radius:0.5rem;"><div style="font-size:1.5rem;font-weight:700;color:#10b981;">KES '+tc.toLocaleString()+'</div><small>Total Credit</small></div>';
+            h += '</div>';
+            if(cs.length){ h+='<h4>Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Sale ID</th><th>Amount</th><th>Credit Used</th><th>Debt Before</th><th>Debt After</th><th>Cashier</th></tr></thead><tbody>';
+                cs.sort(function(a,b){return new Date(b.date)-new Date(a.date);}).forEach(function(s){
+                    var cu = Number(s.creditUsed||0);
+                    h+='<tr><td>'+(s.date?new Date(s.date).toLocaleString('en-KE'):'-')+'</td><td>#'+(s.saleId||'-')+'</td><td style="color:#ef4444;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>'+(cu>0?'<span style="color:#8b5cf6;font-weight:600;">KES '+cu.toLocaleString()+'</span>':'—')+'</td><td>KES '+Number(s.debtBefore||0).toLocaleString()+'</td><td>KES '+Number(s.debtAfter||0).toLocaleString()+'</td><td>'+(s.cashierName||'-')+'</td></tr>';
+                });
                 h+='</tbody></table>'; }
-            if(c&&c.payments&&c.payments.length){ var tp=c.payments.reduce(function(s,p){return s+Number(p.amount||0);},0); h+='<h4>Payments (Total: KES '+tp.toLocaleString()+')</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>';
-                c.payments.forEach(function(p){ h+='<tr><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(p.paymentMethod||'cash').toUpperCase()+'</td><td>'+(p.receivedBy||'-')+'</td></tr>'; }); h+='</tbody></table>'; }
+            if(c&&c.payments&&c.payments.length){ var tp=c.payments.reduce(function(s,p){return s+Number(p.amount||0);},0); h+='<h4>Payments (Total: KES '+tp.toLocaleString()+')</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Credit Added</th><th>Method</th><th>Received By</th></tr></thead><tbody>';
+                c.payments.forEach(function(p){
+                    var overpay = Number(p.overpayment||0);
+                    h+='<tr><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;">+KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td>'+(p.paymentMethod||'cash').toUpperCase()+'</td><td>'+(p.receivedBy||'-')+'</td></tr>';
+                });
+                h+='</tbody></table>'; }
             h+='</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
             var m=document.createElement('div');m.className='modal-overlay';m.innerHTML=h;document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
         } catch(e) {}
@@ -225,7 +248,8 @@ const AdminCreditComponent = {
     async viewHistory(id) {
         try {
             const c = await ApiService.get('/credit-customers/'+id); if(!c) return;
-            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;">'+c.name+' - History</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(c.totalDebt||0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(c.debtLimit||0).toLocaleString()+'</p>';
+            var creditBal = Number(c.creditBalance||0);
+            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;">'+c.name+' - History</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p><strong>Debt:</strong> KES '+Number(c.totalDebt||0).toLocaleString()+' | <strong>Limit:</strong> KES '+Number(c.debtLimit||0).toLocaleString()+(creditBal>0?' | <strong style="color:#8b5cf6;"><i class="fas fa-piggy-bank"></i> Store Credit:</strong> KES '+creditBal.toLocaleString():'')+'</p>';
             if(c.recentSales&&c.recentSales.length){ h+='<h4>Purchases</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Debt After</th><th>Cashier</th></tr></thead><tbody>'; c.recentSales.forEach(function(s){ h+='<tr><td>'+new Date(s.date).toLocaleDateString('en-KE')+'</td><td style="color:#ef4444;">KES '+Number(s.amount).toLocaleString()+'</td><td>KES '+Number(s.debtAfter).toLocaleString()+'</td><td>'+s.cashierName+'</td></tr>'; }); h+='</tbody></table>'; }
             if(c.payments&&c.payments.length){ h+='<h4>Payments</h4><table class="table"><thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>Received By</th></tr></thead><tbody>'; c.payments.forEach(function(p){ h+='<tr><td>'+new Date(p.date).toLocaleDateString('en-KE')+'</td><td style="color:#10b981;">KES '+Number(p.amount).toLocaleString()+'</td><td>'+p.paymentMethod+'</td><td>'+p.receivedBy+'</td></tr>'; }); h+='</tbody></table>'; }
             h+='</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
@@ -259,19 +283,70 @@ const AdminCreditComponent = {
         } catch(e) {}
     },
 
+    // ✅ UPDATED: Allow overpayment + show credit balance preview
     async showPayment(id) {
         try {
             const c = await ApiService.get('/credit-customers/'+id); if(!c) return;
+            var creditBal = Number(c.creditBalance||0);
+            var debt = Number(c.totalDebt||0);
             var m=document.createElement('div');m.className='modal-overlay';
-            m.innerHTML='<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;">Record Payment - '+c.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><p>Current Debt: <strong style="color:#ef4444;">KES '+Number(c.totalDebt||0).toLocaleString()+'</strong></p><div class="form-group"><label>Amount (KES)</label><input type="number" id="payAmount" class="form-control" min="1" max="'+(c.totalDebt||0)+'"></div><div class="form-group"><label>Method</label><select id="payMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmPayBtn">Confirm</button></div></div>';
+            var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;">Record Payment - '+c.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
+            h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">';
+            h += '<div style="text-align:center;padding:0.75rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:1.3rem;font-weight:700;color:#ef4444;">KES '+debt.toLocaleString()+'</div><small>Current Debt</small></div>';
+            h += '<div style="text-align:center;padding:0.75rem;background:#ede9fe;border-radius:0.5rem;"><div style="font-size:1.3rem;font-weight:700;color:#8b5cf6;">KES '+creditBal.toLocaleString()+'</div><small>Store Credit</small></div>';
+            h += '</div>';
+            h += '<div class="form-group"><label>Amount (KES)</label><input type="number" id="payAmount" class="form-control" min="1" autofocus oninput="AdminCreditComponent._previewPayment('+id+')" style="font-size:1.2rem;text-align:center;"></div>';
+            h += '<div class="form-group"><label>Method</label><select id="payMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div>';
+            h += '<div id="paymentPreview" style="padding:0.75rem;border-radius:0.5rem;font-size:0.9rem;display:none;"></div>';
+            h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmPayBtn">Confirm Payment</button></div></div>';
+            m.innerHTML = h;
             document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
+            m.querySelector('#payAmount').focus();
             m.querySelector('#confirmPayBtn').onclick = async function(){
                 var amount=parseFloat(m.querySelector('#payAmount').value)||0;
-                if(amount<=0||amount>c.totalDebt){ showStyledAlert('Invalid','Enter valid amount!','times-circle','#ef4444'); return; }
+                if(amount<=0){ showStyledAlert('Invalid','Enter valid amount!','times-circle','#ef4444'); return; }
                 const result = await ApiService.post('/debt-payments',{customerId:id,customerName:c.name,amount:amount,paymentMethod:m.querySelector('#payMethod').value,receivedBy:'Admin'});
-                if(result&&result.success){ m.remove(); await AdminCreditComponent.loadAll(); showStyledAlert('Success','Payment recorded!','check-circle','#10b981'); }
+                if(result&&result.success){
+                    m.remove();
+                    await AdminCreditComponent.loadAll();
+                    var msg = 'Payment of KES '+amount.toLocaleString()+' recorded!';
+                    if(result.overpayment>0){
+                        msg += '<br><span style="color:#8b5cf6;">KES '+result.overpayment.toLocaleString()+' added as store credit.</span>';
+                    }
+                    showStyledAlert('Success', msg, 'check-circle', '#10b981');
+                }
             };
         } catch(e) {}
+    },
+
+    // ✅ Helper: preview payment results
+    _previewPayment(customerId) {
+        var amount = parseFloat(document.getElementById('payAmount')?.value) || 0;
+        var preview = document.getElementById('paymentPreview');
+        if (!preview) return;
+        var c = this._allCustomers.find(function(x){return x.id == customerId;});
+        if (!c) { preview.style.display = 'none'; return; }
+        var debt = Number(c.totalDebt||0);
+        if (amount <= 0) { preview.style.display = 'none'; return; }
+        
+        var appliedToDebt = Math.min(amount, debt);
+        var overpayment = Math.max(0, amount - debt);
+        var newDebt = Math.max(0, debt - amount);
+        
+        preview.style.display = 'block';
+        if (overpayment > 0) {
+            preview.style.background = '#ede9fe';
+            preview.style.border = '1px solid #8b5cf6';
+            preview.innerHTML = '<strong style="color:#8b5cf6;"><i class="fas fa-piggy-bank"></i> Overpayment Preview:</strong><br>' +
+                'KES ' + appliedToDebt.toLocaleString() + ' clears debt<br>' +
+                '<strong>KES ' + overpayment.toLocaleString() + ' will be added as store credit</strong><br>' +
+                '<small>New debt: KES 0</small>';
+        } else {
+            preview.style.background = '#f0fdf4';
+            preview.style.border = '1px solid #10b981';
+            preview.innerHTML = '<strong style="color:#10b981;"><i class="fas fa-check"></i> Payment Preview:</strong><br>' +
+                'New debt after payment: <strong>KES ' + newDebt.toLocaleString() + '</strong>';
+        }
     },
 
     async deactivateCustomer(id, name) {
@@ -287,7 +362,7 @@ const AdminCreditComponent = {
     },
 
     async deletePayment(pid, cid, cname, amount) {
-        showConfirm('Delete Payment','Delete <strong>KES '+Number(amount).toLocaleString()+'</strong> from <strong>'+cname+'</strong>?', async function(){
+        showConfirm('Delete Payment','Delete <strong>KES '+Number(amount).toLocaleString()+'</strong> from <strong>'+cname+'</strong>?<br><br><span style="color:#f59e0b;">This will restore the debt and remove any credit added.</span>', async function(){
             const result = await ApiService.delete('/debt-payments/'+pid);
             if(result&&result.success){ await AdminCreditComponent.loadAll(); showStyledAlert('Deleted','Payment deleted.','check-circle','#10b981'); }
         },'Delete','danger');
