@@ -1,9 +1,13 @@
 // ============================================
 // SALE SERVICE - With JWT Authentication & Dual-Unit Support
+// Updated for optimized backend (pagination + cached aggregates)
 // ============================================
 
 const SaleService = {
     _cache: [],
+
+    // ✅ Default fetch window — matches backend max comfortably
+    _DEFAULT_LIMIT: 2000,
 
     // ✅ Helper to get current user
     _getCurrentUser() {
@@ -15,15 +19,35 @@ const SaleService = {
         }
     },
 
-    // ✅ Get all sales (with caching)
-    async getAll() {
+    // ✅ Internal: build query string from pagination opts
+    _buildQuery(opts) {
+        const params = [];
+        if (opts && opts.limit != null)  params.push('limit='  + encodeURIComponent(opts.limit));
+        if (opts && opts.offset != null) params.push('offset=' + encodeURIComponent(opts.offset));
+        return params.length ? ('?' + params.join('&')) : '';
+    },
+
+    // ============================================
+    // READ
+    // ============================================
+
+    /**
+     * Get all sales (with caching).
+     * @param {Object} [options] - optional { limit, offset }. Default limit = 2000.
+     * @returns {Promise<Array>} sales array (same shape as before)
+     */
+    async getAll(options) {
         try {
-            // ✅ Use ApiService which automatically adds JWT token
-            const data = await ApiService.get('/sales');
+            const opts = Object.assign({ limit: this._DEFAULT_LIMIT }, options || {});
+            const data = await ApiService.get('/sales' + this._buildQuery(opts));
             if (data && Array.isArray(data)) {
-                this._cache = data;
+                // Only replace cache when we're fetching the "first page"
+                // (i.e. no offset) so we don't clobber a full cache with a partial slice
+                if (!opts.offset) {
+                    this._cache = data;
+                }
                 console.log(`✅ Loaded ${data.length} sales`);
-                return this._cache;
+                return data;
             }
             return this._cache;
         } catch (error) {
@@ -31,6 +55,82 @@ const SaleService = {
             return this._cache;
         }
     },
+
+    /**
+     * Paginated fetch — returns { sales, pagination }.
+     * Use this from a "Load more" UI.
+     * @param {Object} [options] - { page = 1, limit = 500 }
+     */
+    async getAllPaginated(options) {
+        const page = Math.max(parseInt(options?.page)  || 1, 1);
+        const limit = Math.min(Math.max(parseInt(options?.limit) || 500, 1), 5000);
+        const offset = (page - 1) * limit;
+
+        try {
+            const data = await ApiService.get('/sales' + this._buildQuery({ limit, offset }));
+            const sales = Array.isArray(data) ? data : [];
+            return {
+                sales,
+                pagination: {
+                    page,
+                    limit,
+                    offset,
+                    count: sales.length,
+                    hasMore: sales.length === limit
+                }
+            };
+        } catch (error) {
+            console.error('SaleService.getAllPaginated error:', error);
+            return {
+                sales: [],
+                pagination: { page, limit, offset, count: 0, hasMore: false }
+            };
+        }
+    },
+
+    // ✅ Get sale by receipt number (with JWT) — unchanged shape
+    async getByReceipt(receiptNo) {
+        try {
+            const data = await ApiService.get(`/sales/search/${receiptNo}`);
+            return data;
+        } catch (error) {
+            console.error('SaleService.getByReceipt error:', error);
+            return null;
+        }
+    },
+
+    /**
+     * Get cashier sales — shape unchanged: { all, today, totalAll, totalToday, countAll, countToday }
+     * @param {number|string} cashierId
+     * @param {Object} [options] - { limit, offset }
+     */
+    async getCashierSales(cashierId, options) {
+        try {
+            const opts = Object.assign({ limit: this._DEFAULT_LIMIT }, options || {});
+            const data = await ApiService.get(
+                `/sales/cashier/${cashierId}` + this._buildQuery(opts)
+            );
+            return data || { all: [], today: [], totalAll: 0, totalToday: 0, countAll: 0, countToday: 0 };
+        } catch (error) {
+            console.error('SaleService.getCashierSales error:', error);
+            return { all: [], today: [], totalAll: 0, totalToday: 0, countAll: 0, countToday: 0 };
+        }
+    },
+
+    // ✅ Get cashiers summary (with JWT) — unchanged, backend now returns in one query
+    async getCashiersSummary() {
+        try {
+            const data = await ApiService.get('/sales/cashiers-summary');
+            return data || [];
+        } catch (error) {
+            console.error('SaleService.getCashiersSummary error:', error);
+            return [];
+        }
+    },
+
+    // ============================================
+    // WRITE
+    // ============================================
 
     // ✅ Create a new sale (with dual-unit support)
     async create(saleData) {
@@ -48,17 +148,13 @@ const SaleService = {
                     soldInUnit: item.soldInUnit || null,
                     conversionFactor: item.conversionFactor || 0
                 };
-                
+
                 // If selling in sales unit, the total should reflect the quantity in that unit
                 // Price is always per base unit from the server
                 if (item.soldInUnit && item.conversionFactor > 0) {
-                    // Total = quantity sold × price per base unit
-                    // Example: 2 tonnes × KES 200/wheelbarrow = KES 400 (not KES 9,600)
-                    // Actually, if selling by tonne, the frontend should send the correct price
-                    // Let the frontend calculate and send the total
                     mappedItem.total = item.total || (item.quantity * item.price);
                 }
-                
+
                 return mappedItem;
             });
 
@@ -72,10 +168,10 @@ const SaleService = {
                 customerName: saleData.customerName || 'Walk-in Customer',
                 items: mappedItems,
                 paymentMethod: saleData.paymentMethod || 'cash',
-                subtotal: subtotal,
-                tax: tax,
+                subtotal,
+                tax,
                 discount: saleData.discount || 0,
-                total: total,
+                total,
                 cashierId: user?.id || null,
                 cashierName: user?.fullName || 'Unknown',
                 mpesaRef: saleData.mpesaRef || null,
@@ -85,7 +181,15 @@ const SaleService = {
                 transportCost: saleData.transportCost || 0
             });
 
-            // ✅ Refresh cache after successful sale
+            // Backend now uses transactions — if it returned, it succeeded.
+            if (!result || result.success === false) {
+                return {
+                    success: false,
+                    message: (result && result.message) || 'Failed to create sale'
+                };
+            }
+
+            // Refresh cache after successful sale
             await this.getAll();
 
             return {
@@ -114,27 +218,21 @@ const SaleService = {
         }
     },
 
-    // ✅ Get cashier sales (with JWT)
-    async getCashierSales(cashierId) {
+    // ✅ Void a sale (with JWT)
+    async voidSale(saleId, reason) {
         try {
-            const data = await ApiService.get(`/sales/cashier/${cashierId}`);
-            return data || { all: [], today: [], totalAll: 0, totalToday: 0 };
+            const result = await ApiService.put(`/sales/${saleId}/void`, { reason });
+            await this.getAll();
+            return result;
         } catch (error) {
-            console.error('SaleService.getCashierSales error:', error);
-            return { all: [], today: [], totalAll: 0, totalToday: 0 };
+            console.error('SaleService.voidSale error:', error);
+            return { success: false, message: error.message };
         }
     },
 
-    // ✅ Get cashiers summary (with JWT)
-    async getCashiersSummary() {
-        try {
-            const data = await ApiService.get('/sales/cashiers-summary');
-            return data || [];
-        } catch (error) {
-            console.error('SaleService.getCashiersSummary error:', error);
-            return [];
-        }
-    },
+    // ============================================
+    // LOCAL FILTERS / HELPERS (operate on _cache)
+    // ============================================
 
     // ✅ Get today's sales
     getTodaySales() {
@@ -151,40 +249,17 @@ const SaleService = {
         return {
             total: {
                 count: all.length,
-                revenue: all.reduce(function(s, sale) {
-                    return Number(s) + Number(sale.total || 0);
+                revenue: all.reduce(function(sum, sale) {
+                    return sum + Number(sale.total || 0);
                 }, 0)
             },
             today: {
                 count: today.length,
-                revenue: today.reduce(function(s, sale) {
-                    return Number(s) + Number(sale.total || 0);
+                revenue: today.reduce(function(sum, sale) {
+                    return sum + Number(sale.total || 0);
                 }, 0)
             }
         };
-    },
-
-    // ✅ Get sale by receipt number (with JWT)
-    async getByReceipt(receiptNo) {
-        try {
-            const data = await ApiService.get(`/sales/search/${receiptNo}`);
-            return data;
-        } catch (error) {
-            console.error('SaleService.getByReceipt error:', error);
-            return null;
-        }
-    },
-
-    // ✅ Void a sale (with JWT)
-    async voidSale(saleId, reason) {
-        try {
-            const result = await ApiService.put(`/sales/${saleId}/void`, { reason });
-            await this.getAll();
-            return result;
-        } catch (error) {
-            console.error('SaleService.voidSale error:', error);
-            return { success: false, message: error.message };
-        }
     },
 
     // ✅ Get sales by date range
@@ -227,20 +302,20 @@ const SaleService = {
         return summary;
     },
 
+    // ============================================
+    // DISPLAY / FORMATTING
+    // ============================================
+
     // ✅ Format sale item for display (handles dual-unit)
     formatSaleItemDisplay(item) {
         const productName = item.productName || '';
         const quantity = item.quantity || 0;
         const price = Number(item.price || 0);
         const total = Number(item.total || (price * quantity));
-        
-        // Check if sold in alternative unit
+
         if (item.soldInUnit && item.conversionFactor > 0) {
-            // Receipt shows the unit used for sale
             return `${productName} - ${quantity} ${item.soldInUnit} @ KES ${price.toLocaleString()} = KES ${total.toLocaleString()}`;
         }
-        
-        // Regular sale (no alternative unit)
         return `${productName} - ${quantity} @ KES ${price.toLocaleString()} = KES ${total.toLocaleString()}`;
     },
 
@@ -252,7 +327,7 @@ const SaleService = {
         return item.unit || '';
     },
 
-    // ✅ Generate receipt HTML (updated for dual-unit display)
+    // ✅ Generate receipt HTML (unchanged — still works with new response shape)
     generateReceiptHTML(sale) {
         var d = new Date(sale.date || new Date());
         var h = '<div style="max-width:400px;margin:0 auto;font-family:Inter;font-size:14px;">';
@@ -274,18 +349,16 @@ const SaleService = {
         h += '</table>';
         h += '<table style="width:100%;border-collapse:collapse;margin:15px 0;">';
         h += '<tr style="border-bottom:2px solid #333;"><th style="text-align:left;">Item</th><th>Qty</th><th style="text-align:right;">Price</th><th style="text-align:right;">Total</th></tr>';
-        
+
         if (sale.items && sale.items.length > 0) {
             sale.items.forEach(function(i) {
-                // Determine unit to display on receipt
                 var unitLabel = '';
                 if (i.soldInUnit && i.conversionFactor > 0) {
-                    // Sold in alternative unit - show that unit
                     unitLabel = '/' + i.soldInUnit;
                 } else if (i.unit) {
                     unitLabel = '/' + i.unit;
                 }
-                
+
                 h += '<tr>';
                 h += '<td>' + (i.productName || '') + '</td>';
                 h += '<td style="text-align:center;">' + (i.quantity || 0) + '</td>';
@@ -294,7 +367,7 @@ const SaleService = {
                 h += '</tr>';
             });
         }
-        
+
         h += '</table>';
         h += '<div style="border-top:2px solid #333;padding-top:10px;">';
         h += '<p><strong>Subtotal:</strong> KES ' + Number(sale.subtotal || 0).toLocaleString() + '</p>';
@@ -333,23 +406,13 @@ const SaleService = {
     },
 
     // ============================================
-    // 🔥 DUAL-UNIT SUPPORT METHODS
+    // 🔥 DUAL-UNIT SUPPORT
     // ============================================
 
-    /**
-     * Check if a sale item was sold in an alternative unit
-     * @param {Object} item - Sale item object
-     * @returns {boolean}
-     */
     isDualUnitItem(item) {
         return !!(item.soldInUnit && item.conversionFactor > 0);
     },
 
-    /**
-     * Get the display unit for a sale item
-     * @param {Object} item - Sale item object
-     * @returns {string} Unit name used for this sale
-     */
     getItemDisplayUnit(item) {
         if (this.isDualUnitItem(item)) {
             return item.soldInUnit;
@@ -357,11 +420,6 @@ const SaleService = {
         return item.unit || 'pcs';
     },
 
-    /**
-     * Get the base quantity for a sale item (in smallest unit)
-     * @param {Object} item - Sale item object
-     * @returns {number} Base quantity
-     */
     getBaseQuantity(item) {
         if (this.isDualUnitItem(item)) {
             return item.baseQuantity || (item.quantity * item.conversionFactor);
@@ -369,25 +427,14 @@ const SaleService = {
         return item.quantity || 0;
     },
 
-    /**
-     * Format item quantity with appropriate unit for receipt
-     * @param {Object} item - Sale item object
-     * @returns {string} Formatted string like "5 tonnes" or "10 wheelbarrows"
-     */
     formatItemQuantity(item) {
         const qty = item.quantity || 0;
         const unit = this.getItemDisplayUnit(item);
         return `${qty} ${unit}`;
     },
 
-    /**
-     * Calculate total for a dual-unit item
-     * @param {Object} item - Sale item with soldInUnit and conversionFactor
-     * @returns {number} Total price
-     */
     calculateDualUnitTotal(item) {
         if (this.isDualUnitItem(item)) {
-            // Quantity is in sales unit, price is per base unit
             return item.quantity * (item.price || 0);
         }
         return (item.quantity || 0) * (item.price || 0);
