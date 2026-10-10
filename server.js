@@ -208,6 +208,18 @@ async function initDB() {
             cashierName VARCHAR(255),
             date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
+        // ✅ NEW: credit_refunds table
+        `CREATE TABLE IF NOT EXISTS credit_refunds (
+            id SERIAL PRIMARY KEY,
+            customerId INT REFERENCES credit_customers(id),
+            customerName VARCHAR(255),
+            amount DECIMAL(10,2),
+            paymentMethod VARCHAR(50) DEFAULT 'cash',
+            reason TEXT,
+            processedBy VARCHAR(255),
+            processedById INT,
+            date TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
         `CREATE TABLE IF NOT EXISTS returns_table (
             id SERIAL PRIMARY KEY,
             originalSaleId INT REFERENCES sales(id),
@@ -277,7 +289,8 @@ async function initDB() {
             closingStock INT DEFAULT 0,
             stockAdded INT DEFAULT 0,
             stockSold INT DEFAULT 0,
-            productsCount INT DEFAULT 0
+            productsCount INT DEFAULT 0,
+            refundsPaid DECIMAL(10,2) DEFAULT 0
         )`
     ];
 
@@ -304,6 +317,8 @@ async function initDB() {
         await pool.query("ALTER TABLE credit_customers ADD COLUMN IF NOT EXISTS creditBalance DECIMAL(10,2) DEFAULT 0");
         await pool.query("ALTER TABLE debt_payments ADD COLUMN IF NOT EXISTS overpayment DECIMAL(10,2) DEFAULT 0");
         await pool.query("ALTER TABLE credit_sales ADD COLUMN IF NOT EXISTS creditUsed DECIMAL(10,2) DEFAULT 0");
+        // ✅ Credit refunds table and daily_reports column
+        await pool.query("ALTER TABLE daily_reports ADD COLUMN IF NOT EXISTS refundsPaid DECIMAL(10,2) DEFAULT 0");
     } catch (e) {
         console.error('Error adding columns:', e.message);
     }
@@ -436,9 +451,6 @@ function formatUserResponse(user) {
     };
 }
 
-/**
- * Calculate display stock info for dual-unit products
- */
 function getDisplayStock(product) {
     const stock = parseInt(product.stock) || 0;
     const unit = product.unit || 'pcs';
@@ -478,9 +490,6 @@ function getDisplayStock(product) {
     return result;
 }
 
-/**
- * Convert quantity to base units for stock operations
- */
 function convertToBaseUnits(quantity, sellingUnit, conversionFactor) {
     if (sellingUnit && conversionFactor > 0) {
         return quantity * conversionFactor;
@@ -1105,7 +1114,7 @@ app.get('/api/products/search', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// SALES ENDPOINTS (with dual-unit support)
+// SALES ENDPOINTS
 // ============================================
 
 app.get('/api/sales', verifyToken, async (req, res) => {
@@ -1441,7 +1450,7 @@ app.post('/api/suppliers', verifyToken, authorize('admin'), async (req, res) => 
 });
 
 // ============================================
-// CREDIT CUSTOMERS (with creditBalance)
+// CREDIT CUSTOMERS
 // ============================================
 
 app.get('/api/credit-customers', verifyToken, async (req, res) => {
@@ -1472,8 +1481,14 @@ app.get('/api/credit-customers/:id', verifyToken, async (req, res) => {
                 "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, COALESCE(overpayment, 0) AS \"overpayment\", paymentmethod AS \"paymentMethod\", saleid AS \"saleId\", receivedby AS \"receivedBy\", receivedbyid AS \"receivedById\", date FROM debt_payments WHERE customerId = $1 ORDER BY date DESC LIMIT 10",
                 [req.params.id]
             );
+            // ✅ NEW: fetch refunds
+            const refundsResult = await pool.query(
+                "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, paymentmethod AS \"paymentMethod\", reason, processedby AS \"processedBy\", processedbyid AS \"processedById\", date FROM credit_refunds WHERE customerId = $1 ORDER BY date DESC LIMIT 10",
+                [req.params.id]
+            );
             c[0].recentSales = salesResult.rows;
             c[0].payments = paymentsResult.rows;
+            c[0].refunds = refundsResult.rows;
         }
         res.json(c[0] || {});
     } catch (error) {
@@ -1534,7 +1549,6 @@ app.get('/api/credit-customers/search/:query', verifyToken, async (req, res) => 
 app.post('/api/debt-payments', verifyToken, async (req, res) => {
     const { customerId, customerName, amount, paymentMethod, receivedBy, receivedById } = req.body;
     try {
-        // Get current customer to compute overpayment
         const custResult = await pool.query("SELECT id, totalDebt, COALESCE(creditBalance, 0) as creditbalance FROM credit_customers WHERE id = $1", [customerId]);
         if (!custResult.rows.length) {
             return res.status(404).json({ success: false, message: 'Customer not found' });
@@ -1542,7 +1556,6 @@ app.post('/api/debt-payments', verifyToken, async (req, res) => {
         const currentDebt = Number(custResult.rows[0].totaldebt) || 0;
         const currentCredit = Number(custResult.rows[0].creditbalance) || 0;
 
-        // Compute overpayment
         const overpayment = Math.max(0, amount - currentDebt);
         const appliedToDebt = amount - overpayment;
         const newDebt = Math.max(0, currentDebt - amount);
@@ -1558,7 +1571,6 @@ app.post('/api/debt-payments', verifyToken, async (req, res) => {
             [newDebt, newCredit, customerId]
         );
 
-        // Log if there was an overpayment
         if (overpayment > 0) {
             logActivity(receivedById, receivedBy, 'credit_overpayment',
                 `Overpayment KES ${overpayment.toLocaleString()} added to credit for ${customerName}`);
@@ -1599,7 +1611,6 @@ app.delete('/api/debt-payments/:id', verifyToken, authorize('admin'), async (req
         const payment = paymentResult.rows;
         if (!payment.length) return res.json({ success: false });
         
-        // Reverse: debt goes up by (amount - overpayment), credit goes down by overpayment
         const appliedToDebt = Number(payment[0].amount) - Number(payment[0].overpayment);
         await pool.query(
             "UPDATE credit_customers SET totalDebt = totalDebt + $1, creditBalance = GREATEST(0, COALESCE(creditBalance, 0) - $2) WHERE id = $3",
@@ -1629,13 +1640,11 @@ app.post('/api/credit-sales', verifyToken, async (req, res) => {
         const creditAvailable = Number(c[0].creditbalance) || 0;
         const debtLimit = Number(c[0].debtlimit) || 5000;
 
-        // Auto-apply credit balance first
         const creditUsed = Math.min(creditAvailable, amount);
         const remainingAfterCredit = amount - creditUsed;
         const newDebt = debtBefore + remainingAfterCredit;
         const newCreditBalance = creditAvailable - creditUsed;
 
-        // Check debt limit (only on the new debt portion)
         if (newDebt > debtLimit) {
             return res.json({
                 success: false,
@@ -1655,7 +1664,6 @@ app.post('/api/credit-sales', verifyToken, async (req, res) => {
 
         await pool.query("UPDATE sales SET isCredit=1, customerId=$1 WHERE id=$2", [customerId, saleId]);
 
-        // Log if credit was applied
         if (creditUsed > 0) {
             logActivity(cashierId, cashierName, 'credit_applied',
                 `Applied KES ${creditUsed.toLocaleString()} store credit to sale for ${customerName}`);
@@ -1687,7 +1695,87 @@ app.get('/api/credit-sales', verifyToken, async (req, res) => {
 });
 
 // ============================================
-// CREDIT SUMMARY (with totalCreditBalance)
+// ✅ NEW: CREDIT REFUNDS
+// ============================================
+
+app.post('/api/credit-refunds', verifyToken, async (req, res) => {
+    const { customerId, customerName, amount, paymentMethod, reason, processedBy, processedById } = req.body;
+    try {
+        if (!amount || amount <= 0) {
+            return res.status(400).json({ success: false, message: 'Amount must be greater than 0' });
+        }
+        
+        const custResult = await pool.query("SELECT id, name, COALESCE(creditBalance, 0) as creditbalance FROM credit_customers WHERE id = $1", [customerId]);
+        if (!custResult.rows.length) {
+            return res.status(404).json({ success: false, message: 'Customer not found' });
+        }
+        
+        const currentCredit = Number(custResult.rows[0].creditbalance) || 0;
+        const customerDisplayName = custResult.rows[0].name || customerName;
+        
+        if (amount > currentCredit) {
+            return res.status(400).json({
+                success: false,
+                message: `Insufficient credit balance. Available: KES ${currentCredit.toLocaleString()}, Requested: KES ${amount.toLocaleString()}`
+            });
+        }
+        
+        const newCredit = currentCredit - amount;
+        
+        // Insert refund record
+        await pool.query(
+            "INSERT INTO credit_refunds (customerId, customerName, amount, paymentMethod, reason, processedBy, processedById, date) VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())",
+            [customerId, customerDisplayName, amount, paymentMethod || 'cash', reason || 'Customer requested refund', processedBy, processedById]
+        );
+        
+        // Reduce customer credit balance
+        await pool.query(
+            "UPDATE credit_customers SET creditBalance = $1 WHERE id = $2",
+            [newCredit, customerId]
+        );
+        
+        logActivity(processedById, processedBy, 'credit_refund',
+            `Refunded KES ${amount.toLocaleString()} cash to ${customerDisplayName}`);
+        
+        res.json({
+            success: true,
+            refunded: amount,
+            newCreditBalance: newCredit,
+            message: `Refunded KES ${amount.toLocaleString()} to ${customerDisplayName}`
+        });
+    } catch (error) {
+        console.error('Create credit refund error:', error);
+        res.status(500).json({ success: false, message: 'Error processing refund' });
+    }
+});
+
+app.get('/api/credit-refunds', verifyToken, async (req, res) => {
+    try {
+        const r = await pool.query(
+            "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, paymentmethod AS \"paymentMethod\", reason, processedby AS \"processedBy\", processedbyid AS \"processedById\", date FROM credit_refunds ORDER BY date DESC LIMIT 100"
+        );
+        res.json(r.rows);
+    } catch (error) {
+        console.error('Get credit refunds error:', error);
+        res.json([]);
+    }
+});
+
+app.get('/api/credit-refunds/:customerId', verifyToken, async (req, res) => {
+    try {
+        const r = await pool.query(
+            "SELECT id, customerid AS \"customerId\", customername AS \"customerName\", amount, paymentmethod AS \"paymentMethod\", reason, processedby AS \"processedBy\", processedbyid AS \"processedById\", date FROM credit_refunds WHERE customerId = $1 ORDER BY date DESC",
+            [req.params.customerId]
+        );
+        res.json(r.rows);
+    } catch (error) {
+        console.error('Get credit refunds for customer error:', error);
+        res.json([]);
+    }
+});
+
+// ============================================
+// CREDIT SUMMARY (with credit balance + refunds)
 // ============================================
 
 app.get('/api/credit-summary', verifyToken, async (req, res) => {
@@ -1705,13 +1793,19 @@ app.get('/api/credit-summary', verifyToken, async (req, res) => {
             "SELECT COALESCE(SUM(amount), 0) as total FROM debt_payments WHERE date::date = $1::date",
             [today]
         );
+        // ✅ NEW: today's refunds
+        const trResult = await pool.query(
+            "SELECT COALESCE(SUM(amount), 0) as total FROM credit_refunds WHERE date::date = $1::date",
+            [today]
+        );
         res.json({
             totalDebt: parseFloat(tdResult.rows[0].total || 0),
             totalCreditBalance: parseFloat(tcResult.rows[0].total || 0),
             activeCustomers: parseInt(acResult.rows[0].count || 0),
             totalCustomers: parseInt(tcntResult.rows[0].count || 0),
             todayCreditSales: parseFloat(tsResult.rows[0].total || 0),
-            todayPayments: parseFloat(tpResult.rows[0].total || 0)
+            todayPayments: parseFloat(tpResult.rows[0].total || 0),
+            todayRefunds: parseFloat(trResult.rows[0].total || 0)
         });
     } catch (error) {
         console.error('Credit summary error:', error);
@@ -1721,7 +1815,8 @@ app.get('/api/credit-summary', verifyToken, async (req, res) => {
             activeCustomers: 0,
             totalCustomers: 0,
             todayCreditSales: 0,
-            todayPayments: 0
+            todayPayments: 0,
+            todayRefunds: 0
         });
     }
 });
@@ -1852,13 +1947,13 @@ app.get('/api/mpesa/transaction/:checkoutRequestID', verifyToken, async (req, re
 });
 
 // ============================================
-// DAILY REPORTS
+// DAILY REPORTS (with refunds)
 // ============================================
 
 app.get('/api/daily-reports', verifyToken, async (req, res) => {
     try {
         const r = await pool.query(
-            "SELECT id, reportdate AS \"reportDate\", totalsales AS \"totalSales\", transactioncount AS \"transactionCount\", totalitemssold AS \"totalItemsSold\", closingstock AS \"closingStock\", stockadded AS \"stockAdded\", stocksold AS \"stockSold\", productscount AS \"productsCount\" FROM daily_reports ORDER BY reportDate DESC LIMIT 30"
+            "SELECT id, reportdate AS \"reportDate\", totalsales AS \"totalSales\", transactioncount AS \"transactionCount\", totalitemssold AS \"totalItemsSold\", closingstock AS \"closingStock\", stockadded AS \"stockAdded\", stocksold AS \"stockSold\", productscount AS \"productsCount\", COALESCE(refundspaid, 0) AS \"refundsPaid\" FROM daily_reports ORDER BY reportDate DESC LIMIT 30"
         );
         res.json(r.rows);
     } catch (error) {
@@ -1871,7 +1966,7 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
     try {
         var today = new Date().toISOString().split('T')[0];
         var reportResult = await pool.query(
-            "SELECT id, reportdate AS \"reportDate\", totalsales AS \"totalSales\", transactioncount AS \"transactionCount\", totalitemssold AS \"totalItemsSold\", closingstock AS \"closingStock\", stockadded AS \"stockAdded\", stocksold AS \"stockSold\", productscount AS \"productsCount\" FROM daily_reports WHERE reportDate = $1", [today]
+            "SELECT id, reportdate AS \"reportDate\", totalsales AS \"totalSales\", transactioncount AS \"transactionCount\", totalitemssold AS \"totalItemsSold\", closingstock AS \"closingStock\", stockadded AS \"stockAdded\", stocksold AS \"stockSold\", productscount AS \"productsCount\", COALESCE(refundspaid, 0) AS \"refundsPaid\" FROM daily_reports WHERE reportDate = $1", [today]
         );
         var report = reportResult.rows;
         if (!report.length) {
@@ -1881,13 +1976,15 @@ app.get('/api/daily-reports/today', verifyToken, async (req, res) => {
             var stockAddedResult = await pool.query("SELECT COALESCE(SUM(pi.baseQuantity), 0) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [today + '%']);
             var stockSoldResult = await pool.query("SELECT COALESCE(SUM(si.baseQuantity), 0) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [today + '%']);
             var productsResult = await pool.query("SELECT COUNT(*) as count, COALESCE(SUM(stock), 0) as totalStock FROM products WHERE isActive=1");
+            var refundsResult = await pool.query("SELECT COALESCE(SUM(amount), 0) as total FROM credit_refunds WHERE date::text LIKE $1", [today + '%']);
             var totalSales = sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0);
+            var totalRefunds = parseFloat(refundsResult.rows[0].total) || 0;
             await pool.query(
-                "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
-                [today, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0)]
+                "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount, refundsPaid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+                [today, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0), totalRefunds]
             );
             var newReportResult = await pool.query(
-                "SELECT id, reportdate AS \"reportDate\", totalsales AS \"totalSales\", transactioncount AS \"transactionCount\", totalitemssold AS \"totalItemsSold\", closingstock AS \"closingStock\", stockadded AS \"stockAdded\", stocksold AS \"stockSold\", productscount AS \"productsCount\" FROM daily_reports WHERE reportDate = $1", [today]
+                "SELECT id, reportdate AS \"reportDate\", totalsales AS \"totalSales\", transactioncount AS \"transactionCount\", totalitemssold AS \"totalItemsSold\", closingstock AS \"closingStock\", stockadded AS \"stockAdded\", stocksold AS \"stockSold\", productscount AS \"productsCount\", COALESCE(refundspaid, 0) AS \"refundsPaid\" FROM daily_reports WHERE reportDate = $1", [today]
             );
             report = newReportResult.rows;
         }
@@ -1907,10 +2004,12 @@ app.post('/api/daily-reports/generate', verifyToken, authorize('admin'), async (
         var stockAddedResult = await pool.query("SELECT COALESCE(SUM(pi.baseQuantity), 0) as total FROM po_items pi JOIN purchase_orders po ON pi.poId=po.id WHERE po.receivedDate::text LIKE $1", [targetDate + '%']);
         var stockSoldResult = await pool.query("SELECT COALESCE(SUM(si.baseQuantity), 0) as total FROM sale_items si JOIN sales s ON si.saleId=s.id WHERE s.date::text LIKE $1 AND s.isVoid=0", [targetDate + '%']);
         var productsResult = await pool.query("SELECT COUNT(*) as count, COALESCE(SUM(stock), 0) as totalStock FROM products WHERE isActive=1");
+        var refundsResult = await pool.query("SELECT COALESCE(SUM(amount), 0) as total FROM credit_refunds WHERE date::text LIKE $1", [targetDate + '%']);
         var totalSales = sales.reduce(function(s, sale) { return s + Number(sale.total || 0); }, 0);
+        var totalRefunds = parseFloat(refundsResult.rows[0].total) || 0;
         await pool.query(
-            "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (reportDate) DO UPDATE SET totalSales=$2, transactionCount=$3, totalItemsSold=$4, closingStock=$5, stockAdded=$6, stockSold=$7, productsCount=$8",
-            [targetDate, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0)]
+            "INSERT INTO daily_reports (reportDate, totalSales, transactionCount, totalItemsSold, closingStock, stockAdded, stockSold, productsCount, refundsPaid) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (reportDate) DO UPDATE SET totalSales=$2, transactionCount=$3, totalItemsSold=$4, closingStock=$5, stockAdded=$6, stockSold=$7, productsCount=$8, refundsPaid=$9",
+            [targetDate, totalSales, sales.length, parseInt(itemsSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.totalstock || 0), parseInt(stockAddedResult.rows[0]?.total || 0), parseInt(stockSoldResult.rows[0]?.total || 0), parseInt(productsResult.rows[0]?.count || 0), totalRefunds]
         );
         res.json({ success: true });
     } catch (error) {
