@@ -1,6 +1,7 @@
 // ============================================
 // API SERVICE - With JWT Authentication
 // Updated: request timeout, in-flight dedup, robust error handling, SPA-safe 401
+// Fixed: prevent infinite reload loop when unauthenticated
 // ============================================
 
 const ApiService = {
@@ -101,16 +102,21 @@ const ApiService = {
     },
 
     // ✅ SPA-safe unauthorized handler
+    //    Only clears session + redirects if we actually had a session.
+    //    Prevents infinite reload loops for unauthenticated visitors
+    //    (e.g. public dashboard loading /api/products with no token).
     _handleUnauthorized() {
+        var hadToken = !!localStorage.getItem('token') || !!localStorage.getItem('user');
         localStorage.removeItem('token');
         localStorage.removeItem('user');
-        // Redirect using the SPA root (this app serves index.html for all routes)
-        // A router hook can pick this up via `location.hash`/path and show login.
-        if (!window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.html')) {
-            window.location.href = '/';
-        } else {
-            // Already at root — just reload so the router shows the login screen
-            window.location.reload();
+
+        // Only redirect/reload if we actually lost a real session.
+        if (hadToken) {
+            if (!window.location.pathname.endsWith('/') && !window.location.pathname.endsWith('index.html')) {
+                window.location.href = '/';
+            } else {
+                window.location.reload();
+            }
         }
     },
 
