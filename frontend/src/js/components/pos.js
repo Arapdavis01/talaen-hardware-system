@@ -1,5 +1,5 @@
 // ============================================
-// POS COMPONENT - With JWT Authentication & Dual-Unit Support
+// POS COMPONENT - With JWT Authentication & Dual-Unit Support + Credit Balance
 // ============================================
 
 const POSComponent = {
@@ -50,7 +50,6 @@ const POSComponent = {
                 var p = variants[j];
                 var stockColor = p.stock <= 0 ? '#ef4444' : p.stock <= (p.minStock || 10) ? '#f59e0b' : '#10b981';
                 
-                // Use ProductService for display if available
                 var stockDisplay = '';
                 var priceDisplay = '';
                 
@@ -58,7 +57,6 @@ const POSComponent = {
                     stockDisplay = ProductService.getStockDisplay(p);
                     priceDisplay = ProductService.getPriceDisplay(p);
                 } else {
-                    // Fallback
                     stockDisplay = p.stock + ' ' + (p.unit || 'pcs');
                     if (p.salesUnit && p.conversionFactor > 0) {
                         var salesQty = Math.floor(p.stock / p.conversionFactor);
@@ -124,19 +122,17 @@ const POSComponent = {
 
     search() { var s = (document.getElementById('searchProduct')?.value || '').toLowerCase(); document.querySelectorAll('.product-item').forEach(function(el) { el.style.display = (el.dataset.search || '').includes(s) ? '' : 'none'; }); },
 
-    // ========== Quick Add Modal (FIXED for dual-unit) ==========
+    // ========== Quick Add Modal ==========
     showQuickAdd(productId) {
         var product = this._products.find(function(p) { return p.id == productId; });
         if (!product || product.stock <= 0) { this._showMessage('Out of stock!', 'danger'); return; }
         var self = this;
 
-        // Check if product has alternative sales unit
         var hasAlternativeUnit = !!(product.salesUnit && product.conversionFactor > 0);
         var baseUnit = product.unit || 'pcs';
         var basePrice = parseFloat(product.price) || 0;
         var baseStock = parseInt(product.stock) || 0;
 
-        // Build unit options
         var units = [{
             value: 'base',
             label: baseUnit.charAt(0).toUpperCase() + baseUnit.slice(1),
@@ -170,7 +166,6 @@ const POSComponent = {
         if (product.brand) html += '<p style="color:#666;">' + product.brand + '</p>';
         if (product.variant) html += '<p style="color:#999;">' + product.variant + '</p>';
         
-        // Show stock info
         var stockDisplay = typeof ProductService !== 'undefined' ? ProductService.getStockDisplay(product) : (baseStock + ' ' + baseUnit);
         html += '<p style="color:#666;font-size:0.9rem;">Available: ' + stockDisplay + '</p></div>';
 
@@ -258,7 +253,6 @@ const POSComponent = {
         if (selectedUnitValue === 'base') {
             pricePerUnit = basePrice;
         } else {
-            // Sales unit price = base price × conversion factor
             pricePerUnit = basePrice * (parseInt(product.conversionFactor) || 1);
         }
 
@@ -277,24 +271,21 @@ const POSComponent = {
         var effPrice, maxQty, displayUnit, conversionFactor, soldInUnit;
         
         if (selectedUnit.isBase) {
-            // Selling in base unit
             maxQty = baseStock;
             effPrice = basePrice;
             displayUnit = baseUnit;
             conversionFactor = 0;
             soldInUnit = null;
         } else {
-            // Selling in sales unit (e.g., tonnes)
             conversionFactor = selectedUnit.conversionFactor || 1;
             maxQty = Math.floor(baseStock / conversionFactor);
-            effPrice = basePrice * conversionFactor; // Price per sales unit
+            effPrice = basePrice * conversionFactor;
             displayUnit = selectedUnit.unit;
             soldInUnit = selectedUnit.unit;
         }
 
         quantity = Math.max(1, Math.min(quantity, maxQty));
 
-        // Check if already in cart with same unit
         var existing = this._cart.find(function(i) { 
             return i.productId == product.id && i.soldInUnit === soldInUnit; 
         });
@@ -307,7 +298,6 @@ const POSComponent = {
             }
             existing.quantity = newTotal;
         } else {
-            // Check if same product exists with different unit
             var differentUnit = this._cart.find(function(i) { return i.productId == product.id; });
             if (differentUnit) {
                 this._showMessage('This product is already in cart with a different unit. Remove it first or adjust quantity there.', 'warning');
@@ -346,7 +336,6 @@ const POSComponent = {
         var maxQty;
         
         if (item.soldInUnit && item.conversionFactor > 0) {
-            // Selling in sales unit, max is baseStock / conversionFactor
             maxQty = Math.floor(baseStock / item.conversionFactor);
         } else {
             maxQty = baseStock;
@@ -488,19 +477,10 @@ const POSComponent = {
         var tc = document.getElementById('transportCost'); if (tc) tc.value = hc.transportCost;
         var disc = document.getElementById('discountAmount'); if (disc) disc.value = hc.discountAmount;
         if (hc.customerId && hc.customer) {
-            var debtDiv = document.getElementById('customerDebtInfo');
-            if (debtDiv) { 
-                var customer = hc.customer; 
-                var available = customer.debtLimit - customer.totalDebt; 
-                var debtColor = customer.totalDebt > 0 ? '#ef4444' : '#10b981'; 
-                var bgColor = customer.totalDebt > 0 ? '#fef2f2' : '#f0fdf4'; 
-                debtDiv.style.display = 'block'; 
-                debtDiv.style.background = bgColor; 
-                debtDiv.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;"><div><i class="fas fa-user-check"></i> <strong>' + customer.name + '</strong> <span style="font-size:0.8rem;color:#999;">(Credit Customer)</span></div><div><button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails(' + customer.id + ')" style="margin-right:0.25rem;"><i class="fas fa-info-circle"></i> Details</button><button class="btn btn-sm btn-danger" onclick="POSComponent.clearCustomerSelection()"><i class="fas fa-times"></i></button></div></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;font-size:0.85rem;"><div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Current Debt</small><br><span style="color:' + debtColor + ';font-weight:700;">KES ' + customer.totalDebt.toLocaleString() + '</span></div><div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Debt Limit</small><br>KES ' + customer.debtLimit.toLocaleString() + '</div><div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Available Credit</small><br><span style="color:#10b981;font-weight:700;">KES ' + available.toLocaleString() + '</span></div></div>'; 
-                var pmSelect = document.getElementById('paymentMethod'); 
-                if (pmSelect) pmSelect.value = 'credit'; 
-                this.togglePaymentFields(); 
-            }
+            this._renderCustomerInfoPanel(hc.customer);
+            var pmSelect = document.getElementById('paymentMethod'); 
+            if (pmSelect) pmSelect.value = 'credit'; 
+            this.togglePaymentFields(); 
         }
         this._heldCarts.splice(index, 1); 
         this._updateCart(); 
@@ -523,6 +503,44 @@ const POSComponent = {
         if (count) count.textContent = this._heldCarts.length; 
     },
 
+    // ========== ✅ NEW HELPER: Render customer info panel with credit balance ==========
+    _renderCustomerInfoPanel(customer) {
+        var debtDiv = document.getElementById('customerDebtInfo');
+        if (!debtDiv) return;
+        
+        var debt = Number(customer.totalDebt || 0);
+        var creditBal = Number(customer.creditBalance || 0);
+        var limit = Number(customer.debtLimit || 0);
+        var available = (limit - debt) + creditBal; // Credit extends their available buying power
+        var hasCredit = creditBal > 0;
+        
+        var bgColor = hasCredit ? '#ede9fe' : (debt > 0 ? '#fef2f2' : '#f0fdf4');
+        
+        debtDiv.style.display = 'block';
+        debtDiv.style.background = bgColor;
+        
+        var h = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">';
+        h += '<div><i class="fas fa-user-check"></i> <strong>' + customer.name + '</strong> <span style="font-size:0.8rem;color:#999;">(Credit Customer)</span>' + (hasCredit ? ' <span class="badge" style="background:#8b5cf6;color:white;"><i class="fas fa-piggy-bank"></i> Has Store Credit</span>' : '') + '</div>';
+        h += '<div><button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails(' + customer.id + ')" style="margin-right:0.25rem;"><i class="fas fa-info-circle"></i> Details</button><button class="btn btn-sm btn-danger" onclick="POSComponent.clearCustomerSelection()"><i class="fas fa-times"></i></button></div>';
+        h += '</div>';
+        
+        // 3 or 4 column grid depending on credit
+        h += '<div style="display:grid;grid-template-columns:repeat(' + (hasCredit ? '4' : '3') + ',1fr);gap:0.5rem;font-size:0.85rem;">';
+        h += '<div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Current Debt</small><br><span style="color:' + (debt > 0 ? '#ef4444' : '#10b981') + ';font-weight:700;">KES ' + debt.toLocaleString() + '</span></div>';
+        h += '<div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Debt Limit</small><br>KES ' + limit.toLocaleString() + '</div>';
+        if (hasCredit) {
+            h += '<div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small style="color:#8b5cf6;"><i class="fas fa-piggy-bank"></i> Store Credit</small><br><span style="color:#8b5cf6;font-weight:700;">KES ' + creditBal.toLocaleString() + '</span></div>';
+        }
+        h += '<div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Available Credit</small><br><span style="color:#10b981;font-weight:700;">KES ' + available.toLocaleString() + '</span></div>';
+        h += '</div>';
+        
+        if (hasCredit) {
+            h += '<div style="margin-top:0.5rem;padding:0.5rem;background:#8b5cf6;color:white;border-radius:0.5rem;font-size:0.85rem;text-align:center;"><i class="fas fa-info-circle"></i> <strong>KES ' + creditBal.toLocaleString() + ' store credit</strong> will be automatically applied to the next credit sale.</div>';
+        }
+        
+        debtDiv.innerHTML = h;
+    },
+
     // ========== CUSTOMER METHODS ==========
     searchCustomers() {
         var q = document.getElementById('customerName')?.value.trim(); var div = document.getElementById('customerSuggestions');
@@ -536,11 +554,12 @@ const POSComponent = {
             }
             var h = '';
             customers.forEach(function(c){ 
-                var debtColor = c.totalDebt > 0 ? '#ef4444' : '#10b981'; 
-                var available = c.debtLimit - c.totalDebt;
+                var debtColor = Number(c.totalDebt) > 0 ? '#ef4444' : '#10b981'; 
+                var creditBal = Number(c.creditBalance || 0);
+                var available = (Number(c.debtLimit) - Number(c.totalDebt)) + creditBal;
                 h += '<div style="padding:0.75rem;border-bottom:1px solid #eee;cursor:pointer;display:flex;justify-content:space-between;align-items:center;" onclick="POSComponent.selectCustomer(' + c.id + ')">';
-                h += '<div><strong>👤 ' + c.name + '</strong><br><small style="color:#999;">📞 ' + (c.phone || 'No phone') + ' | 🆔 ' + (c.idNumber || 'No ID') + '</small></div>';
-                h += '<div style="text-align:right;"><span style="color:' + debtColor + ';font-weight:700;">Debt: KES ' + c.totalDebt.toLocaleString() + '</span><br><small style="color:#999;">Limit: KES ' + c.debtLimit.toLocaleString() + ' | Avail: KES ' + available.toLocaleString() + '</small></div></div>';
+                h += '<div><strong>👤 ' + c.name + '</strong>' + (creditBal > 0 ? ' <span class="badge" style="background:#ede9fe;color:#6d28d9;font-size:0.7rem;"><i class="fas fa-piggy-bank"></i> +KES ' + creditBal.toLocaleString() + '</span>' : '') + '<br><small style="color:#999;">📞 ' + (c.phone || 'No phone') + ' | 🆔 ' + (c.idNumber || 'No ID') + '</small></div>';
+                h += '<div style="text-align:right;"><span style="color:' + debtColor + ';font-weight:700;">Debt: KES ' + Number(c.totalDebt||0).toLocaleString() + '</span>' + (creditBal > 0 ? '<br><small style="color:#8b5cf6;font-weight:600;">Credit: KES ' + creditBal.toLocaleString() + '</small>' : '') + '<br><small style="color:#999;">Avail: KES ' + available.toLocaleString() + '</small></div></div>';
             });
             div.innerHTML = h; div.style.display = 'block';
         });
@@ -552,15 +571,14 @@ const POSComponent = {
             if (!customer) return;
             var nameInput = document.getElementById('customerName'); if (nameInput) nameInput.value = customer.name;
             var div = document.getElementById('customerSuggestions'); if (div) div.style.display = 'none';
-            var debtDiv = document.getElementById('customerDebtInfo');
-            if (debtDiv) {
-                var available = customer.debtLimit - customer.totalDebt, debtColor = customer.totalDebt > 0 ? '#ef4444' : '#10b981', bgColor = customer.totalDebt > 0 ? '#fef2f2' : '#f0fdf4';
-                debtDiv.style.display = 'block'; debtDiv.style.background = bgColor;
-                debtDiv.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;"><div><i class="fas fa-user-check"></i> <strong>' + customer.name + '</strong> <span style="font-size:0.8rem;color:#999;">(Credit Customer)</span></div><div><button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails(' + customerId + ')" style="margin-right:0.25rem;"><i class="fas fa-info-circle"></i> Details</button><button class="btn btn-sm btn-danger" onclick="POSComponent.clearCustomerSelection()"><i class="fas fa-times"></i></button></div></div><div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;font-size:0.85rem;"><div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Current Debt</small><br><span style="color:' + debtColor + ';font-weight:700;">KES ' + customer.totalDebt.toLocaleString() + '</span></div><div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Debt Limit</small><br>KES ' + customer.debtLimit.toLocaleString() + '</div><div style="text-align:center;background:white;padding:0.5rem;border-radius:0.25rem;"><small>Available Credit</small><br><span style="color:#10b981;font-weight:700;">KES ' + available.toLocaleString() + '</span></div></div>';
-                self._selectedCustomerId = customerId; self._selectedCustomer = customer;
-                var pmSelect = document.getElementById('paymentMethod'); if (pmSelect) pmSelect.value = 'credit';
-                self.togglePaymentFields();
-            }
+            
+            self._selectedCustomerId = customerId; 
+            self._selectedCustomer = customer;
+            self._renderCustomerInfoPanel(customer);
+            
+            var pmSelect = document.getElementById('paymentMethod'); 
+            if (pmSelect) pmSelect.value = 'credit';
+            self.togglePaymentFields();
         });
     },
 
@@ -604,23 +622,35 @@ const POSComponent = {
         var self = this;
         ApiService.get('/credit-customers/' + customerId).then(function(customer){
             var m = document.createElement('div'); m.className = 'modal-overlay';
+            var creditBal = Number(customer.creditBalance || 0);
             var recentSalesHTML = '';
             if (customer.recentSales && customer.recentSales.length > 0) { 
-                recentSalesHTML = '<h4 style="margin-top:1rem;">📋 Recent Credit Purchases</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Cashier</th></tr>'; 
+                recentSalesHTML = '<h4 style="margin-top:1rem;">📋 Recent Credit Purchases</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Credit Used</th><th>Cashier</th></tr>'; 
                 customer.recentSales.forEach(function(s){ 
-                    recentSalesHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#ef4444;">KES '+s.amount.toLocaleString()+'</td><td style="color:#666;">'+(s.cashierName||'-')+'</td></tr>'; 
+                    var cu = Number(s.creditUsed||0);
+                    recentSalesHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(s.date?new Date(s.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#ef4444;">KES '+Number(s.amount||0).toLocaleString()+'</td><td>'+(cu>0?'<span style="color:#8b5cf6;font-weight:600;">KES '+cu.toLocaleString()+'</span>':'—')+'</td><td style="color:#666;">'+(s.cashierName||'-')+'</td></tr>'; 
                 }); 
                 recentSalesHTML += '</table>'; 
             }
             var paymentsHTML = '';
             if (customer.payments && customer.payments.length > 0) { 
-                paymentsHTML = '<h4 style="margin-top:1rem;">💰 Recent Payments</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Received By</th></tr>'; 
+                paymentsHTML = '<h4 style="margin-top:1rem;">💰 Recent Payments</h4><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><tr style="border-bottom:1px solid #ddd;background:#f5f5f5;"><th>Date</th><th>Amount</th><th>Credit Added</th><th>Received By</th></tr>'; 
                 customer.payments.forEach(function(p){ 
-                    paymentsHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;">KES '+p.amount.toLocaleString()+'</td><td style="color:#666;">'+(p.receivedBy||'-')+'</td></tr>'; 
+                    var overpay = Number(p.overpayment||0);
+                    paymentsHTML += '<tr style="border-bottom:1px solid #eee;"><td>'+(p.date?new Date(p.date).toLocaleDateString('en-KE'):'-')+'</td><td style="color:#10b981;">KES '+Number(p.amount||0).toLocaleString()+'</td><td>'+(overpay>0?'<span style="color:#8b5cf6;font-weight:600;">+KES '+overpay.toLocaleString()+'</span>':'—')+'</td><td style="color:#666;">'+(p.receivedBy||'-')+'</td></tr>'; 
                 }); 
                 paymentsHTML += '</table>'; 
             }
-            m.innerHTML = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-user"></i> '+customer.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1rem;background:#f5f5f5;padding:1rem;border-radius:0.5rem;"><div><strong>📞 Phone:</strong> '+(customer.phone||'-')+'</div><div><strong>🆔 ID Number:</strong> '+(customer.idNumber||'-')+'</div><div><strong>Address:</strong> '+(customer.address||'-')+'</div><div><strong>📅 Registered:</strong> '+(customer.dateRegistered?new Date(customer.dateRegistered).toLocaleDateString('en-KE'):'-')+'</div><div><strong>💰 Debt Limit:</strong> KES '+(customer.debtLimit||0).toLocaleString()+'</div><div><strong>💳 Total Debt:</strong> <span style="color:'+(customer.totalDebt>0?'#ef4444':'#10b981')+';font-weight:700;">KES '+(customer.totalDebt||0).toLocaleString()+'</span></div></div>'+recentSalesHTML+paymentsHTML+'</div><div class="modal-footer" style="justify-content:center;gap:0.5rem;"><button class="btn btn-success" onclick="this.closest(\'.modal-overlay\').remove();POSComponent.showDebtPayment('+customer.id+')"><i class="fas fa-money-bill"></i> Record Payment</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+            
+            var h = '<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-user"></i> '+customer.name+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
+            
+            if (creditBal > 0) {
+                h += '<div style="background:#ede9fe;padding:1rem;border-radius:0.75rem;margin-bottom:1rem;border-left:4px solid #8b5cf6;"><div style="display:flex;align-items:center;gap:0.75rem;"><i class="fas fa-piggy-bank" style="font-size:2rem;color:#8b5cf6;"></i><div><strong style="color:#6d28d9;font-size:1.1rem;">Store Credit: KES '+creditBal.toLocaleString()+'</strong><br><small style="color:#666;">This credit will be applied automatically to the next credit sale.</small></div></div></div>';
+            }
+            
+            h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1rem;background:#f5f5f5;padding:1rem;border-radius:0.5rem;"><div><strong>📞 Phone:</strong> '+(customer.phone||'-')+'</div><div><strong>🆔 ID Number:</strong> '+(customer.idNumber||'-')+'</div><div><strong>Address:</strong> '+(customer.address||'-')+'</div><div><strong>📅 Registered:</strong> '+(customer.dateRegistered?new Date(customer.dateRegistered).toLocaleDateString('en-KE'):'-')+'</div><div><strong>💰 Debt Limit:</strong> KES '+Number(customer.debtLimit||0).toLocaleString()+'</div><div><strong>💳 Total Debt:</strong> <span style="color:'+(Number(customer.totalDebt)>0?'#ef4444':'#10b981')+';font-weight:700;">KES '+Number(customer.totalDebt||0).toLocaleString()+'</span></div></div>'+recentSalesHTML+paymentsHTML+'</div><div class="modal-footer" style="justify-content:center;gap:0.5rem;"><button class="btn btn-success" onclick="this.closest(\'.modal-overlay\').remove();POSComponent.showDebtPayment('+customer.id+')"><i class="fas fa-money-bill"></i> Record Payment</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+            
+            m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
         });
     },
@@ -628,13 +658,42 @@ const POSComponent = {
     showDebtPayment(customerId) {
         var self = this;
         ApiService.get('/credit-customers/' + customerId).then(function(customer){
+            var creditBal = Number(customer.creditBalance || 0);
+            var debt = Number(customer.totalDebt || 0);
             var m = document.createElement('div'); m.className = 'modal-overlay';
-            m.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Record Debt Payment</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body"><div style="text-align:center;margin-bottom:1rem;"><h3>👤 '+customer.name+'</h3><p>Current Debt: <strong style="color:#ef4444;">KES '+(customer.totalDebt||0).toLocaleString()+'</strong></p></div><div class="form-group"><label>Amount Paid (KES) *</label><input type="number" id="debtPaymentAmount" class="form-control" placeholder="Enter amount" min="1" max="'+(customer.totalDebt||0)+'" style="font-size:1.2rem;text-align:center;"></div><div class="form-group"><label>Payment Method</label><select id="debtPaymentMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div></div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmDebtPayment"><i class="fas fa-check"></i> Confirm Payment</button></div></div>';
+            var h = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-money-bill"></i> Record Debt Payment</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body">';
+            h += '<div style="text-align:center;margin-bottom:1rem;"><h3>👤 '+customer.name+'</h3></div>';
+            h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1rem;">';
+            h += '<div style="text-align:center;padding:0.75rem;background:#fef2f2;border-radius:0.5rem;"><div style="font-size:1.2rem;font-weight:700;color:#ef4444;">KES '+debt.toLocaleString()+'</div><small>Current Debt</small></div>';
+            h += '<div style="text-align:center;padding:0.75rem;background:#ede9fe;border-radius:0.5rem;"><div style="font-size:1.2rem;font-weight:700;color:#8b5cf6;">KES '+creditBal.toLocaleString()+'</div><small>Store Credit</small></div>';
+            h += '</div>';
+            h += '<div class="form-group"><label>Amount Paid (KES) *</label><input type="number" id="debtPaymentAmount" class="form-control" placeholder="Enter amount" min="1" style="font-size:1.2rem;text-align:center;"></div>';
+            h += '<div class="form-group"><label>Payment Method</label><select id="debtPaymentMethod" class="form-control"><option value="cash">Cash</option><option value="mpesa">M-Pesa</option></select></div>';
+            h += '<div id="payPreview" style="padding:0.5rem;border-radius:0.5rem;font-size:0.9rem;display:none;"></div>';
+            h += '</div><div class="modal-footer"><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Cancel</button><button class="btn btn-success" id="confirmDebtPayment"><i class="fas fa-check"></i> Confirm Payment</button></div></div>';
+            m.innerHTML = h;
             document.body.appendChild(m); m.onclick = function(e){if(e.target===m)m.remove();};
+            
+            m.querySelector('#debtPaymentAmount').oninput = function() {
+                var amount = parseFloat(this.value) || 0;
+                var preview = m.querySelector('#payPreview');
+                if (amount <= 0) { preview.style.display = 'none'; return; }
+                var overpay = Math.max(0, amount - debt);
+                preview.style.display = 'block';
+                if (overpay > 0) {
+                    preview.style.background = '#ede9fe';
+                    preview.style.border = '1px solid #8b5cf6';
+                    preview.innerHTML = '<strong style="color:#8b5cf6;"><i class="fas fa-piggy-bank"></i> Overpayment:</strong> KES ' + Math.min(amount, debt).toLocaleString() + ' clears debt. <strong>KES ' + overpay.toLocaleString() + ' will be added as store credit.</strong>';
+                } else {
+                    preview.style.background = '#f0fdf4';
+                    preview.style.border = '1px solid #10b981';
+                    preview.innerHTML = '<strong style="color:#10b981;">New debt after payment: KES ' + (debt - amount).toLocaleString() + '</strong>';
+                }
+            };
+            
             m.querySelector('#confirmDebtPayment').onclick = function(){
                 var amount = parseFloat(m.querySelector('#debtPaymentAmount').value) || 0;
                 if (amount <= 0) { self._showAlert('Invalid Amount','Enter a valid amount!','exclamation-triangle','#f59e0b'); return; }
-                if (amount > customer.totalDebt) { self._showAlert('Limit Exceeded','Amount cannot exceed debt of KES '+customer.totalDebt.toLocaleString(),'exclamation-triangle','#ef4444'); return; }
                 var user = self._getCurrentUser();
                 ApiService.post('/debt-payments', {
                     customerId: customerId,
@@ -645,9 +704,9 @@ const POSComponent = {
                     receivedById: user?.id || null
                 }).then(function(d){
                     if(d.success){ 
-                        var sm = document.createElement('div'); sm.className = 'modal-overlay'; 
-                        sm.innerHTML = '<div class="modal"><div class="modal-header" style="background:linear-gradient(135deg,#10b981,#059669);color:white;"><h3 style="color:white;"><i class="fas fa-check-circle"></i> Payment Recorded!</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="text-align:center;"><div style="font-size:3rem;color:#10b981;margin-bottom:1rem;"><i class="fas fa-money-check-alt"></i></div><h3>KES '+amount.toLocaleString()+'</h3><p style="color:#999;">From: <strong>'+customer.name+'</strong></p><div style="background:#f0fdf4;padding:1rem;border-radius:0.5rem;margin-top:1rem;"><p style="color:#10b981;">✅ Payment recorded!</p><p>Remaining Debt: <strong style="color:#ef4444;">KES '+(customer.totalDebt-amount).toLocaleString()+'</strong></p></div></div><div class="modal-footer" style="justify-content:center;"><button class="btn btn-primary" onclick="this.closest(\'.modal-overlay\').remove();AppRouter.navigate(\'cashier-dashboard\')">Dashboard</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>'; 
-                        document.body.appendChild(sm); sm.onclick = function(e){if(e.target===sm)sm.remove();}; 
+                        var msg = 'Payment of KES ' + amount.toLocaleString() + ' recorded!';
+                        if (d.overpayment > 0) msg += '<br><span style="color:#8b5cf6;">KES ' + d.overpayment.toLocaleString() + ' added as store credit.</span>';
+                        self._showAlert('Success', msg, 'check-circle', '#10b981');
                         m.remove(); 
                         self._selectedCustomer=null;self._selectedCustomerId=null;
                         var debtDiv=document.getElementById('customerDebtInfo');if(debtDiv)debtDiv.style.display='none';
@@ -662,7 +721,7 @@ const POSComponent = {
         });
     },
 
-    // ========== SALE METHODS (FIXED for dual-unit) ==========
+    // ========== SALE METHODS ==========
     completeSale() {
         var self = this;
         if (this._cart.length === 0) { this._showMessage('Cart is empty!', 'warning'); return; }
@@ -686,8 +745,16 @@ const POSComponent = {
             this._showMpesaPayment(total, name, subtotalExclVAT, vatAmount, discount, transport);
         } else if (pm === 'credit') {
             if (!this._selectedCustomerId) { this._showMessage('Please select a registered credit customer first!', 'warning'); return; }
-            var available = this._selectedCustomer.debtLimit - this._selectedCustomer.totalDebt;
-            if (total > available) { this._showMessage('❌ Debt limit exceeded! Available: KES ' + available.toLocaleString() + ', Sale: KES ' + total.toLocaleString(), 'danger'); return; }
+            var customer = this._selectedCustomer;
+            var debt = Number(customer.totalDebt || 0);
+            var creditBal = Number(customer.creditBalance || 0);
+            var limit = Number(customer.debtLimit || 0);
+            var available = (limit - debt) + creditBal;
+            
+            if (total > available) { 
+                this._showMessage('❌ Debt limit exceeded! Available: KES ' + available.toLocaleString() + ', Sale: KES ' + total.toLocaleString(), 'danger'); 
+                return; 
+            }
             this._processSale(name, pm, subtotalExclVAT, vatAmount, total, discount, 0, 0, null, this._selectedCustomerId, transport);
         } else if (pm === 'till') {
             var tillRef = document.getElementById('tillMpesaRef')?.value.trim();
@@ -752,6 +819,18 @@ const POSComponent = {
     _processSale(name, pm, subtotalExclVAT, vatAmount, total, discount, tendered, change, mpesaRef, customerId, transport, phone) {
         var self = this; var user = this._getCurrentUser();
         var subtotalInclVAT = subtotalExclVAT + vatAmount;
+        
+        // ✅ Show credit preview in confirm dialog if applicable
+        var creditPreview = '';
+        if (pm === 'credit' && customerId && this._selectedCustomer) {
+            var creditBal = Number(this._selectedCustomer.creditBalance || 0);
+            if (creditBal > 0) {
+                var creditToApply = Math.min(creditBal, total);
+                var remaining = total - creditToApply;
+                creditPreview = '<div style="background:#ede9fe;padding:0.75rem;border-radius:0.5rem;margin-top:0.5rem;border-left:4px solid #8b5cf6;"><strong style="color:#6d28d9;"><i class="fas fa-piggy-bank"></i> Store Credit Applied:</strong><br>KES ' + creditToApply.toLocaleString() + ' of available credit will be applied<br><strong>Remaining added to debt: KES ' + remaining.toLocaleString() + '</strong></div>';
+            }
+        }
+        
         var msg = '<div style="text-align:center;"><p style="font-size:1.2rem;"><strong>Total: KES ' + total.toLocaleString() + '</strong></p><p>Customer: ' + name + '</p><p>Payment: ' + (pm === 'mpesa' && mpesaRef && !phone ? 'M-PESA (Till)' : pm.toUpperCase()) + '</p>';
         if (discount > 0) msg += '<p style="color:#ef4444;">Discount: -KES ' + discount.toLocaleString() + '</p>';
         if (transport > 0) msg += '<p>Transport: KES ' + transport.toLocaleString() + '</p>';
@@ -759,9 +838,10 @@ const POSComponent = {
         if (pm === 'mpesa' && mpesaRef) msg += '<p style="color:#10b981;">M-Pesa Ref: <strong>' + mpesaRef + '</strong></p>';
         if (phone) msg += '<p style="color:#666;">Phone: <strong>' + phone + '</strong></p>';
         if (pm === 'credit') msg += '<p style="color:#f59e0b;"><strong>CREDIT SALE</strong></p>';
+        if (creditPreview) msg += creditPreview;
         msg += '</div>';
+        
         this._showConfirm('Complete Sale', msg, async function() {
-            // Map items with soldInUnit and conversionFactor for the API
             var mappedItems = self._cart.map(function(item) {
                 return {
                     productId: item.productId,
@@ -877,11 +957,9 @@ const POSComponent = {
                 html += '<button class="btn btn-success" id="processReturnBtn" style="width:100%;margin-top:1rem;"><i class="fas fa-check"></i> Process Return/Exchange</button>';
                 html += '</div>';
                 
-                // Put HTML in resultDiv
                 resultDiv.innerHTML = html; 
                 processDiv.style.display = 'block';
                 
-                // Store sale reference for the button handler
                 var processBtn = document.getElementById('processReturnBtn');
                 if (processBtn) {
                     processBtn.onclick = function() {
@@ -889,7 +967,6 @@ const POSComponent = {
                     };
                 }
                 
-                // Return type change handler
                 var returnTypeSelect = document.getElementById('returnTypeSelect');
                 if (returnTypeSelect) {
                     returnTypeSelect.onchange = function() { 
@@ -918,7 +995,6 @@ const POSComponent = {
 
     _processReturn(sale, modal) {
         var self = this;
-        // Use document.getElementById since HTML is in resultDiv
         var returnType = document.getElementById('returnTypeSelect').value;
         var itemSelect = document.getElementById('returnItemSelect');
         var selected = itemSelect.value.split('|');
