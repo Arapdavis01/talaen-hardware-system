@@ -1,5 +1,6 @@
 // ============================================
 // AUTH SERVICE - With JWT Authentication
+// Updated: routes through ApiService, fixed SPA redirect + changePassword endpoint
 // ============================================
 
 const AuthService = {
@@ -15,25 +16,30 @@ const AuthService = {
         lockoutUntil: null
     },
 
+    // ✅ Guard so we only verify once per page load
+    _verifyInFlight: null,
+    _lastVerifyAt: 0,
+    _VERIFY_CACHE_MS: 60000,
+
     init() {
-        // ✅ Check for existing JWT session
         this._checkSession();
     },
 
+    // ============================================
+    // SESSION MANAGEMENT
+    // ============================================
     _checkSession() {
-        // ✅ Check if token exists and is valid
         const token = localStorage.getItem('token');
         const userJson = localStorage.getItem('user');
-        
+
         if (token && userJson) {
             try {
                 const user = JSON.parse(userJson);
                 this._state.isLoggedIn = true;
                 this._state.currentUser = user;
                 this._state.sessionStart = Date.now();
-                
-                // ✅ Verify token with server (optional)
-                this._verifyToken();
+                // ✅ Defer the network verify — don't block the page for it
+                setTimeout(() => { this._verifyToken().catch(() => {}); }, 500);
             } catch (e) {
                 this._clearSession();
             }
@@ -42,20 +48,42 @@ const AuthService = {
         }
     },
 
+    // ✅ Merged verify logic — routes through ApiService with cache
     async _verifyToken() {
-        try {
-            const response = await fetch('/api/auth/verify', {
-                headers: {
-                    'Authorization': `Bearer ${localStorage.getItem('token')}`
-                }
-            });
-            
-            if (!response.ok) {
-                this._clearSession();
-            }
-        } catch (error) {
-            console.warn('Token verification failed:', error);
+        const token = this.getToken();
+        if (!token) return false;
+
+        // Reuse the in-flight promise if one exists
+        if (this._verifyInFlight) return this._verifyInFlight;
+
+        // Skip if we verified recently
+        const now = Date.now();
+        if (now - this._lastVerifyAt < this._VERIFY_CACHE_MS) {
+            return true;
         }
+
+        this._verifyInFlight = (async () => {
+            try {
+                const response = await ApiService.get('/auth/verify', { fresh: true });
+                if (response && response.success === true) {
+                    this._lastVerifyAt = Date.now();
+                    return true;
+                }
+                // Invalid or expired session — clear and bail
+                if (response && response.success === false) {
+                    this._clearSession();
+                }
+                return false;
+            } catch (error) {
+                // Network error — don't log the user out for a temporary blip
+                console.warn('Token verification failed (network):', error.message);
+                return this._state.isLoggedIn;
+            } finally {
+                this._verifyInFlight = null;
+            }
+        })();
+
+        return this._verifyInFlight;
     },
 
     _clearSession() {
@@ -64,93 +92,88 @@ const AuthService = {
         this._state.sessionStart = null;
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        // ✅ Also clear any ApiService caches tied to the old session
+        if (typeof ApiService !== 'undefined' && ApiService.clearCache) {
+            ApiService.clearCache();
+        }
     },
 
-    // ✅ LOGIN - Uses JWT from server
+    // ============================================
+    // LOGIN
+    // ============================================
     async login(username, password) {
-        // Check if account is locked
+        // ✅ Client-side lockout is a UX shortcut only — the server is authoritative.
+        //    We show the message but always let the server decide.
         if (this._isLocked()) {
             var remainingTime = Math.ceil((this._state.lockoutUntil - Date.now()) / 1000 / 60);
             return { success: false, message: 'Account locked. Try again in ' + remainingTime + ' minutes.' };
         }
 
         try {
-            const response = await fetch(this.API_URL + '/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
-            });
+            const data = await ApiService.post('/auth/login', { username, password });
 
-            const data = await response.json();
-
-            if (data.success) {
-                // ✅ Store JWT token from server
+            if (data && data.success) {
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('user', JSON.stringify(data.user));
-                
+
                 this._state.isLoggedIn = true;
                 this._state.currentUser = data.user;
                 this._state.sessionStart = Date.now();
                 this._state.loginAttempts = 0;
                 this._state.lockoutUntil = null;
+                this._lastVerifyAt = Date.now(); // trust the fresh login
 
-                return { 
-                    success: true, 
-                    message: 'Welcome ' + (data.user.fullName || data.user.username) + '!', 
+                return {
+                    success: true,
+                    message: 'Welcome ' + (data.user.fullName || data.user.username) + '!',
                     user: data.user,
                     token: data.token
                 };
-            } else {
-                // ✅ Handle failed login
-                this._state.loginAttempts++;
-                if (this._state.loginAttempts >= this._state.maxLoginAttempts) {
-                    this._lockAccount();
-                    return { 
-                        success: false, 
-                        message: 'Account locked due to too many failed attempts. Try again in 15 minutes.' 
-                    };
-                }
-                return { 
-                    success: false, 
-                    message: data.message || 'Invalid username or password.' 
-                };
             }
+
+            // Server said no
+            this._state.loginAttempts++;
+            if (this._state.loginAttempts >= this._state.maxLoginAttempts) {
+                this._lockAccount();
+            }
+            return {
+                success: false,
+                message: (data && data.message) || 'Invalid username or password.'
+            };
+
         } catch (error) {
             console.error('Login error:', error);
-            return { 
-                success: false, 
-                message: 'Network error. Please check your connection and try again.' 
+            return {
+                success: false,
+                message: 'Network error. Please check your connection and try again.'
             };
         }
     },
 
-    // ✅ LOGOUT - Clear JWT session
+    // ============================================
+    // LOGOUT
+    // ============================================
     async logout() {
-        const token = localStorage.getItem('token');
+        const token = this.getToken();
         if (token) {
             try {
-                await fetch('/api/auth/logout', {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
+                await ApiService.post('/auth/logout');
             } catch (e) {
                 // Ignore errors on logout
             }
         }
-        
+
         this._clearSession();
-        window.location.href = '/login.html';
+        // ✅ SPA-safe redirect — server serves index.html for all routes
+        window.location.href = '/';
     },
 
-    // ✅ Get current user from JWT
+    // ============================================
+    // GETTERS
+    // ============================================
     getCurrentUser() {
-        if (this._state.currentUser) {
-            return this._state.currentUser;
-        }
-        
-        // Try to get from localStorage
+        if (this._state.currentUser) return this._state.currentUser;
+
         const userJson = localStorage.getItem('user');
         if (userJson) {
             try {
@@ -165,16 +188,13 @@ const AuthService = {
         return null;
     },
 
-    // ✅ Get JWT token
     getToken() {
         return localStorage.getItem('token');
     },
 
-    // ✅ Check if logged in
     isLoggedIn() {
         if (this._state.isLoggedIn) return true;
-        
-        // Check localStorage
+
         const token = localStorage.getItem('token');
         const user = localStorage.getItem('user');
         if (token && user) {
@@ -182,100 +202,78 @@ const AuthService = {
                 JSON.parse(user);
                 this._state.isLoggedIn = true;
                 return true;
-            } catch (e) {}
+            } catch (e) { /* fall through */ }
         }
         return false;
     },
 
-    // ✅ Check if admin
     isAdmin() {
         const user = this.getCurrentUser();
         return user && user.role === 'admin';
     },
 
-    // ✅ Check if cashier
     isCashier() {
         const user = this.getCurrentUser();
         return user && user.role === 'cashier';
     },
 
-    // ✅ Check if user has specific role
     hasRole(role) {
         const user = this.getCurrentUser();
         return user && user.role === role;
     },
 
-    // ✅ Change own password (requires current password)
+    // ============================================
+    // PASSWORD / PROFILE
+    // ============================================
+
+    // ✅ Change own password — fixed endpoint (was hitting /users/profile/password which doesn't exist)
     async changePassword(currentPassword, newPassword) {
         try {
             const token = this.getToken();
             if (!token) {
                 return { success: false, message: 'You must be logged in to change password.' };
             }
-
             if (!newPassword || newPassword.length < 6) {
                 return { success: false, message: 'New password must be at least 6 characters.' };
             }
 
-            const response = await fetch('/api/users/profile/password', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ currentPassword, newPassword })
+            // Backend route is PUT /api/users/profile — it handles both name and password
+            const data = await ApiService.put('/users/profile', {
+                currentPassword,
+                newPassword
             });
 
-            const data = await response.json();
-            
-            if (data.success) {
-                // ✅ User info might have changed (fullName), update it
-                const userResponse = await fetch('/api/users/profile', {
-                    headers: {
-                        'Authorization': `Bearer ${token}`
-                    }
-                });
-                
-                if (userResponse.ok) {
-                    const userData = await userResponse.json();
+            if (data && data.success) {
+                // Refresh the stored user (fullName may have changed)
+                const userData = await ApiService.get('/users/profile', { fresh: true });
+                if (userData) {
                     localStorage.setItem('user', JSON.stringify(userData));
                     this._state.currentUser = userData;
                 }
             }
-            
-            return data;
+
+            return data || { success: false, message: 'Unknown error' };
         } catch (error) {
             console.error('Password change error:', error);
             return { success: false, message: 'Network error. Please try again.' };
         }
     },
 
-    // ✅ Admin resets user password
+    // ✅ Admin resets another user's password
     async resetUserPassword(userId, newPassword) {
         try {
             const token = this.getToken();
             if (!token) {
                 return { success: false, message: 'You must be logged in.' };
             }
-
             if (!this.isAdmin()) {
                 return { success: false, message: 'Only admins can reset passwords.' };
             }
-
             if (!newPassword || newPassword.length < 6) {
                 return { success: false, message: 'New password must be at least 6 characters.' };
             }
 
-            const response = await fetch(`/api/users/${userId}/reset-password`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ newPassword })
-            });
-
-            return await response.json();
+            return await ApiService.post(`/users/${userId}/reset-password`, { newPassword });
         } catch (error) {
             console.error('Reset password error:', error);
             return { success: false, message: 'Network error. Please try again.' };
@@ -290,62 +288,32 @@ const AuthService = {
                 return { success: false, message: 'You must be logged in.' };
             }
 
-            const response = await fetch('/api/users/profile', {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({ fullName })
-            });
+            const data = await ApiService.put('/users/profile', { fullName });
 
-            const data = await response.json();
-            
-            if (data.success && data.user) {
-                // ✅ Update stored user info
+            if (data && data.success && data.user) {
                 localStorage.setItem('user', JSON.stringify(data.user));
                 this._state.currentUser = data.user;
             }
-            
-            return data;
+
+            return data || { success: false, message: 'Unknown error' };
         } catch (error) {
             console.error('Profile update error:', error);
             return { success: false, message: 'Network error. Please try again.' };
         }
     },
 
-    // ✅ Verify if token is valid
+    // ✅ Public verify — now shares the same code path as _verifyToken
     async verifyToken() {
-        try {
-            const token = this.getToken();
-            if (!token) return false;
-
-            const response = await fetch('/api/auth/verify', {
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                }
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                return data.success === true;
-            }
-            return false;
-        } catch (error) {
-            return false;
-        }
+        return this._verifyToken();
     },
 
     // ============================================
-    // LEGACY METHODS (For backwards compatibility)
+    // LEGACY (kept for backward compatibility)
     // ============================================
-
-    // ✅ Get security question (legacy, may not be needed with JWT)
     getSecurityQuestion() {
         return StorageService.get(StorageService.KEYS.SECURITY_QUESTION, 'What is your favorite pet\'s name?');
     },
 
-    // ✅ Reset password via security question (legacy fallback)
     resetPassword(answer, newPassword) {
         var storedAnswer = StorageService.get(StorageService.KEYS.SECURITY_ANSWER, 'talaen2024');
         if (answer.toLowerCase() !== storedAnswer.toLowerCase()) {
@@ -354,26 +322,24 @@ const AuthService = {
         if (newPassword.length < 6) {
             return { success: false, message: 'Password must be at least 6 characters.' };
         }
-        
-        // ✅ In JWT system, we would need to update via API
-        // This is a local fallback only
+
         StorageService.set(StorageService.KEYS.PASSWORD, newPassword);
         this._state.loginAttempts = 0;
         return { success: true, message: 'Password reset!' };
     },
 
-    // ✅ Activity logs (legacy)
     getActivityLogs(limit) {
         var logs = StorageService.get(StorageService.KEYS.ACTIVITY_LOG, []);
         return logs.slice(-(limit || 50)).reverse();
     },
 
-    // ✅ Lock account
+    // ============================================
+    // LOCKOUT (client-side UX shortcut)
+    // ============================================
     _lockAccount() {
         this._state.lockoutUntil = Date.now() + this._state.lockoutDuration;
     },
 
-    // ✅ Check if account is locked
     _isLocked() {
         if (this._state.lockoutUntil && this._state.lockoutUntil > Date.now()) return true;
         if (this._state.lockoutUntil && this._state.lockoutUntil <= Date.now()) {
@@ -383,7 +349,9 @@ const AuthService = {
         return false;
     },
 
-    // ✅ Check password strength
+    // ============================================
+    // PASSWORD STRENGTH
+    // ============================================
     checkPasswordStrength(password) {
         var score = 0;
         if (password.length >= 8) score++;
@@ -396,8 +364,11 @@ const AuthService = {
     }
 };
 
-// ✅ Initialize
-AuthService.init();
+// ✅ Defer initialization until DOM is ready so dependencies are loaded
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () { AuthService.init(); });
+} else {
+    AuthService.init();
+}
 
-// Make globally available
 window.AuthService = AuthService;
