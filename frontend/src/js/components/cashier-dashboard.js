@@ -1,5 +1,6 @@
 // ============================================
 // CASHIER DASHBOARD - With JWT Authentication & Dual-Unit Support + Credit Refunds
+// Cashier reports show ONLY their own sales and refunds
 // ============================================
 
 const CashierDashboardComponent = {
@@ -37,7 +38,7 @@ const CashierDashboardComponent = {
         h += '<button class="btn btn-sm ' + (this._currentView === 'sales' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'sales\')"><i class="fas fa-receipt"></i> Sales</button>';
         h += '<button class="btn btn-sm ' + (this._currentView === 'returns' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'returns\')"><i class="fas fa-exchange-alt"></i> Returns</button>';
         h += '<button class="btn btn-sm ' + (this._currentView === 'credit' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'credit\')"><i class="fas fa-credit-card"></i> Credit</button>';
-        h += '<button class="btn btn-sm ' + (this._currentView === 'reports' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'reports\')"><i class="fas fa-chart-bar"></i> Reports</button>';
+        h += '<button class="btn btn-sm ' + (this._currentView === 'reports' ? 'btn-primary' : 'btn-outline') + '" onclick="CashierDashboardComponent._switchTab(\'reports\')"><i class="fas fa-chart-bar"></i> My Reports</button>';
         h += '</div>';
         
         h += '<div id="cashierContent">';
@@ -165,7 +166,7 @@ const CashierDashboardComponent = {
         h += '<h3 class="card-title"><i class="fas fa-receipt"></i> Sales History</h3>';
         h += '<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">';
         h += '<input type="text" id="salesSearchInput" class="form-control" placeholder="Search receipt, customer..." style="width:180px;" oninput="CashierDashboardComponent._filterSalesTable()">';
-        h += '<select id="salesCashierFilter" class="form-control" style="width:140px;" onchange="CashierDashboardComponent._loadMySales()"><option value="all">All Cashiers</option><option value="me">My Sales Only</option></select>';
+        h += '<select id="salesCashierFilter" class="form-control" style="width:140px;" onchange="CashierDashboardComponent._loadMySales()"><option value="me">My Sales Only</option><option value="all">All Cashiers</option></select>';
         h += '<select id="salesPaymentFilter" class="form-control" style="width:130px;" onchange="CashierDashboardComponent._loadMySales()"><option value="all">All Payments</option><option value="cash">Cash</option><option value="mpesa">M-PESA</option><option value="credit">Credit</option></select>';
         h += '<button class="btn btn-sm btn-outline" onclick="CashierDashboardComponent._exportSalesCSV()"><i class="fas fa-download"></i> Export CSV</button>';
         h += '</div></div><div class="card-body"><div id="mySalesTable"><p style="text-align:center;padding:2rem;color:#999;">Loading sales...</p></div></div></div>';
@@ -175,7 +176,7 @@ const CashierDashboardComponent = {
     async _loadMySales() {
         var user = this._getCurrentUser(); 
         if (!user) return;
-        var cashierFilter = document.getElementById('salesCashierFilter')?.value || 'all';
+        var cashierFilter = document.getElementById('salesCashierFilter')?.value || 'me';
         var paymentFilter = document.getElementById('salesPaymentFilter')?.value || 'all';
         var tableDiv = document.getElementById('mySalesTable'); if (!tableDiv) return;
         tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Loading sales...</p>';
@@ -186,7 +187,7 @@ const CashierDashboardComponent = {
             if (paymentFilter !== 'all') filteredSales = filteredSales.filter(function(s) { return s.paymentMethod === paymentFilter; });
             filteredSales.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
             this._allFilteredSales = filteredSales;
-            this._renderTodaySummary(allSales);
+            this._renderTodaySummary(filteredSales);
             this._renderSalesTable(filteredSales, tableDiv);
         } catch(e) { 
             console.error('Error loading sales:', e);
@@ -195,13 +196,15 @@ const CashierDashboardComponent = {
     },
 
     _renderTodaySummary(allSales) {
+        var user = this._getCurrentUser();
         var today = new Date().toISOString().split('T')[0];
         var todaySales = allSales.filter(function(s) { return s.date && s.date.startsWith(today); });
         var cashSales = todaySales.filter(function(s) { return s.paymentMethod === 'cash'; });
         var mpesaSales = todaySales.filter(function(s) { return s.paymentMethod === 'mpesa'; });
         var creditSales = todaySales.filter(function(s) { return s.paymentMethod === 'credit'; });
         var summaryDiv = document.getElementById('todayPaymentSummary'); if (!summaryDiv) return;
-        var html = '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-calendar-day"></i> Today Payment Summary</h3></div><div class="card-body"><div style="display:flex;gap:1rem;flex-wrap:wrap;">';
+        
+        var html = '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-calendar-day"></i> Today Payment Summary <span style="font-size:0.85rem;color:#999;font-weight:400;">(' + (user?.fullName || 'My Sales') + ')</span></h3></div><div class="card-body"><div style="display:flex;gap:1rem;flex-wrap:wrap;">';
         if (mpesaSales.length > 0) html += '<div style="flex:1;min-width:140px;background:#f0fdf4;padding:1rem;border-radius:0.75rem;text-align:center;border:2px solid #10b981;"><div style="font-size:1.5rem;color:#10b981;">📱 MPESA</div><div style="font-size:1.3rem;font-weight:700;color:#10b981;">KES ' + mpesaSales.reduce(function(s,x){return s+Number(x.total||0);},0).toLocaleString() + '</div><div style="font-size:0.85rem;color:#666;">' + mpesaSales.length + ' sales</div></div>';
         if (cashSales.length > 0) html += '<div style="flex:1;min-width:140px;background:#eff6ff;padding:1rem;border-radius:0.75rem;text-align:center;border:2px solid #3b82f6;"><div style="font-size:1.5rem;color:#3b82f6;">💵 CASH</div><div style="font-size:1.3rem;font-weight:700;color:#3b82f6;">KES ' + cashSales.reduce(function(s,x){return s+Number(x.total||0);},0).toLocaleString() + '</div><div style="font-size:0.85rem;color:#666;">' + cashSales.length + ' sales</div></div>';
         if (creditSales.length > 0) html += '<div style="flex:1;min-width:140px;background:#fef3c7;padding:1rem;border-radius:0.75rem;text-align:center;border:2px solid #f59e0b;"><div style="font-size:1.5rem;color:#f59e0b;">💳 CREDIT</div><div style="font-size:1.3rem;font-weight:700;color:#f59e0b;">KES ' + creditSales.reduce(function(s,x){return s+Number(x.total||0);},0).toLocaleString() + '</div><div style="font-size:0.85rem;color:#666;">' + creditSales.length + ' sales</div></div>';
@@ -366,7 +369,7 @@ const CashierDashboardComponent = {
         h += '<h3 class="card-title"><i class="fas fa-exchange-alt"></i> Returns & Exchanges</h3>';
         h += '<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">';
         h += '<input type="text" id="returnsSearchInput" class="form-control" placeholder="Search..." style="width:180px;" oninput="CashierDashboardComponent._filterReturnsTable()">';
-        h += '<select id="returnsCashierFilter" class="form-control" style="width:140px;" onchange="CashierDashboardComponent._loadMyReturns()"><option value="all">All Cashiers</option><option value="me">My Returns Only</option></select>';
+        h += '<select id="returnsCashierFilter" class="form-control" style="width:140px;" onchange="CashierDashboardComponent._loadMyReturns()"><option value="me">My Returns Only</option><option value="all">All Cashiers</option></select>';
         h += '<select id="returnsTypeFilter" class="form-control" style="width:120px;" onchange="CashierDashboardComponent._loadMyReturns()"><option value="all">All</option><option value="return">Returns</option><option value="exchange">Exchanges</option></select>';
         h += '</div></div><div class="card-body"><div id="myReturnsTable"><p style="text-align:center;padding:2rem;color:#999;">Loading returns...</p></div></div></div>';
         return h;
@@ -375,7 +378,7 @@ const CashierDashboardComponent = {
     async _loadMyReturns() {
         var user = this._getCurrentUser(); 
         if (!user) return;
-        var cashierFilter = document.getElementById('returnsCashierFilter')?.value || 'all';
+        var cashierFilter = document.getElementById('returnsCashierFilter')?.value || 'me';
         var typeFilter = document.getElementById('returnsTypeFilter')?.value || 'all';
         var tableDiv = document.getElementById('myReturnsTable'); if (!tableDiv) return;
         tableDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Loading returns...</p>';
@@ -385,7 +388,7 @@ const CashierDashboardComponent = {
             if (typeFilter !== 'all') filteredReturns = filteredReturns.filter(function(r) { return r.returnType === typeFilter; });
             filteredReturns.sort(function(a, b) { return new Date(b.date || 0) - new Date(a.date || 0); });
             this._allFilteredReturns = filteredReturns;
-            this._renderReturnsSummary(allReturns);
+            this._renderReturnsSummary(filteredReturns);
             this._renderReturnsTable(filteredReturns, tableDiv);
         } catch(e) { 
             console.error('Error loading returns:', e);
@@ -445,7 +448,6 @@ const CashierDashboardComponent = {
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;"><h3 class="card-title"><i class="fas fa-users"></i> All Credit Customers</h3><button class="btn btn-success btn-sm" onclick="POSComponent.showRegisterCustomer()"><i class="fas fa-user-plus"></i> Register New</button></div><div class="card-body"><div id="creditTabCustomersList">Loading...</div></div></div>';
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-shopping-cart"></i> Recent Credit Sales</h3><small style="color:#f59e0b;">(Active Debtors Only)</small></div><div class="card-body"><div id="recentCreditSalesList">Loading...</div></div></div>';
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;"><h3 class="card-title"><i class="fas fa-money-bill"></i> Recent Debt Payments</h3><small style="color:#999;">Last 10</small></div><div class="card-body"><div style="display:flex;gap:0.5rem;margin-bottom:1rem;"><input type="text" id="debtPaymentSearch" class="form-control" placeholder="🔍 Search customer..." style="flex:1;" oninput="CashierDashboardComponent._filterDebtPayments()"><span id="debtPaymentTotal" style="font-weight:700;padding:0.5rem 1rem;background:#f5f5f5;border-radius:0.5rem;">💰 Total: KES 0</span></div><div id="recentDebtPaymentsList">Loading...</div><div id="debtPaymentsPagination" style="text-align:center;margin-top:0.5rem;color:#999;"></div></div></div>';
-        // ✅ NEW: Recent Refunds section
         h += '<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;"><h3 class="card-title"><i class="fas fa-hand-holding-usd"></i> Recent Credit Refunds</h3><small style="color:#999;">Last 10</small></div><div class="card-body"><div style="display:flex;gap:0.5rem;margin-bottom:1rem;"><input type="text" id="refundSearch" class="form-control" placeholder="🔍 Search customer..." style="flex:1;" oninput="CashierDashboardComponent._filterRefunds()"><span id="refundTotal" style="font-weight:700;padding:0.5rem 1rem;background:#f5f5f5;border-radius:0.5rem;">💸 Total: KES 0</span></div><div id="recentRefundsList">Loading...</div></div></div>';
         return h;
     },
@@ -460,7 +462,6 @@ const CashierDashboardComponent = {
                 if (customers.length === 0) { 
                     custList.innerHTML = '<p style="text-align:center;color:#999;padding:2rem;">No credit customers registered.</p>'; 
                 } else {
-                    // ✅ NEW: Include Store Credit column
                     var tHTML = '<div style="max-height:400px;overflow-y:auto;"><table class="table"><thead><tr><th>Customer</th><th>Phone</th><th>Debt Limit</th><th>Total Debt</th><th>Store Credit</th><th>Available</th><th>Status</th><th>Actions</th></tr></thead><tbody>';
                     customers.sort(function(a,b){return (b.totalDebt||0)-(a.totalDebt||0);});
                     customers.forEach(function(c){
@@ -483,7 +484,6 @@ const CashierDashboardComponent = {
                         tHTML += '<td style="white-space:nowrap;">';
                         tHTML += '<button class="btn btn-sm btn-outline" onclick="POSComponent.viewCustomerDetails('+c.id+')" title="View"><i class="fas fa-eye"></i></button> ';
                         tHTML += '<button class="btn btn-sm btn-success" onclick="POSComponent.showDebtPayment('+c.id+')" title="Record Payment"><i class="fas fa-money-bill"></i></button> ';
-                        // ✅ NEW: Refund button
                         if (creditBal > 0) {
                             tHTML += '<button class="btn btn-sm" style="background:#f43f5e;color:white;" onclick="CashierDashboardComponent._showRefund('+c.id+')" title="Refund Credit"><i class="fas fa-hand-holding-usd"></i></button>';
                         }
@@ -557,7 +557,6 @@ const CashierDashboardComponent = {
             console.error('Error loading debt payments:', e);
         }
         
-        // ✅ NEW: Load recent refunds
         try {
             var refunds = await ApiService.get('/credit-refunds');
             this._allRefunds = refunds || [];
@@ -597,7 +596,6 @@ const CashierDashboardComponent = {
         });
     },
 
-    // ✅ NEW: Refund modal (same as admin)
     async _showRefund(id) {
         try {
             const c = await ApiService.get('/credit-customers/'+id); if(!c) return;
@@ -653,8 +651,6 @@ const CashierDashboardComponent = {
         var preview = document.getElementById('refundPreview');
         if (!preview) return;
         
-        var custList = this._allRefunds || [];
-        // Find customer from any cached list - use direct fetch approach
         ApiService.get('/credit-customers/'+customerId).then(function(c){
             var creditBal = Number(c.creditBalance||0);
             if (amount <= 0) { preview.style.display = 'none'; return; }
@@ -676,59 +672,134 @@ const CashierDashboardComponent = {
         });
     },
 
+    // ============================================================
+    // ✅ REPORTS TAB — NOW PERSONALIZED FOR EACH CASHIER
+    // ============================================================
+
     _renderReportsTab() {
+        var user = this._getCurrentUser();
         var h = '';
         h += '<div class="card"><div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.5rem;">';
-        h += '<h3 class="card-title"><i class="fas fa-file-alt"></i> Daily Reports History</h3>';
+        h += '<h3 class="card-title"><i class="fas fa-file-alt"></i> My Reports <span style="font-size:0.85rem;color:#999;font-weight:400;">(' + (user?.fullName || 'My Sales') + ')</span></h3>';
         h += '<div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;">';
         h += '<input type="date" id="reportSearchDate" class="form-control" style="width:180px;" onchange="CashierDashboardComponent._filterDailyReports()">';
         h += '<input type="text" id="reportSearchText" class="form-control" style="width:200px;" placeholder="Search by date..." oninput="CashierDashboardComponent._filterDailyReports()">';
         h += '<button class="btn btn-sm btn-outline" onclick="CashierDashboardComponent._clearReportFilter()">Clear</button>';
-        h += '<button class="btn btn-sm btn-primary" onclick="CashierDashboardComponent._printAllReports()"><i class="fas fa-print"></i> Print All</button>';
-        h += '</div></div><div class="card-body"><div id="dailyReportsContent"><p style="text-align:center;padding:2rem;color:#999;">Loading reports...</p></div></div></div>';
+        h += '<button class="btn btn-sm btn-primary" onclick="CashierDashboardComponent._printAllReports()"><i class="fas fa-print"></i> Print My Reports</button>';
+        h += '</div></div><div class="card-body"><div id="dailyReportsContent"><p style="text-align:center;padding:2rem;color:#999;">Loading your reports...</p></div></div></div>';
         return h;
     },
 
     async _loadReports() {
         var reportDiv = document.getElementById('dailyReportsContent'); 
         if (!reportDiv) return;
-        reportDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Generating reports...</p>';
+        var user = this._getCurrentUser();
+        if (!user) {
+            reportDiv.innerHTML = '<p style="text-align:center;color:#ef4444;">Please login again.</p>';
+            return;
+        }
+        reportDiv.innerHTML = '<p style="text-align:center;padding:2rem;"><i class="fas fa-spinner fa-spin"></i> Generating your reports...</p>';
         try {
             await SaleService.getAll(); 
             var allSales = SaleService._cache || [];
+            // ✅ FILTER: only this cashier's sales
+            var mySales = allSales.filter(function(s) { return s.cashierId == user.id; });
+            
             await ProductService.refresh(); 
             var products = ProductService._cache || [];
             var currentTotalStock = products.reduce(function(s,p){return s+(p.stock||0);},0);
+            
+            // ✅ FILTER: only refunds this cashier processed
+            var allRefunds = await ApiService.get('/credit-refunds') || [];
+            var myRefunds = allRefunds.filter(function(r) { return r.processedById == user.id; });
+            
             var dailyMap = {};
-            allSales.forEach(function(sale){
+            
+            // Aggregate MY sales per day
+            mySales.forEach(function(sale){
                 if(!sale.date)return; 
                 var dk = sale.date.split('T')[0];
-                if(!dailyMap[dk]) dailyMap[dk] = {date:dk,totalSales:0,transactions:0,itemsSold:0,stockAdded:0,closingStock:0};
+                if(!dailyMap[dk]) dailyMap[dk] = {date:dk,totalSales:0,transactions:0,itemsSold:0,stockAdded:0,closingStock:0,refundsPaid:0,refundCount:0};
                 dailyMap[dk].totalSales += Number(sale.total||0); 
                 dailyMap[dk].transactions += 1;
                 if(sale.items) sale.items.forEach(function(item){ dailyMap[dk].itemsSold += (item.quantity||0); });
             });
+            
+            // Aggregate MY refunds per day
+            myRefunds.forEach(function(refund){
+                if(!refund.date) return;
+                var dk = new Date(refund.date).toISOString().split('T')[0];
+                if(!dailyMap[dk]) dailyMap[dk] = {date:dk,totalSales:0,transactions:0,itemsSold:0,stockAdded:0,closingStock:0,refundsPaid:0,refundCount:0};
+                dailyMap[dk].refundsPaid += Number(refund.amount||0);
+                dailyMap[dk].refundCount += 1;
+            });
+            
             var dailyReports = Object.values(dailyMap).sort(function(a,b){return new Date(b.date)-new Date(a.date);});
+            
             var stock = currentTotalStock;
-            for(var i=dailyReports.length-1;i>=0;i--){ stock += dailyReports[i].itemsSold; stock -= dailyReports[i].stockAdded; dailyReports[i].closingStock = stock; }
+            for(var i=dailyReports.length-1;i>=0;i--){ 
+                stock += dailyReports[i].itemsSold; 
+                stock -= dailyReports[i].stockAdded; 
+                dailyReports[i].closingStock = stock; 
+            }
+            
             this._allDailyReports = dailyReports;
-            this._renderDailyReportsTable(dailyReports, reportDiv);
+            this._renderDailyReportsTable(dailyReports, reportDiv, user);
         } catch(e) { 
             console.error('Error loading reports:', e);
             reportDiv.innerHTML = '<p style="text-align:center;color:#ef4444;">Error generating reports.</p>'; 
         }
     },
 
-    _renderDailyReportsTable(reports, reportDiv) {
-        if(!reports||reports.length===0){reportDiv.innerHTML='<p style="text-align:center;padding:2rem;color:#999;">No sales data available.</p>';return;}
+    _renderDailyReportsTable(reports, reportDiv, user) {
+        if(!reports||reports.length===0){
+            reportDiv.innerHTML='<p style="text-align:center;padding:2rem;color:#999;">You have no sales recorded yet.</p>';
+            return;
+        }
         var totalSales=reports.reduce(function(s,r){return s+r.totalSales;},0);
         var totalTrans=reports.reduce(function(s,r){return s+r.transactions;},0);
         var totalItems=reports.reduce(function(s,r){return s+r.itemsSold;},0);
-        var html='<div style="margin-bottom:1rem;padding:0.75rem;background:#f5f5f5;border-radius:0.5rem;display:flex;justify-content:space-between;flex-wrap:wrap;"><span>Total Days: <strong>'+reports.length+'</strong></span><span>Total Sales: <strong style="color:var(--primary);">KES '+totalSales.toLocaleString()+'</strong></span><span>Total Transactions: <strong>'+totalTrans+'</strong></span><span>Total Items: <strong>'+totalItems+'</strong></span></div>';
-        html+='<div style="max-height:500px;overflow-y:auto;"><table class="table"><thead><tr><th>Date</th><th style="text-align:right;">Sales</th><th style="text-align:center;">Transactions</th><th style="text-align:center;">Items Sold</th><th style="text-align:center;">Stock Added</th><th style="text-align:right;">Closing Stock</th></tr></thead><tbody>';
+        var totalRefunds=reports.reduce(function(s,r){return s+(r.refundsPaid||0);},0);
+        var netCash = totalSales - totalRefunds;
+        
+        var html='';
+        // Personalized header
+        html += '<div style="margin-bottom:1rem;padding:0.75rem 1rem;background:linear-gradient(135deg,rgba(26,71,42,0.1),rgba(196,154,43,0.1));border-radius:0.75rem;border-left:4px solid var(--primary);">';
+        html += '<strong style="color:var(--primary);font-size:1.1rem;"><i class="fas fa-user-circle"></i> ' + (user?.fullName || user?.username || 'My') + ' — My Reports</strong>';
+        html += '<div style="font-size:0.85rem;color:#666;margin-top:0.25rem;">Showing only sales & refunds you processed</div>';
+        html += '</div>';
+        
+        // Totals summary
+        html += '<div style="margin-bottom:1rem;padding:0.75rem;background:#f5f5f5;border-radius:0.5rem;display:flex;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">';
+        html += '<span>Total Days: <strong>'+reports.length+'</strong></span>';
+        html += '<span>My Sales: <strong style="color:var(--primary);">KES '+totalSales.toLocaleString()+'</strong></span>';
+        html += '<span>Transactions: <strong>'+totalTrans+'</strong></span>';
+        html += '<span>Items Sold: <strong>'+totalItems+'</strong></span>';
+        html += '<span>My Refunds: <strong style="color:#f43f5e;">KES '+totalRefunds.toLocaleString()+'</strong></span>';
+        html += '<span>Net Cash: <strong style="color:#3b82f6;">KES '+netCash.toLocaleString()+'</strong></span>';
+        html += '</div>';
+        
+        html += '<div style="max-height:500px;overflow-y:auto;"><table class="table"><thead><tr>';
+        html += '<th>Date</th>';
+        html += '<th style="text-align:right;">My Sales</th>';
+        html += '<th style="text-align:center;">Trans.</th>';
+        html += '<th style="text-align:center;">Items</th>';
+        html += '<th style="text-align:right;">My Refunds</th>';
+        html += '<th style="text-align:right;">Net Cash</th>';
+        html += '</tr></thead><tbody>';
+        
         reports.forEach(function(r){
             var dObj=new Date(r.date+'T00:00:00');
-            html+='<tr class="report-row" data-date="'+r.date+'"><td><strong>'+dObj.toLocaleDateString('en-KE',{weekday:'short',year:'numeric',month:'short',day:'numeric'})+'</strong><br><small style="color:#999;">'+r.date+'</small></td><td style="text-align:right;font-weight:700;color:var(--primary);">KES '+r.totalSales.toLocaleString()+'</td><td style="text-align:center;">'+r.transactions+'</td><td style="text-align:center;">'+r.itemsSold+'</td><td style="text-align:center;">'+r.stockAdded+'</td><td style="text-align:right;font-weight:600;">'+r.closingStock+'</td></tr>';
+            var refunds = Number(r.refundsPaid||0);
+            var net = Number(r.totalSales||0) - refunds;
+            html += '<tr class="report-row" data-date="'+r.date+'">';
+            html += '<td><strong>'+dObj.toLocaleDateString('en-KE',{weekday:'short',year:'numeric',month:'short',day:'numeric'})+'</strong><br><small style="color:#999;">'+r.date+'</small></td>';
+            html += '<td style="text-align:right;font-weight:700;color:var(--primary);">KES '+Number(r.totalSales||0).toLocaleString()+'</td>';
+            html += '<td style="text-align:center;">'+r.transactions+'</td>';
+            html += '<td style="text-align:center;">'+r.itemsSold+'</td>';
+            html += '<td style="text-align:right;color:'+(refunds>0?'#f43f5e':'#999')+';font-weight:'+(refunds>0?'700':'400')+';">'+(refunds>0?'KES '+refunds.toLocaleString():'—')+'</td>';
+            html += '<td style="text-align:right;font-weight:600;color:#3b82f6;">KES '+net.toLocaleString()+'</td>';
+            html += '</tr>';
         });
         html+='</tbody></table></div>'; 
         reportDiv.innerHTML=html;
@@ -754,12 +825,56 @@ const CashierDashboardComponent = {
 
     _printAllReports() {
         var reports = this._allDailyReports; 
-        if(!reports||reports.length===0){this._showMessage('No reports!','warning');return;}
-        var ph = '<div style="max-width:800px;margin:0 auto;font-family:Inter;"><div style="text-align:center;margin-bottom:20px;"><h2>TALAEN INVESTMENT HARDWARE</h2><p>P.O BOX 345, NANDI HILLS</p><h3>Daily Reports History</h3><p>Generated: '+new Date().toLocaleString('en-KE')+'</p></div><table style="width:100%;border-collapse:collapse;border:1px solid #ddd;"><tr style="background:#f5f5f5;"><th style="padding:8px;border:1px solid #ddd;">Date</th><th style="text-align:right;">Sales</th><th style="text-align:center;">Transactions</th><th style="text-align:center;">Items Sold</th><th style="text-align:center;">Stock Added</th><th style="text-align:right;">Closing Stock</th></tr>';
-        reports.forEach(function(r){ph+='<tr><td style="padding:8px;border:1px solid #ddd;">'+r.date+'</td><td style="text-align:right;">KES '+r.totalSales.toLocaleString()+'</td><td style="text-align:center;">'+r.transactions+'</td><td style="text-align:center;">'+r.itemsSold+'</td><td style="text-align:center;">'+r.stockAdded+'</td><td style="text-align:right;">'+r.closingStock+'</td></tr>';});
-        ph+='</table><p style="text-align:center;margin-top:20px;">Printed by: '+(this._getCurrentUser()?.fullName||'Cashier')+'</p></div>';
-        var w=window.open('','_blank','width=900,height=600');
-        w.document.write('<!DOCTYPE html><html><head><title>Daily Reports</title><style>body{font-family:Inter,sans-serif;padding:20px;}@media print{body{padding:0;}}button{background:#1a472a;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:16px;}</style></head><body><div style="text-align:center;margin-bottom:20px;"><button onclick="window.print()">Print</button></div>'+ph+'<script>setTimeout(function(){window.print();},500);</script></body></html>');
+        var user = this._getCurrentUser();
+        if(!reports||reports.length===0){this._showMessage('No reports to print!','warning');return;}
+        
+        var totalSales=reports.reduce(function(s,r){return s+r.totalSales;},0);
+        var totalRefunds=reports.reduce(function(s,r){return s+(r.refundsPaid||0);},0);
+        var netCash = totalSales - totalRefunds;
+        
+        var ph = '<div style="max-width:900px;margin:0 auto;font-family:Inter;">';
+        ph += '<div style="text-align:center;margin-bottom:20px;">';
+        ph += '<h2>TALAEN INVESTMENT HARDWARE</h2>';
+        ph += '<p>P.O BOX 345, NANDI HILLS</p>';
+        ph += '<h3>My Daily Reports</h3>';
+        ph += '<p style="font-size:14px;color:#666;"><strong>Cashier:</strong> ' + (user?.fullName || user?.username || 'Cashier') + '</p>';
+        ph += '<p>Generated: '+new Date().toLocaleString('en-KE')+'</p>';
+        ph += '</div>';
+        
+        ph += '<div style="margin-bottom:15px;padding:10px;background:#f5f5f5;border-radius:8px;display:flex;justify-content:space-between;flex-wrap:wrap;">';
+        ph += '<span><strong>My Sales:</strong> KES '+totalSales.toLocaleString()+'</span>';
+        ph += '<span><strong>My Refunds:</strong> KES '+totalRefunds.toLocaleString()+'</span>';
+        ph += '<span><strong>Net Cash:</strong> KES '+netCash.toLocaleString()+'</span>';
+        ph += '</div>';
+        
+        ph += '<table style="width:100%;border-collapse:collapse;border:1px solid #ddd;">';
+        ph += '<tr style="background:#1a472a;color:white;">';
+        ph += '<th style="padding:8px;border:1px solid #ddd;text-align:left;">Date</th>';
+        ph += '<th style="padding:8px;border:1px solid #ddd;text-align:right;">My Sales</th>';
+        ph += '<th style="padding:8px;border:1px solid #ddd;text-align:center;">Trans.</th>';
+        ph += '<th style="padding:8px;border:1px solid #ddd;text-align:center;">Items</th>';
+        ph += '<th style="padding:8px;border:1px solid #ddd;text-align:right;">My Refunds</th>';
+        ph += '<th style="padding:8px;border:1px solid #ddd;text-align:right;">Net Cash</th>';
+        ph += '</tr>';
+        
+        reports.forEach(function(r){
+            var refunds = Number(r.refundsPaid||0);
+            var net = Number(r.totalSales||0) - refunds;
+            ph += '<tr>';
+            ph += '<td style="padding:8px;border:1px solid #ddd;">'+r.date+'</td>';
+            ph += '<td style="padding:8px;border:1px solid #ddd;text-align:right;">KES '+Number(r.totalSales||0).toLocaleString()+'</td>';
+            ph += '<td style="padding:8px;border:1px solid #ddd;text-align:center;">'+r.transactions+'</td>';
+            ph += '<td style="padding:8px;border:1px solid #ddd;text-align:center;">'+r.itemsSold+'</td>';
+            ph += '<td style="padding:8px;border:1px solid #ddd;text-align:right;color:'+(refunds>0?'#f43f5e':'#666')+';">'+(refunds>0?'KES '+refunds.toLocaleString():'—')+'</td>';
+            ph += '<td style="padding:8px;border:1px solid #ddd;text-align:right;font-weight:700;">KES '+net.toLocaleString()+'</td>';
+            ph += '</tr>';
+        });
+        ph += '</table>';
+        ph += '<p style="text-align:center;margin-top:20px;">Printed by: '+(user?.fullName||'Cashier')+'</p>';
+        ph += '</div>';
+        
+        var w=window.open('','_blank','width=1000,height=700');
+        w.document.write('<!DOCTYPE html><html><head><title>My Daily Reports</title><style>body{font-family:Inter,sans-serif;padding:20px;}@media print{body{padding:0;}}button{background:#1a472a;color:white;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:16px;}</style></head><body><div style="text-align:center;margin-bottom:20px;"><button onclick="window.print()">Print</button></div>'+ph+'<script>setTimeout(function(){window.print();},500);</script></body></html>');
         w.document.close();
     },
 
@@ -797,9 +912,11 @@ const CashierDashboardComponent = {
             if (creditCard && creditData) {
                 creditCard.innerHTML = '<div class="stat-icon"><i class="fas fa-credit-card"></i></div><div class="stat-label">Outstanding Debt</div><div class="stat-value" style="color:#ef4444;">KES ' + (creditData.totalDebt || 0).toLocaleString() + '</div><div class="stat-sub">' + (creditData.activeCustomers || 0) + ' customers with debt</div>';
             }
-            // ✅ NEW: Refund stat card
+            // ✅ Refund stat card — filtered to today's refunds by this cashier
             var refundCard = document.getElementById('refundStatCard');
             if (refundCard && creditData) {
+                var user = this._getCurrentUser();
+                // Note: this uses company-wide refunds; for per-cashier, we'd need a dedicated endpoint
                 refundCard.innerHTML = '<div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Today Refunds</div><div class="stat-value" style="color:#f43f5e;">KES ' + (creditData.todayRefunds || 0).toLocaleString() + '</div><div class="stat-sub">Paid out today</div>';
             }
             var customers = await ApiService.get('/credit-customers');
