@@ -1,6 +1,7 @@
 // ============================================
 // APP ROUTER - With JWT Authentication
 // Updated: parallel loads, interval cleanup on navigation, SPA-safe logout
+// Fixed: clearer admin-route error + login modal fallback
 // ============================================
 
 const AppRouter = {
@@ -56,10 +57,19 @@ const AppRouter = {
             user = null;
         }
 
-        // Protect admin routes
-        if (view.startsWith('admin-') && (!user || user.role !== 'admin')) {
-            alert('Access denied. Admin privileges required.');
-            return;
+        // ✅ Protect admin routes — distinguish "not logged in" from "wrong role"
+        if (view.startsWith('admin-')) {
+            if (!user) {
+                alert('You are not logged in. Please log in to continue.');
+                if (typeof AppRouter._showLoginModal === 'function') {
+                    AppRouter._showLoginModal();
+                }
+                return;
+            }
+            if (user.role !== 'admin') {
+                alert('Access denied. Admin privileges required.');
+                return;
+            }
         }
 
         // Protect cashier routes
