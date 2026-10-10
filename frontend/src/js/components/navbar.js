@@ -36,7 +36,7 @@ const NavbarComponent = {
 
         var h = '<nav class="navbar"><div class="navbar-content">';
         h += '<div class="logo" onclick="AppRouter.navigate(\'dashboard\')" style="cursor:pointer;">';
-        h += '<img src="../assets/talaen02.jpg" alt="Talaen" style="width:45px;height:45px;border-radius:10px;object-fit:cover;">';
+        h += '<img src="../assets/talaen02.png" alt="Talaen" style="width:45px;height:45px;border-radius:10px;object-fit:cover;">';
         h += '<div>';
         h += '<div class="logo-text" style="font-size:1.1rem;">TALAEN INVESTMENT HARDWARE</div>';
         h += '<div style="font-size:0.65rem;color:var(--gray-500);">P.O BOX 345, NANDI HILLS</div>';
