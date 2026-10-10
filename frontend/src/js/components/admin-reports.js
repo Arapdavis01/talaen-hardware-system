@@ -1,5 +1,5 @@
 // ============================================
-// ADMIN REPORTS – Auto‑refresh, Date‑aware generation
+// ADMIN REPORTS – Auto‑refresh, Date‑aware generation, Refunds tracking
 // ============================================
 
 const AdminReportsComponent = {
@@ -10,19 +10,17 @@ const AdminReportsComponent = {
         h += '<div class="card" style="margin-bottom:1.5rem;"><div class="card-header"><h3 class="card-title"><i class="fas fa-calendar-day"></i> Today Summary</h3><div><button class="btn btn-sm btn-primary" onclick="AdminReportsComponent.generateReport()"><i class="fas fa-sync-alt"></i> Refresh</button> <button class="btn btn-sm btn-secondary" onclick="AdminReportsComponent.printToday()"><i class="fas fa-print"></i> Print</button></div></div><div class="card-body"><div id="todayReport">Loading...</div></div></div>';
         h += '<div class="card"><div class="card-header"><h3 class="card-title"><i class="fas fa-history"></i> Daily Reports History</h3><div style="display:flex;gap:0.5rem;align-items:center;flex-wrap:wrap;"><input type="date" id="reportDateFilter" class="form-control" style="width:180px;" onchange="AdminReportsComponent.filterByDate()"><input type="text" id="reportSearch" class="form-control" placeholder="Search by date..." style="width:180px;" oninput="AdminReportsComponent.filterByDate()"><button class="btn btn-sm btn-outline" onclick="AdminReportsComponent.resetFilter()"><i class="fas fa-times"></i> Clear</button><button class="btn btn-sm btn-warning" onclick="AdminReportsComponent.regenerateSelected()"><i class="fas fa-redo"></i> Regenerate Selected</button><button class="btn btn-sm btn-secondary" onclick="AdminReportsComponent.printHistory()"><i class="fas fa-print"></i> Print All</button></div></div><div class="card-body"><div id="reportsHistory">Loading...</div></div></div>';
         
-        // Auto‑refresh today's report on page load
         setTimeout(function(){
-            AdminReportsComponent.generateReport(); // creates/updates today's report
+            AdminReportsComponent.generateReport();
             AdminReportsComponent.loadToday();
             AdminReportsComponent.loadHistory();
         }, 200);
         return h;
     },
 
-    // Generate report for a specific date, default today
     generateReport(date) {
         var data = {};
-        if (date) data.date = date; // send date in request body
+        if (date) data.date = date;
         ApiService.post('/daily-reports/generate', data)
             .then(function(){
                 AdminReportsComponent.loadToday();
@@ -30,7 +28,6 @@ const AdminReportsComponent = {
             });
     },
 
-    // Regenerate report for the date currently selected in the date filter
     regenerateSelected() {
         var dateVal = document.getElementById('reportDateFilter')?.value;
         if (!dateVal) {
@@ -44,11 +41,14 @@ const AdminReportsComponent = {
     loadToday() {
         ApiService.get('/daily-reports/today')
             .then(function(report){
-                var h = '<div class="stats-grid">';
+                var refundsPaid = Number(report?.refundsPaid||0);
+                var h = '<div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));">';
                 h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-label">Today Sales</div><div class="stat-value">KES ' + Number(report?.totalSales||0).toLocaleString() + '</div><div class="stat-sub">' + (report?.transactionCount||0) + ' transactions</div></div>';
                 h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-shopping-cart"></i></div><div class="stat-label">Items Sold</div><div class="stat-value">' + Number(report?.totalItemsSold||0) + '</div><div class="stat-sub">Units sold today</div></div>';
                 h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-boxes"></i></div><div class="stat-label">Stock Added</div><div class="stat-value">' + Number(report?.stockAdded||0) + '</div><div class="stat-sub">From POs received</div></div>';
                 h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-cubes"></i></div><div class="stat-label">Current Stock</div><div class="stat-value">' + Number(report?.closingStock||0) + '</div><div class="stat-sub">' + Number(report?.productsCount||0) + ' products</div></div>';
+                // ✅ NEW: Refunds Paid card
+                h += '<div class="stat-card" style="background:linear-gradient(135deg, rgba(244,63,94,0.95), rgba(190,18,60,0.85));"><div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Refunds Paid</div><div class="stat-value">KES ' + refundsPaid.toLocaleString() + '</div><div class="stat-sub">Cash paid out today</div></div>';
                 h += '</div>';
                 document.getElementById('todayReport').innerHTML = h;
             });
@@ -64,19 +64,22 @@ const AdminReportsComponent = {
     },
 
     _displayReports(reports) {
-        var h = '<table class="table"><thead><tr><th>Date</th><th>Sales</th><th>Transactions</th><th>Items Sold</th><th>Stock Added</th><th>Closing Stock</th></tr></thead><tbody>';
-        if(!reports || !reports.length){h+='<tr><td colspan="6">No reports found.</td></tr>';}
+        var h = '<table class="table"><thead><tr><th>Date</th><th>Sales</th><th>Transactions</th><th>Items Sold</th><th>Stock Added</th><th>Closing Stock</th><th>Refunds Paid</th></tr></thead><tbody>';
+        if(!reports || !reports.length){h+='<tr><td colspan="7">No reports found.</td></tr>';}
         else{
             reports.forEach(function(r){
                 var dateStr = r.reportDate ? new Date(r.reportDate).toLocaleDateString('en-KE') : '';
                 var isoDate = r.reportDate ? new Date(r.reportDate).toISOString().split('T')[0] : '';
+                var refundsPaid = Number(r.refundsPaid||0);
                 h += '<tr style="cursor:pointer;" onclick="AdminReportsComponent.showDayDetail(\'' + isoDate + '\')">';
                 h += '<td><strong>' + dateStr + ' <i class="fas fa-external-link-alt" style="font-size:0.7rem;color:var(--secondary);"></i></strong></td>';
                 h += '<td>KES '+Number(r.totalSales||0).toLocaleString()+'</td>';
                 h += '<td>'+Number(r.transactionCount||0)+'</td>';
                 h += '<td>'+Number(r.totalItemsSold||0)+'</td>';
                 h += '<td>'+Number(r.stockAdded||0)+'</td>';
-                h += '<td>'+Number(r.closingStock||0)+'</td></tr>';
+                h += '<td>'+Number(r.closingStock||0)+'</td>';
+                h += '<td style="color:'+(refundsPaid>0?'#f43f5e':'#999')+';font-weight:'+(refundsPaid>0?'700':'400')+';">'+(refundsPaid>0?'KES '+refundsPaid.toLocaleString():'—')+'</td>';
+                h += '</tr>';
             });
         }
         h+='</tbody></table>';
@@ -105,54 +108,91 @@ const AdminReportsComponent = {
     showDayDetail(reportDate) {
         var displayDate = new Date(reportDate + 'T00:00:00').toLocaleDateString('en-KE', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
         
-        ApiService.get('/sales')
-            .then(function(sales){
-                var daySales = sales.filter(function(s) {
-                    if (!s.date) return false;
-                    return new Date(s.date).toISOString().split('T')[0] === reportDate;
-                });
-                var totalSales = daySales.reduce(function(sum, s) { return Number(sum) + Number(s.total||0); }, 0);
-                var totalItems = 0;
-                daySales.forEach(function(s) { if (s.items) { s.items.forEach(function(i) { totalItems += Number(i.quantity||0); }); } });
-                var payments = {};
-                var cashiers = {};
-                daySales.forEach(function(s) {
-                    var pm = s.paymentMethod || 'cash';
-                    if (!payments[pm]) payments[pm] = { count: 0, total: 0 };
-                    payments[pm].count++;
-                    payments[pm].total += Number(s.total || 0);
-                    var cn = s.cashierName || 'Unknown';
-                    if (!cashiers[cn]) cashiers[cn] = { count: 0, total: 0 };
-                    cashiers[cn].count++;
-                    cashiers[cn].total += Number(s.total || 0);
-                });
-                
-                var h = '<div style="padding:0.5rem;">';
-                h += '<div class="stats-grid" style="margin-bottom:1rem;">';
-                h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-label">Total Sales</div><div class="stat-value">KES '+Number(totalSales).toLocaleString()+'</div><div class="stat-sub">'+daySales.length+' transactions</div></div>';
-                h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-shopping-cart"></i></div><div class="stat-label">Items Sold</div><div class="stat-value">'+totalItems+'</div><div class="stat-sub">Units</div></div>';
-                h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-calculator"></i></div><div class="stat-label">Avg. Sale</div><div class="stat-value">KES '+(daySales.length>0?Number(totalSales/daySales.length):0).toLocaleString()+'</div><div class="stat-sub">Per transaction</div></div></div>';
-                
-                h += '<h5 style="color:var(--primary);"><i class="fas fa-credit-card"></i> Payment Methods</h5><table class="table"><thead><tr><th>Method</th><th>Count</th><th>Total</th></tr></thead><tbody>';
-                var icons={cash:'<i class="fas fa-money-bill"></i>',mpesa:'<i class="fas fa-mobile-alt"></i>',card:'<i class="fas fa-credit-card"></i>',credit:'<i class="fas fa-file-invoice"></i>'};
-                for(var pm in payments){h+='<tr><td>'+(icons[pm]||'')+' '+pm.toUpperCase()+'</td><td>'+payments[pm].count+'</td><td>KES '+Number(payments[pm].total).toLocaleString()+'</td></tr>';}
-                h+='</tbody></table>';
-                
-                h += '<h5 style="color:var(--primary);margin-top:1rem;"><i class="fas fa-users"></i> Cashier Performance</h5><table class="table"><thead><tr><th>Cashier</th><th>Sales</th><th>Total</th></tr></thead><tbody>';
-                for(var cn in cashiers){h+='<tr><td><strong>'+cn+'</strong></td><td>'+cashiers[cn].count+'</td><td>KES '+Number(cashiers[cn].total).toLocaleString()+'</td></tr>';}
-                h+='</tbody></table>';
-                
-                h += '<h5 style="color:var(--primary);margin-top:1rem;"><i class="fas fa-receipt"></i> All Transactions</h5><table class="table"><thead><tr><th>Receipt</th><th>Time</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th></tr></thead><tbody>';
-                daySales.forEach(function(s){
-                    var d=new Date(s.date);
-                    h+='<tr><td><strong>'+(s.receiptNo||'')+'</strong></td><td>'+d.toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit'})+'</td><td>'+(s.customerName||'Walk-in')+'</td><td>'+(s.items?s.items.length:0)+'</td><td>KES '+Number(s.total||0).toLocaleString()+'</td><td>'+(s.paymentMethod||'cash').toUpperCase()+'</td></tr>';
-                });
-                h+='</tbody></table></div>';
-                
-                var m=document.createElement('div');m.className='modal-overlay';
-                m.innerHTML='<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-calendar-check"></i> Day Report: '+displayDate+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="max-height:70vh;overflow-y:auto;">'+h+'</div><div class="modal-footer"><button class="btn btn-primary" onclick="AdminReportsComponent.printDayDetail(\''+displayDate+'\')"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
-                document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
+        // Fetch sales AND refunds in parallel
+        Promise.all([
+            ApiService.get('/sales'),
+            ApiService.get('/credit-refunds')
+        ]).then(function(results){
+            var sales = results[0] || [];
+            var refunds = results[1] || [];
+            
+            var daySales = sales.filter(function(s) {
+                if (!s.date) return false;
+                return new Date(s.date).toISOString().split('T')[0] === reportDate;
             });
+            var dayRefunds = refunds.filter(function(r) {
+                if (!r.date) return false;
+                return new Date(r.date).toISOString().split('T')[0] === reportDate;
+            });
+            
+            var totalSales = daySales.reduce(function(sum, s) { return Number(sum) + Number(s.total||0); }, 0);
+            var totalRefunds = dayRefunds.reduce(function(sum, r) { return Number(sum) + Number(r.amount||0); }, 0);
+            var netCash = totalSales - totalRefunds;
+            
+            var totalItems = 0;
+            daySales.forEach(function(s) { if (s.items) { s.items.forEach(function(i) { totalItems += Number(i.quantity||0); }); } });
+            var payments = {};
+            var cashiers = {};
+            daySales.forEach(function(s) {
+                var pm = s.paymentMethod || 'cash';
+                if (!payments[pm]) payments[pm] = { count: 0, total: 0 };
+                payments[pm].count++;
+                payments[pm].total += Number(s.total || 0);
+                var cn = s.cashierName || 'Unknown';
+                if (!cashiers[cn]) cashiers[cn] = { count: 0, total: 0 };
+                cashiers[cn].count++;
+                cashiers[cn].total += Number(s.total || 0);
+            });
+            
+            var h = '<div style="padding:0.5rem;">';
+            // Stats grid
+            h += '<div class="stats-grid" style="margin-bottom:1rem;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">';
+            h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-chart-line"></i></div><div class="stat-label">Total Sales</div><div class="stat-value">KES '+Number(totalSales).toLocaleString()+'</div><div class="stat-sub">'+daySales.length+' transactions</div></div>';
+            h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-shopping-cart"></i></div><div class="stat-label">Items Sold</div><div class="stat-value">'+totalItems+'</div><div class="stat-sub">Units</div></div>';
+            h += '<div class="stat-card"><div class="stat-icon"><i class="fas fa-calculator"></i></div><div class="stat-label">Avg. Sale</div><div class="stat-value">KES '+(daySales.length>0?Number(totalSales/daySales.length):0).toLocaleString()+'</div><div class="stat-sub">Per transaction</div></div>';
+            // ✅ NEW: Refunds card
+            h += '<div class="stat-card" style="background:linear-gradient(135deg, rgba(244,63,94,0.95), rgba(190,18,60,0.85));"><div class="stat-icon"><i class="fas fa-hand-holding-usd"></i></div><div class="stat-label">Refunds Paid</div><div class="stat-value">KES '+totalRefunds.toLocaleString()+'</div><div class="stat-sub">'+dayRefunds.length+' refund'+(dayRefunds.length!==1?'s':'')+'</div></div>';
+            h += '<div class="stat-card" style="background:linear-gradient(135deg, rgba(59,130,246,0.95), rgba(37,99,235,0.85));"><div class="stat-icon"><i class="fas fa-balance-scale"></i></div><div class="stat-label">Net Cash</div><div class="stat-value">KES '+netCash.toLocaleString()+'</div><div class="stat-sub">Sales − Refunds</div></div>';
+            h += '</div>';
+            
+            h += '<h5 style="color:var(--primary);"><i class="fas fa-credit-card"></i> Payment Methods</h5><table class="table"><thead><tr><th>Method</th><th>Count</th><th>Total</th></tr></thead><tbody>';
+            var icons={cash:'<i class="fas fa-money-bill"></i>',mpesa:'<i class="fas fa-mobile-alt"></i>',card:'<i class="fas fa-credit-card"></i>',credit:'<i class="fas fa-file-invoice"></i>'};
+            for(var pm in payments){h+='<tr><td>'+(icons[pm]||'')+' '+pm.toUpperCase()+'</td><td>'+payments[pm].count+'</td><td>KES '+Number(payments[pm].total).toLocaleString()+'</td></tr>';}
+            h+='</tbody></table>';
+            
+            h += '<h5 style="color:var(--primary);margin-top:1rem;"><i class="fas fa-users"></i> Cashier Performance</h5><table class="table"><thead><tr><th>Cashier</th><th>Sales</th><th>Total</th></tr></thead><tbody>';
+            for(var cn in cashiers){h+='<tr><td><strong>'+cn+'</strong></td><td>'+cashiers[cn].count+'</td><td>KES '+Number(cashiers[cn].total).toLocaleString()+'</td></tr>';}
+            h+='</tbody></table>';
+            
+            // ✅ NEW: Refunds section (only if there are refunds)
+            if (dayRefunds.length > 0) {
+                h += '<h5 style="color:#f43f5e;margin-top:1rem;"><i class="fas fa-hand-holding-usd"></i> Refunds Paid Out</h5>';
+                h += '<table class="table"><thead><tr><th>Time</th><th>Customer</th><th>Amount</th><th>Method</th><th>Reason</th><th>Processed By</th></tr></thead><tbody>';
+                dayRefunds.forEach(function(r){
+                    var d = new Date(r.date);
+                    h += '<tr>';
+                    h += '<td>'+d.toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit'})+'</td>';
+                    h += '<td><strong>'+(r.customerName||'-')+'</strong></td>';
+                    h += '<td style="color:#f43f5e;font-weight:600;">KES '+Number(r.amount||0).toLocaleString()+'</td>';
+                    h += '<td>'+(r.paymentMethod||'cash').toUpperCase()+'</td>';
+                    h += '<td><small>'+(r.reason||'-')+'</small></td>';
+                    h += '<td>'+(r.processedBy||'-')+'</td>';
+                    h += '</tr>';
+                });
+                h += '</tbody></table>';
+            }
+            
+            h += '<h5 style="color:var(--primary);margin-top:1rem;"><i class="fas fa-receipt"></i> All Transactions</h5><table class="table"><thead><tr><th>Receipt</th><th>Time</th><th>Customer</th><th>Items</th><th>Total</th><th>Payment</th></tr></thead><tbody>';
+            daySales.forEach(function(s){
+                var d=new Date(s.date);
+                h+='<tr><td><strong>'+(s.receiptNo||'')+'</strong></td><td>'+d.toLocaleTimeString('en-KE',{hour:'2-digit',minute:'2-digit'})+'</td><td>'+(s.customerName||'Walk-in')+'</td><td>'+(s.items?s.items.length:0)+'</td><td>KES '+Number(s.total||0).toLocaleString()+'</td><td>'+(s.paymentMethod||'cash').toUpperCase()+'</td></tr>';
+            });
+            h+='</tbody></table></div>';
+            
+            var m=document.createElement('div');m.className='modal-overlay';
+            m.innerHTML='<div class="modal modal-lg"><div class="modal-header" style="background:linear-gradient(135deg,#1a472a,#c49a2b);color:white;"><h3 style="color:white;"><i class="fas fa-calendar-check"></i> Day Report: '+displayDate+'</h3><button class="btn btn-sm" style="color:white;" onclick="this.closest(\'.modal-overlay\').remove()">X</button></div><div class="modal-body" style="max-height:70vh;overflow-y:auto;">'+h+'</div><div class="modal-footer"><button class="btn btn-primary" onclick="AdminReportsComponent.printDayDetail(\''+displayDate+'\')"><i class="fas fa-print"></i> Print</button><button class="btn btn-outline" onclick="this.closest(\'.modal-overlay\').remove()">Close</button></div></div>';
+            document.body.appendChild(m);m.onclick=function(e){if(e.target===m)m.remove();};
+        });
     },
 
     printDayDetail(reportDate) {
